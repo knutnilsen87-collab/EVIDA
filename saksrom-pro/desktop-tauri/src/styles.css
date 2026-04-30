@@ -201,6 +201,38 @@ p {
   flex-wrap: wrap;
 }
 
+.hidden-file-input {
+  display: none;
+}
+
+.import-panel {
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.import-panel--active {
+  border-color: #3b4251;
+  background: #fffef9;
+  box-shadow: 0 0 0 3px rgba(32, 37, 51, 0.09);
+}
+
+.drop-zone {
+  margin-top: 12px;
+  display: grid;
+  gap: 4px;
+  min-height: 92px;
+  place-items: center;
+  text-align: center;
+  border: 1px dashed #b9b1a2;
+  border-radius: 12px;
+  background: #faf9f6;
+  color: #312d28;
+}
+
+.drop-zone span {
+  color: #746d62;
+  font-size: 13px;
+}
+
 .empty-state {
   color: #716b61;
   padding: 18px;
@@ -264,6 +296,16 @@ code {
   color: #315b3c;
   background: #eef7ef;
   border: 1px solid #cfe6d3;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.error-notice {
+  margin-top: 12px;
+  color: #7f1d1d;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 14px;

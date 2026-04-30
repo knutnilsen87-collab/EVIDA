@@ -12,6 +12,7 @@ pub fn run() {
             commands::create_case,
             commands::list_cases,
             commands::register_document,
+            commands::choose_document_paths,
             commands::list_documents,
             commands::list_audit_events,
             commands::list_source_objects

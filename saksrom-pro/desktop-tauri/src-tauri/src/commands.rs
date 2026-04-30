@@ -46,6 +46,23 @@ pub fn register_document(case_id: String, path: String) -> Result<DocumentIngest
 }
 
 #[tauri::command]
+pub fn choose_document_paths() -> Result<Vec<String>, String> {
+    let files = rfd::FileDialog::new()
+        .set_title("Velg dokumenter")
+        .add_filter(
+            "Dokumenter",
+            &["pdf", "txt", "md", "markdown", "png", "jpg", "jpeg", "tif", "tiff"],
+        )
+        .pick_files();
+
+    Ok(files
+        .unwrap_or_default()
+        .into_iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect())
+}
+
+#[tauri::command]
 pub fn list_documents(case_id: String) -> Result<Vec<DocumentSummary>, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
     crate::db::list_documents(&conn, &case_id).map_err(|error| error.to_string())

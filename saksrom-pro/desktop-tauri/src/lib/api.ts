@@ -20,6 +20,10 @@ function hasTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
 }
 
+export function hasDesktopRuntime() {
+  return hasTauriRuntime();
+}
+
 async function callTauri<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!hasTauriRuntime()) {
     throw new Error("Tauri runtime not available");
@@ -166,6 +170,14 @@ export async function registerDocument(
       chunks_created: document.source_count,
       warnings: isPdf ? ["browser_dev_mode_no_file_access"] : []
     };
+  }
+}
+
+export async function chooseDocumentPaths(): Promise<string[]> {
+  try {
+    return await callTauri<string[]>("choose_document_paths");
+  } catch {
+    return [];
   }
 }
 

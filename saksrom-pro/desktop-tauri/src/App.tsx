@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  chooseDocumentPaths,
   createCase,
   getAppStatus,
+  hasDesktopRuntime,
   listAuditEvents,
   listCases,
   listDocuments,
@@ -23,6 +26,10 @@ export default function App() {
   const [caseName, setCaseName] = useState("Ny prosessak");
   const [documentPath, setDocumentPath] = useState("");
   const [lastImport, setLastImport] = useState("");
+  const [importError, setImportError] = useState("");
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function refresh(preferredCaseId = selectedCaseId) {
     setStatus(await getAppStatus());
@@ -69,16 +76,115 @@ export default function App() {
     await refresh(created.id);
   }
 
-  async function handleRegisterDocument() {
-    if (!selectedCaseId || !documentPath.trim()) {
+  const importDocuments = useCallback(
+    async (paths: string[]) => {
+      const cleanPaths = paths.map((path) => path.trim()).filter(Boolean);
+      if (!selectedCaseId) {
+        setImportError("Velg eller opprett en sak før du importerer dokumenter.");
+        return;
+      }
+      if (cleanPaths.length === 0) {
+        return;
+      }
+
+      setImportError("");
+      setIsImporting(true);
+      try {
+        const reports = [];
+        for (const path of cleanPaths) {
+          reports.push(await registerDocument(selectedCaseId, path));
+        }
+        setDocumentPath("");
+        const pageCount = reports.reduce((sum, report) => sum + report.pages_created, 0);
+        const sourceCount = reports.reduce((sum, report) => sum + report.sources_created, 0);
+        setLastImport(
+          `${reports.length} dokument${reports.length === 1 ? "" : "er"} importert: ${pageCount} sider, ${sourceCount} kilder`
+        );
+        await refresh(selectedCaseId);
+      } catch (error) {
+        setImportError(`Import feilet: ${String(error)}`);
+      } finally {
+        setIsImporting(false);
+      }
+    },
+    [selectedCaseId]
+  );
+
+  useEffect(() => {
+    if (!hasDesktopRuntime()) {
       return;
     }
-    const report = await registerDocument(selectedCaseId, documentPath.trim());
-    setDocumentPath("");
-    setLastImport(
-      `${report.document.original_name}: ${report.pages_created} sider, ${report.sources_created} kilder`
-    );
-    await refresh(selectedCaseId);
+
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    getCurrentWindow()
+      .onDragDropEvent((event) => {
+        const payload = event.payload;
+        if (payload.type === "enter" || payload.type === "over") {
+          setIsDragActive(true);
+        }
+        if (payload.type === "leave") {
+          setIsDragActive(false);
+        }
+        if (payload.type === "drop") {
+          setIsDragActive(false);
+          void importDocuments(payload.paths);
+        }
+      })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+        } else {
+          unlisten = nextUnlisten;
+        }
+      })
+      .catch((error) => setImportError(`Drag-and-drop kunne ikke startes: ${String(error)}`));
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [importDocuments]);
+
+  async function handleChooseFiles() {
+    const paths = await chooseDocumentPaths();
+    if (paths.length === 0 && !hasDesktopRuntime()) {
+      fileInputRef.current?.click();
+      return;
+    }
+    await importDocuments(paths);
+  }
+
+  async function handleRegisterDocument() {
+    await importDocuments([documentPath]);
+  }
+
+  function handleBrowserFileSelection(files: FileList | null) {
+    const paths = Array.from(files || [])
+      .map((file) => (file as File & { path?: string }).path || "")
+      .filter(Boolean);
+    if (paths.length > 0) {
+      void importDocuments(paths);
+      return;
+    }
+    setImportError("Nettlesermodus gir ikke tilgang til lokal filsti. Bruk desktop-appen og knappen Velg fil.");
+  }
+
+  function handleDrop(event: React.DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setIsDragActive(false);
+    const paths = Array.from(event.dataTransfer.files)
+      .map((file) => (file as File & { path?: string }).path || "")
+      .filter(Boolean);
+    if (paths.length > 0) {
+      void importDocuments(paths);
+    }
+  }
+
+  function handleDragOver(event: React.DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setIsDragActive(true);
   }
 
   async function handleSelectCase(caseId: string) {
@@ -125,7 +231,13 @@ export default function App() {
           </div>
         </section>
 
-        <section className="panel">
+        <section
+          className={`panel import-panel ${isDragActive ? "import-panel--active" : ""}`}
+          onDrop={handleDrop}
+          onDragEnter={() => setIsDragActive(true)}
+          onDragLeave={() => setIsDragActive(false)}
+          onDragOver={handleDragOver}
+        >
           <div className="panel-header">
             <div>
               <h2>Dokumentimport</h2>
@@ -141,15 +253,32 @@ export default function App() {
                 </option>
               ))}
             </select>
+            <button disabled={!selectedCaseId || isImporting} onClick={handleChooseFiles}>
+              Velg fil
+            </button>
+            <input
+              ref={fileInputRef}
+              className="hidden-file-input"
+              type="file"
+              multiple
+              accept=".pdf,.txt,.md,.markdown,.png,.jpg,.jpeg,.tif,.tiff"
+              onChange={(event) => handleBrowserFileSelection(event.target.files)}
+            />
             <input
               value={documentPath}
               onChange={(event) => setDocumentPath(event.target.value)}
-              placeholder="Lokal filsti til PDF, TXT eller MD"
+              placeholder="Eller lim inn lokal filsti"
             />
-            <button disabled={!selectedCaseId || !documentPath.trim()} onClick={handleRegisterDocument}>
+            <button disabled={!selectedCaseId || !documentPath.trim() || isImporting} onClick={handleRegisterDocument}>
               Registrer dokument
             </button>
           </div>
+          <div className="drop-zone">
+            <strong>{isDragActive ? "Slipp dokumentene her" : "Dra dokumenter hit"}</strong>
+            <span>PDF, TXT, MD og bilder støttes. Du kan slippe flere filer samtidig.</span>
+          </div>
+          {isImporting ? <div className="notice">Importerer dokumenter ...</div> : null}
+          {importError ? <div className="error-notice">{importError}</div> : null}
           {lastImport ? <div className="notice">{lastImport}</div> : null}
         </section>
 
