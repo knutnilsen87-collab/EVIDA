@@ -1,0 +1,72 @@
+openapi: 3.1.0
+info:
+  title: Saksrom Pro Backend API
+  version: 0.1.0
+  description: Enterprise control plane. Case document content is out of scope for MVP.
+servers:
+  - url: http://localhost:8000
+paths:
+  /health/live:
+    get:
+      tags: [health]
+      summary: Liveness check
+      responses:
+        "200":
+          description: API is live
+  /v1/tenants:
+    get:
+      tags: [tenants]
+      summary: List tenants
+      responses:
+        "200":
+          description: Tenant list
+    post:
+      tags: [tenants]
+      summary: Create tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantCreate"
+      responses:
+        "200":
+          description: Created tenant
+  /v1/tenants/{tenant_id}/policies/active:
+    get:
+      tags: [policies]
+      summary: Get active tenant policy
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Active policy
+  /v1/devices/activate:
+    post:
+      tags: [devices]
+      summary: Activate desktop device
+      responses:
+        "200":
+          description: Device activated
+  /v1/ai/gateway:
+    post:
+      tags: [ai-gateway]
+      summary: Policy-gated AI gateway
+      description: Must check tenant policy before external provider calls.
+      responses:
+        "200":
+          description: Gateway result
+components:
+  schemas:
+    TenantCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+    AiMode:
+      type: string
+      enum: [disabled, local_only, openai_gateway, custom_gateway]

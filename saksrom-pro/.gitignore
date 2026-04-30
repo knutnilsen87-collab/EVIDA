@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+.venv/
+.tools/
+__pycache__/
+*.pyc
+target/
+dist/
+
+# local data
+local_data/
+reports/
+logs/
+tmp/
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db

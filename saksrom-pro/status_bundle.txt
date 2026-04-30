@@ -1,0 +1,53 @@
+﻿PROJECT_NAME=Saksrom Pro
+PROJECT_ROOT=F:\prosjekter\CasePilot\saksrom-pro
+PROJECT_TYPE=saksrom_pro_monorepo
+SOURCE_OF_TRUTH=README_MASTER.md
+WORKFLOW_MODE=PASTE_DIRECTLY_IN_POWERSHELL
+STATUS_BUNDLE_IS_PRIMARY_DOCUMENT=true
+LAST_UPDATED=2026-04-30 22:38:34
+CURRENT_PHASE=Phase 6 build hardening completed
+LAST_ACTION=Installed Rust/Tesseract/SQLite, added OCR wrapper, ran full Tauri release build
+LAST_RESULT=PASS
+NEXT_ACTION=Implement encrypted local DB/SQLCipher and scanned-PDF page rendering before real legal-data beta
+BUILD_STATUS=PASS
+COMPILE_STATUS=PASS
+RUNTIME_STATUS=PASS
+DB_STATUS=UNKNOWN
+AUTH_STATUS=UNKNOWN
+TEST_STATUS=PASS
+CI_STATUS=UNKNOWN
+RISKS=Release readiness is intentionally blocked because encrypted local DB/SQLCipher is not implemented; OCR wrapper exists for images but scanned PDF page rendering is still needed; installers are unsigned.
+NOTES=Rust/Cargo, Tesseract and SQLite CLI are installed/available; Tauri release build produced MSI and NSIS installers.
+
+MACHINE_READABLE_JSON_BEGIN
+{
+  "project_name": "Saksrom Pro",
+  "project_root": "F:\\\\prosjekter\\\\CasePilot\\\\saksrom-pro",
+  "project_type": "saksrom_pro_monorepo",
+  "source_of_truth": "README_MASTER.md",
+  "workflow_mode": "paste_directly_in_powershell",
+  "status_bundle_is_primary_document": true,
+  "last_updated": "2026-04-30 22:38:34",
+  "current_phase": "Phase 6 build hardening completed",
+  "last_action": "Installed Rust/Tesseract/SQLite, added OCR wrapper, ran full Tauri release build",
+  "last_result": "PASS",
+  "next_action": "Implement encrypted local DB/SQLCipher and scanned-PDF page rendering before real legal-data beta",
+  "build_status": "PASS",
+  "compile_status": "PASS",
+  "runtime_status": "PASS",
+  "db_status": "UNKNOWN",
+  "auth_status": "UNKNOWN",
+  "test_status": "PASS",
+  "ci_status": "UNKNOWN",
+  "risks": [
+    "Release readiness is intentionally blocked because encrypted local DB/SQLCipher is not implemented",
+    "OCR wrapper exists for images but scanned PDF page rendering is still needed",
+    "Installers are unsigned"
+  ],
+  "notes": [
+    "Rust/Cargo, Tesseract and SQLite CLI are installed/available",
+    "Tauri release build produced MSI and NSIS installers",
+    "Python, frontend, Rust and Spring Boot validation is green"
+  ]
+}
+MACHINE_READABLE_JSON_END

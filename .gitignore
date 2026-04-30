@@ -1,0 +1,35 @@
+# Archives and extracted analysis
+*.zip
+_zip_analysis/
+
+# Abandoned initial scaffold
+casepilot-app/
+
+# Dependencies and local tooling
+**/node_modules/
+**/.venv/
+**/.tools/
+**/target/
+**/dist/
+**/.pytest_cache/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+**/src-tauri/gen/
+
+# Local runtime data
+**/local_data/
+**/reports/
+**/logs/
+**/tmp/
+*.sqlite3
+*.db
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# OS/editor
+.DS_Store
+Thumbs.db
