@@ -1,5 +1,17 @@
 export type CaseStatus = "active" | "archived";
 
+export type ViewKey =
+  | "overview"
+  | "documents"
+  | "chronology"
+  | "evidence"
+  | "arguments"
+  | "contradictions"
+  | "risk"
+  | "draft"
+  | "control"
+  | "export";
+
 export interface CaseSummary {
   id: string;
   name: string;
@@ -54,6 +66,14 @@ export interface SourceObjectSummary {
 
 export interface DocumentIngestionReport {
   document: DocumentSummary;
+  sources_created: number;
+  pages_created: number;
+  chunks_created: number;
+  warnings: string[];
+}
+
+export interface ReindexReport {
+  documents_processed: number;
   sources_created: number;
   pages_created: number;
   chunks_created: number;

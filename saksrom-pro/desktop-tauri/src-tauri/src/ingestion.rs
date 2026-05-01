@@ -71,9 +71,49 @@ fn extract_pdf(path: &Path) -> Result<DocumentExtraction> {
     let bytes = fs::read(path)
         .with_context(|| format!("Could not read PDF document: {}", path.display()))?;
     let content = String::from_utf8_lossy(&bytes);
-    let page_count = count_pdf_pages(&content);
+    let mut page_count = count_pdf_pages(&content);
     let mut pages = Vec::new();
     let mut warnings = Vec::new();
+    let extracted_text = pdf_extract::extract_text(path).unwrap_or_default();
+    let extracted_pages = split_pdf_text_pages(&extracted_text);
+
+    if !extracted_pages.is_empty() {
+        if page_count == 0 {
+            page_count = extracted_pages.len() as i64;
+        }
+
+        let mut chunks = Vec::new();
+        for (index, text) in extracted_pages.iter().enumerate() {
+            let page_number = (index + 1) as i64;
+            pages.push(ExtractedPage {
+                page_number,
+                text_status: "extracted".to_string(),
+                sha256: Some(sha256_text(text)),
+            });
+            chunks.extend(split_text_into_chunks(text, page_number));
+        }
+
+        if page_count > pages.len() as i64 {
+            warnings.push(format!(
+                "{}_pages_need_ocr_or_have_no_text_layer",
+                page_count - pages.len() as i64
+            ));
+        }
+
+        return Ok(DocumentExtraction {
+            mime_type: Some("application/pdf".to_string()),
+            page_count,
+            ocr_status: if warnings.is_empty() {
+                "text_extracted"
+            } else {
+                "partial_needs_ocr"
+            }
+            .to_string(),
+            pages,
+            chunks,
+            warnings,
+        });
+    }
 
     for page_number in 1..=page_count {
         pages.push(ExtractedPage {
@@ -81,7 +121,9 @@ fn extract_pdf(path: &Path) -> Result<DocumentExtraction> {
             text_status: "needs_ocr".to_string(),
             sha256: None,
         });
-        warnings.push(format!("page_{}_needs_ocr", page_number));
+    }
+    if page_count > 0 {
+        warnings.push("pdf_has_no_extractable_text_layer_needs_ocr".to_string());
     }
 
     Ok(DocumentExtraction {
@@ -92,6 +134,13 @@ fn extract_pdf(path: &Path) -> Result<DocumentExtraction> {
         chunks: vec![],
         warnings,
     })
+}
+
+fn split_pdf_text_pages(text: &str) -> Vec<String> {
+    text.split('\u{000c}')
+        .map(|page| page.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|page| !page.trim().is_empty())
+        .collect()
 }
 
 fn count_pdf_pages(content: &str) -> i64 {

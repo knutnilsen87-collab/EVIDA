@@ -4,6 +4,7 @@ import type {
   CaseSummary,
   DocumentIngestionReport,
   DocumentSummary,
+  ReindexReport,
   SourceObjectSummary
 } from "../types";
 
@@ -194,6 +195,20 @@ export async function listSourceObjects(caseId: string): Promise<SourceObjectSum
     return await callTauri<SourceObjectSummary[]>("list_source_objects", { caseId });
   } catch {
     return readStore().sources.filter((source) => source.case_id === caseId);
+  }
+}
+
+export async function reindexCaseDocuments(caseId: string): Promise<ReindexReport> {
+  try {
+    return await callTauri<ReindexReport>("reindex_case_documents", { caseId });
+  } catch {
+    return {
+      documents_processed: 0,
+      sources_created: 0,
+      pages_created: 0,
+      chunks_created: 0,
+      warnings: ["browser_dev_mode_no_reindex"]
+    };
   }
 }
 

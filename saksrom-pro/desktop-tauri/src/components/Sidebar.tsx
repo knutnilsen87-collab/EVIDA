@@ -1,17 +1,24 @@
-const items = [
-  "Saksoversikt",
-  "Dokumenter",
-  "Kronologi",
-  "Bevis",
-  "Anførsler",
-  "Motstrid",
-  "Risiko",
-  "Utkast",
-  "Kontroll",
-  "Eksport"
+import type { ViewKey } from "../types";
+
+const items: Array<{ key: ViewKey; label: string }> = [
+  { key: "overview", label: "Saksoversikt" },
+  { key: "documents", label: "Dokumenter" },
+  { key: "chronology", label: "Kronologi" },
+  { key: "evidence", label: "Bevis" },
+  { key: "arguments", label: "Anførsler" },
+  { key: "contradictions", label: "Motstrid" },
+  { key: "risk", label: "Risiko" },
+  { key: "draft", label: "Utkast" },
+  { key: "control", label: "Kontroll" },
+  { key: "export", label: "Eksport" }
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  activeView: ViewKey;
+  onNavigate: (view: ViewKey) => void;
+}
+
+export function Sidebar({ activeView, onNavigate }: SidebarProps) {
   return (
     <nav className="sidebar" aria-label="Hovednavigasjon">
       <div className="brand">
@@ -22,9 +29,14 @@ export function Sidebar() {
         </div>
       </div>
       <ul>
-        {items.map((item, index) => (
-          <li key={item}>
-            <button className={index === 0 ? "active" : ""}>{item}</button>
+        {items.map((item) => (
+          <li key={item.key}>
+            <button
+              className={item.key === activeView ? "active" : ""}
+              onClick={() => onNavigate(item.key)}
+            >
+              {item.label}
+            </button>
           </li>
         ))}
       </ul>

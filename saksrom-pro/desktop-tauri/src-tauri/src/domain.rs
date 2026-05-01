@@ -54,6 +54,15 @@ pub struct DocumentIngestionReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReindexReport {
+    pub documents_processed: i64,
+    pub sources_created: i64,
+    pub pages_created: i64,
+    pub chunks_created: i64,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
     pub id: String,
     pub case_id: Option<String>,

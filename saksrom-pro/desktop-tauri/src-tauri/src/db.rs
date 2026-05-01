@@ -1,9 +1,12 @@
-use crate::domain::{AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, SourceObjectSummary};
+use crate::domain::{
+    AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, ReindexReport,
+    SourceObjectSummary,
+};
 use crate::ingestion::DocumentExtraction;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub fn default_db_path() -> Result<PathBuf> {
@@ -349,6 +352,166 @@ pub fn insert_document(
     })
 }
 
+pub fn reindex_case_documents(conn: &Connection, case_id: &str) -> Result<ReindexReport> {
+    let mut stmt = conn.prepare(
+        "SELECT id, local_path FROM documents WHERE case_id = ?1 ORDER BY imported_at ASC",
+    )?;
+    let document_rows = stmt.query_map(params![case_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let documents = document_rows.collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let mut report = ReindexReport {
+        documents_processed: 0,
+        sources_created: 0,
+        pages_created: 0,
+        chunks_created: 0,
+        warnings: vec![],
+    };
+
+    for (document_id, local_path) in documents {
+        match crate::ingestion::extract_document(Path::new(&local_path)) {
+            Ok(extraction) => {
+                let next = replace_document_extraction(conn, case_id, &document_id, &extraction)?;
+                report.documents_processed += 1;
+                report.sources_created += next.sources_created;
+                report.pages_created += next.pages_created;
+                report.chunks_created += next.chunks_created;
+                report.warnings.extend(next.warnings);
+            }
+            Err(error) => report.warnings.push(format!("{}: {}", document_id, error)),
+        }
+    }
+
+    let now = Utc::now().to_rfc3339();
+    update_case_source_coverage(conn, case_id, &now)?;
+    crate::audit::append_audit_event(
+        conn,
+        Some(case_id),
+        "local-user",
+        "document.reindex",
+        "case",
+        case_id,
+        if report.warnings.is_empty() { "PASS" } else { "WARN" },
+        Some(&format!(
+            r#"{{"documents_processed":{},"sources_created":{},"warnings":{}}}"#,
+            report.documents_processed,
+            report.sources_created,
+            report.warnings.len()
+        )),
+    )?;
+
+    Ok(report)
+}
+
+fn replace_document_extraction(
+    conn: &Connection,
+    case_id: &str,
+    document_id: &str,
+    extraction: &DocumentExtraction,
+) -> Result<ReindexReport> {
+    let now = Utc::now().to_rfc3339();
+    conn.execute("DELETE FROM source_objects WHERE document_id = ?1", params![document_id])?;
+    conn.execute("DELETE FROM chunks WHERE document_id = ?1", params![document_id])?;
+    conn.execute("DELETE FROM pages WHERE document_id = ?1", params![document_id])?;
+    conn.execute(
+        "UPDATE documents SET mime_type = ?1, page_count = ?2, ocr_status = ?3 WHERE id = ?4",
+        params![
+            extraction.mime_type.as_deref(),
+            extraction.page_count,
+            extraction.ocr_status.as_str(),
+            document_id
+        ],
+    )?;
+
+    let mut pages_created = 0;
+    for page in &extraction.pages {
+        conn.execute(
+            "INSERT INTO pages (id, document_id, page_number, sha256, text_status, ocr_confidence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                format!("PAG-{}", Uuid::new_v4()),
+                document_id,
+                page.page_number,
+                page.sha256,
+                page.text_status,
+                None::<f64>,
+                now
+            ],
+        )?;
+        pages_created += 1;
+    }
+
+    let mut chunks_created = 0;
+    let mut sources_created = 0;
+    for chunk in &extraction.chunks {
+        let chunk_id = format!("CHK-{}", Uuid::new_v4());
+        conn.execute(
+            "INSERT INTO chunks (id, document_id, page_start, page_end, text, sha256, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                chunk_id,
+                document_id,
+                chunk.page_start,
+                chunk.page_end,
+                chunk.text,
+                chunk.sha256,
+                now
+            ],
+        )?;
+        chunks_created += 1;
+
+        let source_hash = crate::hash::sha256_text(&format!(
+            "{}:{}:{}:{}",
+            document_id, chunk.page_start, chunk.page_end, chunk.sha256
+        ));
+        conn.execute(
+            "INSERT INTO source_objects
+             (id, case_id, document_id, chunk_id, page_start, page_end, text_excerpt, sha256, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                format!("SRC-{}", Uuid::new_v4()),
+                case_id,
+                document_id,
+                chunk_id,
+                chunk.page_start,
+                chunk.page_end,
+                truncate_excerpt(&chunk.text),
+                source_hash,
+                now
+            ],
+        )?;
+        sources_created += 1;
+    }
+
+    Ok(ReindexReport {
+        documents_processed: 1,
+        sources_created,
+        pages_created,
+        chunks_created,
+        warnings: extraction.warnings.clone(),
+    })
+}
+
+fn update_case_source_coverage(conn: &Connection, case_id: &str, now: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE cases
+         SET updated_at = ?1,
+             source_coverage_percent = (
+                SELECT CASE
+                  WHEN COALESCE(SUM(page_count), 0) = 0 THEN 0
+                  ELSE MIN(100, ROUND((COUNT(DISTINCT source_objects.document_id || ':' || source_objects.page_start) * 100.0) / SUM(documents.page_count), 2))
+                END
+                FROM documents
+                LEFT JOIN source_objects ON source_objects.document_id = documents.id
+                WHERE documents.case_id = ?2
+             )
+         WHERE id = ?2",
+        params![now, case_id],
+    )?;
+    Ok(())
+}
+
 fn truncate_excerpt(value: &str) -> String {
     let max_chars = 500;
     value.chars().take(max_chars).collect()
@@ -492,4 +655,47 @@ pub fn list_source_objects(conn: &Connection, case_id: &str) -> Result<Vec<Sourc
     })?;
 
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smoke_case_document_source_and_reindex_workflow() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        apply_schema(&conn).expect("apply schema");
+        let case = create_case(&conn, "Smoke sak", "NO").expect("create case");
+
+        let path = std::env::temp_dir().join(format!("saksrom-smoke-{}.txt", Uuid::new_v4()));
+        std::fs::write(
+            &path,
+            "Faktum: avtalen ble signert 12.03.2024. Beviset viser levering og reklamasjon.",
+        )
+        .expect("write smoke file");
+
+        let sha256 = crate::hash::sha256_file(&path).expect("hash file");
+        let extraction = crate::ingestion::extract_document(&path).expect("extract document");
+        let report = insert_document(
+            &conn,
+            &case.id,
+            "smoke.txt",
+            path.to_str().expect("path utf8"),
+            &sha256,
+            &extraction,
+        )
+        .expect("insert document");
+
+        assert_eq!(report.pages_created, 1);
+        assert!(report.sources_created > 0);
+        assert_eq!(list_documents(&conn, &case.id).expect("documents").len(), 1);
+        assert!(!list_source_objects(&conn, &case.id).expect("sources").is_empty());
+        assert!(!list_audit_events(&conn, Some(&case.id)).expect("audit").is_empty());
+
+        let reindex = reindex_case_documents(&conn, &case.id).expect("reindex");
+        assert_eq!(reindex.documents_processed, 1);
+        assert!(reindex.sources_created > 0);
+
+        let _ = std::fs::remove_file(path);
+    }
 }

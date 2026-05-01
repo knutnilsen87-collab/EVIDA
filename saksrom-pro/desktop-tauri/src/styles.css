@@ -191,7 +191,15 @@ p {
 .panel-header {
   display: flex;
   justify-content: space-between;
+  gap: 16px;
   margin-bottom: 16px;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .form-row {
@@ -301,6 +309,26 @@ code {
   font-size: 14px;
 }
 
+.workflow-notice,
+.warning-notice {
+  margin-top: 12px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.workflow-notice {
+  color: #304255;
+  background: #eef5fb;
+  border: 1px solid #c8dbea;
+}
+
+.warning-notice {
+  color: #745414;
+  background: #fff7df;
+  border: 1px solid #ead28b;
+}
+
 .error-notice {
   margin-top: 12px;
   color: #7f1d1d;
@@ -364,4 +392,57 @@ code {
 .audit-row {
   display: grid;
   grid-template-columns: 1fr 130px 220px;
+}
+
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.check-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid #e5e0d7;
+  background: #fff;
+}
+
+.check-card span {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.check-card p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.check-card--ok {
+  border-color: #b9dcc0;
+}
+
+.check-card--ok span {
+  color: #315b3c;
+}
+
+.check-card--warn {
+  border-color: #ead28b;
+}
+
+.check-card--warn span {
+  color: #745414;
+}
+
+textarea {
+  width: 100%;
+  min-height: 280px;
+  resize: vertical;
+  border: 1px solid #d6d2c8;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: 14px/1.5 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  color: #1f2937;
+  background: #fff;
 }

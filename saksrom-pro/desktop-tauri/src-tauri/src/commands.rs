@@ -1,5 +1,6 @@
 use crate::domain::{
-    AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, SourceObjectSummary,
+    AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, ReindexReport,
+    SourceObjectSummary,
 };
 use std::path::Path;
 
@@ -60,6 +61,12 @@ pub fn choose_document_paths() -> Result<Vec<String>, String> {
         .into_iter()
         .map(|path| path.to_string_lossy().to_string())
         .collect())
+}
+
+#[tauri::command]
+pub fn reindex_case_documents(case_id: String) -> Result<ReindexReport, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::reindex_case_documents(&conn, &case_id).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

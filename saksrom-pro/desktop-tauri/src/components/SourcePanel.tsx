@@ -12,7 +12,7 @@ export function SourcePanel({ sources, coverage, ocrStatus }: SourcePanelProps) 
       <div className="panel-title">Kilde / Kontroll</div>
       {sources.length === 0 ? (
         <div className="source-empty">
-          Ingen kildeobjekter ennå. Registrer et tekstdokument for å bygge side-, chunk- og kildekart.
+          Ingen kildeobjekter ennå. Importerte PDF-er uten tekstlag må OCR-behandles før analyse og utkast kan bruke dem som kilder.
         </div>
       ) : (
         <div className="source-list">
