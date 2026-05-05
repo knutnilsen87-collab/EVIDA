@@ -1,6 +1,6 @@
 use crate::hash::sha256_text;
 use anyhow::{Context, Result};
-use std::{fs, path::Path};
+use std::{fs, path::Path, process::Command};
 
 #[derive(Debug, Clone)]
 pub struct ExtractedPage {
@@ -38,6 +38,7 @@ pub fn extract_document(path: &Path) -> Result<DocumentExtraction> {
     match path.extension().and_then(|value| value.to_str()).unwrap_or("").to_lowercase().as_str() {
         "pdf" => extract_pdf(path),
         "txt" | "md" | "csv" | "log" => extract_text_file(path),
+        "png" | "jpg" | "jpeg" | "tif" | "tiff" | "bmp" => extract_image(path),
         _ => Ok(DocumentExtraction {
             mime_type: Some("application/octet-stream".to_string()),
             page_count: 0,
@@ -45,6 +46,61 @@ pub fn extract_document(path: &Path) -> Result<DocumentExtraction> {
             pages: vec![],
             chunks: vec![],
             warnings: vec!["unsupported_file_type".to_string()],
+        }),
+    }
+}
+
+fn extract_image(path: &Path) -> Result<DocumentExtraction> {
+    let output = Command::new("tesseract")
+        .arg(path)
+        .arg("stdout")
+        .arg("-l")
+        .arg("nor+eng")
+        .output();
+
+    match output {
+        Ok(result) if result.status.success() => {
+            let text = String::from_utf8_lossy(&result.stdout).to_string();
+            let chunks = split_text_into_chunks(&text, 1);
+            Ok(DocumentExtraction {
+                mime_type: Some(mime_type_for_path(path)),
+                page_count: 1,
+                ocr_status: if chunks.is_empty() { "empty" } else { "ok" }.to_string(),
+                pages: vec![ExtractedPage {
+                    page_number: 1,
+                    sha256: if text.trim().is_empty() { None } else { Some(sha256_text(&text)) },
+                    text_status: if text.trim().is_empty() { "empty" } else { "ocr_extracted" }.to_string(),
+                }],
+                chunks,
+                warnings: vec![],
+            })
+        }
+        Ok(result) => Ok(DocumentExtraction {
+            mime_type: Some(mime_type_for_path(path)),
+            page_count: 1,
+            ocr_status: "failed".to_string(),
+            pages: vec![ExtractedPage {
+                page_number: 1,
+                text_status: "needs_ocr".to_string(),
+                sha256: None,
+            }],
+            chunks: vec![],
+            warnings: vec![format!(
+                "tesseract_failed:{}",
+                String::from_utf8_lossy(&result.stderr).trim()
+            )],
+        }),
+        Err(error) => Ok(DocumentExtraction {
+            mime_type: Some(mime_type_for_path(path)),
+            page_count: 1,
+            ocr_status: "needs_ocr".to_string(),
+            pages: vec![ExtractedPage {
+                page_number: 1,
+                text_status: "needs_ocr".to_string(),
+                sha256: None,
+            }],
+            chunks: vec![],
+            warnings: vec![format!("tesseract_not_available:{}", error)],
         }),
     }
 }
@@ -183,6 +239,10 @@ fn mime_type_for_path(path: &Path) -> String {
         "md" => "text/markdown",
         "csv" => "text/csv",
         "log" => "text/plain",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "tif" | "tiff" => "image/tiff",
+        "bmp" => "image/bmp",
         _ => "application/octet-stream",
     }
     .to_string()

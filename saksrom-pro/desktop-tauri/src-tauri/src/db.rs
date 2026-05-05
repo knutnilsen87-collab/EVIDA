@@ -1,6 +1,7 @@
 use crate::domain::{
-    AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, MaintenanceReport,
-    ReindexReport, SourceObjectSummary,
+    ArgumentItem, AuditEvent, CaseSummary, ChronologyEvent, ContradictionItem,
+    DatabaseSecurityStatus, DocumentIngestionReport, DocumentSummary, EvidenceItem,
+    MaintenanceReport, ReindexReport, RiskItem, SourceObjectSummary, WorkItems,
 };
 use crate::ingestion::DocumentExtraction;
 use anyhow::{Context, Result};
@@ -26,6 +27,36 @@ pub fn open_connection() -> Result<Connection> {
     let conn = Connection::open(path)?;
     apply_schema(&conn)?;
     Ok(conn)
+}
+
+pub fn database_security_status() -> Result<DatabaseSecurityStatus> {
+    let key_source = crate::db_key::resolve_db_key()?.source;
+    let data_dir = default_data_dir()?;
+    let plaintext_backups = std::fs::read_dir(&data_dir)?
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().contains("plaintext-backup"))
+        .count() as i64;
+    let encrypted_at_rest = true;
+    let mut warnings = Vec::new();
+    if key_source == "environment" {
+        warnings.push("Database field key comes from environment variable; use OS credential store for production.".to_string());
+    }
+    if key_source.starts_with("local_key_file_fallback") {
+        warnings.push("OS credential store was unavailable; field key is stored in local app data and should be moved before production rollout.".to_string());
+    }
+    if plaintext_backups > 0 {
+        warnings.push("Plaintext database backup exists from migration; review and delete after validation.".to_string());
+    }
+    warnings.push("Sensitive legal text fields use AES-256-GCM; full-file SQLCipher is still required before broad production rollout.".to_string());
+
+    Ok(DatabaseSecurityStatus {
+        encrypted_at_rest,
+        cipher: "AES-256-GCM field encryption".to_string(),
+        key_source,
+        database_path: default_db_path()?.display().to_string(),
+        plaintext_backups,
+        warnings,
+    })
 }
 
 pub fn apply_schema(conn: &Connection) -> Result<()> {
@@ -109,12 +140,78 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS chronology_events (
+            id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+            date_text TEXT NOT NULL,
+            event TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            uncertainty TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS evidence_items (
+            id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+            claim TEXT NOT NULL,
+            supporting_source_ids_json TEXT NOT NULL,
+            weakening_source_ids_json TEXT NOT NULL,
+            strength TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS argument_items (
+            id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+            argument TEXT NOT NULL,
+            factual_basis TEXT NOT NULL,
+            legal_basis TEXT NOT NULL,
+            evidence_source_ids_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS contradiction_items (
+            id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+            topic TEXT NOT NULL,
+            source_a_id TEXT NOT NULL,
+            source_b_id TEXT NOT NULL,
+            conflict TEXT NOT NULL,
+            significance TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS risk_items (
+            id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+            risk TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            affected_arguments TEXT NOT NULL,
+            source_basis TEXT NOT NULL,
+            recommended_action TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_documents_case ON documents(case_id);
         CREATE INDEX IF NOT EXISTS idx_pages_document ON pages(document_id);
         CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id);
         CREATE INDEX IF NOT EXISTS idx_source_case ON source_objects(case_id);
         CREATE INDEX IF NOT EXISTS idx_source_document ON source_objects(document_id);
         CREATE INDEX IF NOT EXISTS idx_audit_case ON audit_events(case_id);
+        CREATE INDEX IF NOT EXISTS idx_chronology_case ON chronology_events(case_id);
+        CREATE INDEX IF NOT EXISTS idx_evidence_case ON evidence_items(case_id);
+        CREATE INDEX IF NOT EXISTS idx_argument_case ON argument_items(case_id);
+        CREATE INDEX IF NOT EXISTS idx_contradiction_case ON contradiction_items(case_id);
+        CREATE INDEX IF NOT EXISTS idx_risk_case ON risk_items(case_id);
         "#,
     )?;
 
@@ -122,7 +219,38 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "documents", "ocr_quality", "REAL")?;
     add_column_if_missing(conn, "documents", "exhibit_id", "TEXT")?;
     add_column_if_missing(conn, "cases", "deleted_at", "TEXT")?;
+    encrypt_existing_sensitive_fields(conn)?;
 
+    Ok(())
+}
+
+fn encrypt_existing_sensitive_fields(conn: &Connection) -> Result<()> {
+    encrypt_existing_column(conn, "chunks", "text")?;
+    encrypt_existing_column(conn, "source_objects", "text_excerpt")?;
+    encrypt_existing_column(conn, "chronology_events", "event")?;
+    encrypt_existing_column(conn, "evidence_items", "claim")?;
+    encrypt_existing_column(conn, "argument_items", "argument")?;
+    encrypt_existing_column(conn, "argument_items", "factual_basis")?;
+    encrypt_existing_column(conn, "argument_items", "legal_basis")?;
+    encrypt_existing_column(conn, "contradiction_items", "topic")?;
+    encrypt_existing_column(conn, "contradiction_items", "conflict")?;
+    encrypt_existing_column(conn, "risk_items", "risk")?;
+    encrypt_existing_column(conn, "risk_items", "source_basis")?;
+    encrypt_existing_column(conn, "risk_items", "recommended_action")?;
+    Ok(())
+}
+
+fn encrypt_existing_column(conn: &Connection, table: &str, column: &str) -> Result<()> {
+    let sql = format!("SELECT id, {column} FROM {table} WHERE {column} NOT LIKE 'enc:v1:%'");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let values = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(stmt);
+
+    let update_sql = format!("UPDATE {table} SET {column} = ?1 WHERE id = ?2");
+    for (id, value) in values {
+        conn.execute(&update_sql, params![crate::crypto::encrypt_text(&value)?, id])?;
+    }
     Ok(())
 }
 
@@ -258,6 +386,11 @@ pub fn reset_test_data(conn: &Connection) -> Result<MaintenanceReport> {
     let sources_deleted = count_table(conn, "source_objects")?;
 
     conn.execute("DELETE FROM source_objects", [])?;
+    conn.execute("DELETE FROM chronology_events", [])?;
+    conn.execute("DELETE FROM evidence_items", [])?;
+    conn.execute("DELETE FROM argument_items", [])?;
+    conn.execute("DELETE FROM contradiction_items", [])?;
+    conn.execute("DELETE FROM risk_items", [])?;
     conn.execute("DELETE FROM chunks", [])?;
     conn.execute("DELETE FROM pages", [])?;
     conn.execute("DELETE FROM documents", [])?;
@@ -284,12 +417,18 @@ pub fn export_diagnostics(conn: &Connection) -> Result<MaintenanceReport> {
         "generated_at": Utc::now().to_rfc3339(),
         "mode": "evaluation_build",
         "database_path": default_db_path()?.display().to_string(),
+        "security": database_security_status()?,
         "counts": {
             "active_cases": list_cases(conn)?.len(),
             "total_cases": count_table(conn, "cases")?,
             "documents": count_table(conn, "documents")?,
             "pages": count_table(conn, "pages")?,
             "source_objects": count_table(conn, "source_objects")?,
+            "chronology_events": count_table(conn, "chronology_events")?,
+            "evidence_items": count_table(conn, "evidence_items")?,
+            "argument_items": count_table(conn, "argument_items")?,
+            "contradiction_items": count_table(conn, "contradiction_items")?,
+            "risk_items": count_table(conn, "risk_items")?,
             "audit_events": count_table(conn, "audit_events")?
         }
     });
@@ -367,7 +506,7 @@ pub fn insert_document(
                 id,
                 chunk.page_start,
                 chunk.page_end,
-                chunk.text,
+                crate::crypto::encrypt_text(&chunk.text)?,
                 chunk.sha256,
                 now
             ],
@@ -389,7 +528,7 @@ pub fn insert_document(
                 chunk_id,
                 chunk.page_start,
                 chunk.page_end,
-                truncate_excerpt(&chunk.text),
+                crate::crypto::encrypt_text(&truncate_excerpt(&chunk.text))?,
                 source_hash,
                 now
             ],
@@ -538,7 +677,7 @@ fn replace_document_extraction(
                 document_id,
                 chunk.page_start,
                 chunk.page_end,
-                chunk.text,
+                crate::crypto::encrypt_text(&chunk.text)?,
                 chunk.sha256,
                 now
             ],
@@ -560,7 +699,7 @@ fn replace_document_extraction(
                 chunk_id,
                 chunk.page_start,
                 chunk.page_end,
-                truncate_excerpt(&chunk.text),
+                crate::crypto::encrypt_text(&truncate_excerpt(&chunk.text))?,
                 source_hash,
                 now
             ],
@@ -609,6 +748,8 @@ pub fn get_document(conn: &Connection, document_id: &str) -> Result<DocumentSumm
           d.page_count, d.ocr_status,
           COALESCE(COUNT(s.id), 0) AS source_count,
           CASE WHEN d.page_count = 0 THEN 0 ELSE MIN(100, ROUND((COUNT(DISTINCT s.page_start) * 100.0) / d.page_count, 2)) END AS source_coverage_percent,
+          (SELECT COUNT(DISTINCT s2.page_start) FROM source_objects s2 WHERE s2.document_id = d.id) AS analyzed_page_count,
+          (SELECT COUNT(*) FROM pages p WHERE p.document_id = d.id AND p.text_status = 'needs_ocr') AS pending_ocr_page_count,
           d.bates_start, d.bates_end, d.exhibit_id, d.imported_at
         FROM documents d
         LEFT JOIN source_objects s ON s.document_id = d.id
@@ -629,10 +770,12 @@ pub fn get_document(conn: &Connection, document_id: &str) -> Result<DocumentSumm
             ocr_status: row.get(7)?,
             source_count: row.get(8)?,
             source_coverage_percent: row.get(9)?,
-            bates_start: row.get(10)?,
-            bates_end: row.get(11)?,
-            exhibit_id: row.get(12)?,
-            imported_at: row.get(13)?,
+            analyzed_page_count: row.get(10)?,
+            pending_ocr_page_count: row.get(11)?,
+            bates_start: row.get(12)?,
+            bates_end: row.get(13)?,
+            exhibit_id: row.get(14)?,
+            imported_at: row.get(15)?,
         })
     })?;
 
@@ -647,6 +790,8 @@ pub fn list_documents(conn: &Connection, case_id: &str) -> Result<Vec<DocumentSu
           d.page_count, d.ocr_status,
           COALESCE(COUNT(s.id), 0) AS source_count,
           CASE WHEN d.page_count = 0 THEN 0 ELSE MIN(100, ROUND((COUNT(DISTINCT s.page_start) * 100.0) / d.page_count, 2)) END AS source_coverage_percent,
+          (SELECT COUNT(DISTINCT s2.page_start) FROM source_objects s2 WHERE s2.document_id = d.id) AS analyzed_page_count,
+          (SELECT COUNT(*) FROM pages p WHERE p.document_id = d.id AND p.text_status = 'needs_ocr') AS pending_ocr_page_count,
           d.bates_start, d.bates_end, d.exhibit_id, d.imported_at
         FROM documents d
         LEFT JOIN source_objects s ON s.document_id = d.id
@@ -668,10 +813,12 @@ pub fn list_documents(conn: &Connection, case_id: &str) -> Result<Vec<DocumentSu
             ocr_status: row.get(7)?,
             source_count: row.get(8)?,
             source_coverage_percent: row.get(9)?,
-            bates_start: row.get(10)?,
-            bates_end: row.get(11)?,
-            exhibit_id: row.get(12)?,
-            imported_at: row.get(13)?,
+            analyzed_page_count: row.get(10)?,
+            pending_ocr_page_count: row.get(11)?,
+            bates_start: row.get(12)?,
+            bates_end: row.get(13)?,
+            exhibit_id: row.get(14)?,
+            imported_at: row.get(15)?,
         })
     })?;
 
@@ -732,13 +879,318 @@ pub fn list_source_objects(conn: &Connection, case_id: &str) -> Result<Vec<Sourc
             chunk_id: row.get(3)?,
             page_start: row.get(4)?,
             page_end: row.get(5)?,
-            text_excerpt: row.get(6)?,
+            text_excerpt: crate::crypto::decrypt_text(&row.get::<_, String>(6)?),
             sha256: row.get(7)?,
             created_at: row.get(8)?,
         })
     })?;
 
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+pub fn list_work_items(conn: &Connection, case_id: &str) -> Result<WorkItems> {
+    Ok(WorkItems {
+        chronology: list_chronology_events(conn, case_id)?,
+        evidence: list_evidence_items(conn, case_id)?,
+        arguments: list_argument_items(conn, case_id)?,
+        contradictions: list_contradiction_items(conn, case_id)?,
+        risks: list_risk_items(conn, case_id)?,
+    })
+}
+
+pub fn build_chronology(conn: &Connection, case_id: &str) -> Result<Vec<ChronologyEvent>> {
+    let sources = list_source_objects(conn, case_id)?;
+    if sources.is_empty() {
+        anyhow::bail!("Kronologi trenger kildeobjekter.");
+    }
+    let now = Utc::now().to_rfc3339();
+    conn.execute("DELETE FROM chronology_events WHERE case_id = ?1", params![case_id])?;
+    for (index, source) in sources.iter().take(20).enumerate() {
+        let date_text = extract_date_text(&source.text_excerpt);
+        conn.execute(
+            "INSERT INTO chronology_events
+             (id, case_id, date_text, event, source_id, status, uncertainty, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                format!("TL-{}", Uuid::new_v4()),
+                case_id,
+                date_text,
+                crate::crypto::encrypt_text(&first_sentence(&source.text_excerpt))?,
+                source.id,
+                if index == 0 { "Til kontroll" } else { "Utkast" },
+                if date_text == "Udatert" { "Høy" } else { "Middels" },
+                now,
+                now
+            ],
+        )?;
+    }
+    append_work_audit(conn, case_id, "work.chronology.build", "chronology")?;
+    list_chronology_events(conn, case_id)
+}
+
+pub fn build_evidence_matrix(conn: &Connection, case_id: &str) -> Result<Vec<EvidenceItem>> {
+    let sources = list_source_objects(conn, case_id)?;
+    if sources.is_empty() {
+        anyhow::bail!("Bevismatrise trenger kildeobjekter.");
+    }
+    let now = Utc::now().to_rfc3339();
+    let supporting: Vec<String> = sources.iter().take(3).map(|source| source.id.clone()).collect();
+    let weakening: Vec<String> = sources.iter().skip(3).take(2).map(|source| source.id.clone()).collect();
+    conn.execute("DELETE FROM evidence_items WHERE case_id = ?1", params![case_id])?;
+    conn.execute(
+        "INSERT INTO evidence_items
+         (id, case_id, claim, supporting_source_ids_json, weakening_source_ids_json, strength, status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            format!("EV-{}", Uuid::new_v4()),
+            case_id,
+            crate::crypto::encrypt_text("Foreløpig hovedpåstand basert på importerte kilder")?,
+            serde_json::to_string(&supporting)?,
+            serde_json::to_string(&weakening)?,
+            if supporting.len() >= 2 { "Middels" } else { "Svak" },
+            "Utkast",
+            now,
+            now
+        ],
+    )?;
+    append_work_audit(conn, case_id, "work.evidence.build", "evidence")?;
+    list_evidence_items(conn, case_id)
+}
+
+pub fn create_argument_item(conn: &Connection, case_id: &str) -> Result<Vec<ArgumentItem>> {
+    let sources = list_source_objects(conn, case_id)?;
+    if sources.is_empty() {
+        anyhow::bail!("Anførsler trenger kildeobjekter.");
+    }
+    let now = Utc::now().to_rfc3339();
+    let linked: Vec<String> = sources.iter().take(2).map(|source| source.id.clone()).collect();
+    conn.execute(
+        "INSERT INTO argument_items
+         (id, case_id, argument, factual_basis, legal_basis, evidence_source_ids_json, status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            format!("ARG-{}", Uuid::new_v4()),
+            case_id,
+            crate::crypto::encrypt_text("Foreløpig anførsel")?,
+            crate::crypto::encrypt_text(&first_sentence(&sources[0].text_excerpt))?,
+            crate::crypto::encrypt_text("Ikke vurdert")?,
+            serde_json::to_string(&linked)?,
+            "Må kvalitetssikres",
+            now,
+            now
+        ],
+    )?;
+    append_work_audit(conn, case_id, "work.argument.create", "argument")?;
+    list_argument_items(conn, case_id)
+}
+
+pub fn find_contradictions(conn: &Connection, case_id: &str) -> Result<Vec<ContradictionItem>> {
+    let sources = list_source_objects(conn, case_id)?;
+    if sources.len() < 2 {
+        anyhow::bail!("Motstridsanalyse trenger minst to kildeobjekter.");
+    }
+    let now = Utc::now().to_rfc3339();
+    conn.execute("DELETE FROM contradiction_items WHERE case_id = ?1", params![case_id])?;
+    conn.execute(
+        "INSERT INTO contradiction_items
+         (id, case_id, topic, source_a_id, source_b_id, conflict, significance, status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            format!("CON-{}", Uuid::new_v4()),
+            case_id,
+            crate::crypto::encrypt_text("Mulig avvik i faktum")?,
+            sources[0].id,
+            sources[1].id,
+            crate::crypto::encrypt_text("Kildene bør sammenlignes manuelt før konklusjon.")?,
+            "Middels",
+            "Til kontroll",
+            now,
+            now
+        ],
+    )?;
+    append_work_audit(conn, case_id, "work.contradictions.find", "contradiction")?;
+    list_contradiction_items(conn, case_id)
+}
+
+pub fn assess_risk(conn: &Connection, case_id: &str) -> Result<Vec<RiskItem>> {
+    let sources = list_source_objects(conn, case_id)?;
+    if sources.is_empty() {
+        anyhow::bail!("Risikovurdering trenger kildeobjekter.");
+    }
+    let docs = list_documents(conn, case_id)?;
+    let needs_ocr = docs.iter().any(|doc| doc.pending_ocr_page_count > 0);
+    let arguments = list_argument_items(conn, case_id)?;
+    let now = Utc::now().to_rfc3339();
+    conn.execute("DELETE FROM risk_items WHERE case_id = ?1", params![case_id])?;
+    conn.execute(
+        "INSERT INTO risk_items
+         (id, case_id, risk, severity, affected_arguments, source_basis, recommended_action, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            format!("RSK-{}", Uuid::new_v4()),
+            case_id,
+            crate::crypto::encrypt_text(if needs_ocr { "Ufullstendig tekstgrunnlag" } else { "Kildegrunnlag ikke juridisk kvalitetssikret" })?,
+            if needs_ocr { "Høy" } else { "Middels" },
+            if arguments.is_empty() {
+                "Ikke koblet".to_string()
+            } else {
+                arguments.iter().map(|item| item.id.clone()).collect::<Vec<_>>().join(", ")
+            },
+            crate::crypto::encrypt_text(&format!("{} kildeobjekter", sources.len()))?,
+            crate::crypto::encrypt_text(if needs_ocr { "Kjør OCR/tekstkontroll før saksarbeid." } else { "Kontroller kilder og knytt dem til påstander." })?,
+            now,
+            now
+        ],
+    )?;
+    append_work_audit(conn, case_id, "work.risk.assess", "risk")?;
+    list_risk_items(conn, case_id)
+}
+
+fn list_chronology_events(conn: &Connection, case_id: &str) -> Result<Vec<ChronologyEvent>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, case_id, date_text, event, source_id, status, uncertainty, updated_at
+         FROM chronology_events WHERE case_id = ?1 ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map(params![case_id], |row| {
+        Ok(ChronologyEvent {
+            id: row.get(0)?,
+            case_id: row.get(1)?,
+            date_text: row.get(2)?,
+            event: crate::crypto::decrypt_text(&row.get::<_, String>(3)?),
+            source_id: row.get(4)?,
+            status: row.get(5)?,
+            uncertainty: row.get(6)?,
+            updated_at: row.get(7)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+fn list_evidence_items(conn: &Connection, case_id: &str) -> Result<Vec<EvidenceItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, case_id, claim, supporting_source_ids_json, weakening_source_ids_json, strength, status, updated_at
+         FROM evidence_items WHERE case_id = ?1 ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map(params![case_id], |row| {
+        Ok(EvidenceItem {
+            id: row.get(0)?,
+            case_id: row.get(1)?,
+            claim: crate::crypto::decrypt_text(&row.get::<_, String>(2)?),
+            supporting_source_ids: parse_json_vec(row.get::<_, String>(3)?),
+            weakening_source_ids: parse_json_vec(row.get::<_, String>(4)?),
+            strength: row.get(5)?,
+            status: row.get(6)?,
+            updated_at: row.get(7)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+fn list_argument_items(conn: &Connection, case_id: &str) -> Result<Vec<ArgumentItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, case_id, argument, factual_basis, legal_basis, evidence_source_ids_json, status, updated_at
+         FROM argument_items WHERE case_id = ?1 ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map(params![case_id], |row| {
+        Ok(ArgumentItem {
+            id: row.get(0)?,
+            case_id: row.get(1)?,
+            argument: crate::crypto::decrypt_text(&row.get::<_, String>(2)?),
+            factual_basis: crate::crypto::decrypt_text(&row.get::<_, String>(3)?),
+            legal_basis: crate::crypto::decrypt_text(&row.get::<_, String>(4)?),
+            evidence_source_ids: parse_json_vec(row.get::<_, String>(5)?),
+            status: row.get(6)?,
+            updated_at: row.get(7)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+fn list_contradiction_items(conn: &Connection, case_id: &str) -> Result<Vec<ContradictionItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, case_id, topic, source_a_id, source_b_id, conflict, significance, status, updated_at
+         FROM contradiction_items WHERE case_id = ?1 ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map(params![case_id], |row| {
+        Ok(ContradictionItem {
+            id: row.get(0)?,
+            case_id: row.get(1)?,
+            topic: crate::crypto::decrypt_text(&row.get::<_, String>(2)?),
+            source_a_id: row.get(3)?,
+            source_b_id: row.get(4)?,
+            conflict: crate::crypto::decrypt_text(&row.get::<_, String>(5)?),
+            significance: row.get(6)?,
+            status: row.get(7)?,
+            updated_at: row.get(8)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+fn list_risk_items(conn: &Connection, case_id: &str) -> Result<Vec<RiskItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, case_id, risk, severity, affected_arguments, source_basis, recommended_action, updated_at
+         FROM risk_items WHERE case_id = ?1 ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map(params![case_id], |row| {
+        Ok(RiskItem {
+            id: row.get(0)?,
+            case_id: row.get(1)?,
+            risk: crate::crypto::decrypt_text(&row.get::<_, String>(2)?),
+            severity: row.get(3)?,
+            affected_arguments: row.get(4)?,
+            source_basis: crate::crypto::decrypt_text(&row.get::<_, String>(5)?),
+            recommended_action: crate::crypto::decrypt_text(&row.get::<_, String>(6)?),
+            updated_at: row.get(7)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+fn parse_json_vec(value: String) -> Vec<String> {
+    serde_json::from_str(&value).unwrap_or_default()
+}
+
+fn first_sentence(value: &str) -> String {
+    let sentence = value
+        .split(|character| matches!(character, '.' | '!' | '?'))
+        .next()
+        .unwrap_or(value)
+        .trim();
+    let mut output = sentence.chars().take(150).collect::<String>();
+    if value.chars().count() > 150 {
+        output.push_str("...");
+    }
+    if output.is_empty() {
+        "Kildeutdrag uten tekst".to_string()
+    } else {
+        output
+    }
+}
+
+fn extract_date_text(value: &str) -> String {
+    for token in value.split_whitespace() {
+        let cleaned = token.trim_matches(|c: char| !c.is_ascii_digit() && c != '.' && c != '/' && c != '-');
+        let separators = cleaned.matches('.').count() + cleaned.matches('/').count() + cleaned.matches('-').count();
+        if separators == 2 && cleaned.chars().filter(|c| c.is_ascii_digit()).count() >= 6 {
+            return cleaned.to_string();
+        }
+    }
+    "Udatert".to_string()
+}
+
+fn append_work_audit(conn: &Connection, case_id: &str, action: &str, target_type: &str) -> Result<()> {
+    crate::audit::append_audit_event(
+        conn,
+        Some(case_id),
+        "local-user",
+        action,
+        target_type,
+        case_id,
+        "PASS",
+        None,
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -775,6 +1227,10 @@ mod tests {
         assert_eq!(list_documents(&conn, &case.id).expect("documents").len(), 1);
         assert!(!list_source_objects(&conn, &case.id).expect("sources").is_empty());
         assert!(!list_audit_events(&conn, Some(&case.id)).expect("audit").is_empty());
+        let raw_excerpt: String = conn
+            .query_row("SELECT text_excerpt FROM source_objects LIMIT 1", [], |row| row.get(0))
+            .expect("raw encrypted excerpt");
+        assert!(raw_excerpt.starts_with("enc:v1:"));
 
         let reindex = reindex_case_documents(&conn, &case.id).expect("reindex");
         assert_eq!(reindex.documents_processed, 1);
@@ -807,5 +1263,42 @@ mod tests {
         assert_eq!(report.cases_deleted, Some(1));
         assert!(list_cases(&conn).expect("cases").is_empty());
         assert!(list_audit_events(&conn, None).expect("audit").is_empty());
+    }
+
+    #[test]
+    fn work_items_are_persisted_for_case() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        apply_schema(&conn).expect("apply schema");
+        let case = create_case(&conn, "Arbeidsobjekter", "NO").expect("create case");
+
+        let path = std::env::temp_dir().join(format!("saksrom-work-{}.txt", Uuid::new_v4()));
+        std::fs::write(
+            &path,
+            "Dato 12.03.2024: levering dokumentert. Dato 15.03.2024: reklamasjon sendt.",
+        )
+        .expect("write smoke file");
+        let sha256 = crate::hash::sha256_file(&path).expect("hash file");
+        let extraction = crate::ingestion::extract_document(&path).expect("extract document");
+        insert_document(
+            &conn,
+            &case.id,
+            "work.txt",
+            path.to_str().expect("path utf8"),
+            &sha256,
+            &extraction,
+        )
+        .expect("insert document");
+
+        assert!(!build_chronology(&conn, &case.id).expect("chronology").is_empty());
+        assert!(!build_evidence_matrix(&conn, &case.id).expect("evidence").is_empty());
+        assert!(!create_argument_item(&conn, &case.id).expect("argument").is_empty());
+        assert!(!assess_risk(&conn, &case.id).expect("risk").is_empty());
+        let work = list_work_items(&conn, &case.id).expect("work items");
+        assert_eq!(work.chronology.len(), 1);
+        assert_eq!(work.evidence.len(), 1);
+        assert_eq!(work.arguments.len(), 1);
+        assert_eq!(work.risks.len(), 1);
+
+        let _ = std::fs::remove_file(path);
     }
 }

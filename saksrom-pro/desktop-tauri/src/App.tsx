@@ -5,13 +5,20 @@ import { Download, FolderOpen, Moon, RotateCcw, Sun, Trash2 } from "lucide-react
 import {
   chooseDocumentPaths,
   createCase,
+  assessRisk as assessRiskApi,
+  buildChronology as buildChronologyApi,
+  buildEvidenceMatrix,
+  createArgumentItem,
   exportDiagnostics,
+  findContradictions as findContradictionsApi,
   getAppStatus,
+  getDatabaseSecurityStatus,
   hasDesktopRuntime,
   listAuditEvents,
   listCases,
   listDocuments,
   listSourceObjects,
+  listWorkItems,
   openLocalDataFolder,
   reindexCaseDocuments,
   registerDocument,
@@ -21,6 +28,7 @@ import {
 import type {
   AuditEvent,
   CaseSummary,
+  DatabaseSecurityStatus,
   DocumentSummary,
   SourceObjectSummary,
   ViewKey
@@ -74,6 +82,16 @@ function extractDate(value: string) {
   return value.match(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/)?.[0] || "Udatert";
 }
 
+function emptyWorkState() {
+  return {
+    chronology: [] as TimelineItem[],
+    evidence: [] as EvidenceRow[],
+    arguments: [] as ArgumentRow[],
+    contradictions: [] as ConflictRow[],
+    risks: [] as RiskRow[]
+  };
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<ViewKey>("overview");
   const [theme, setTheme] = useState<ThemeMode>(() => {
@@ -83,6 +101,7 @@ export default function App() {
     return window.localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
   });
   const [status, setStatus] = useState("Starter ...");
+  const [dbSecurity, setDbSecurity] = useState<DatabaseSecurityStatus | null>(null);
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [sources, setSources] = useState<SourceObjectSummary[]>([]);
@@ -110,6 +129,7 @@ export default function App() {
 
   async function refresh(preferredCaseId = selectedCaseId) {
     setStatus(await getAppStatus());
+    getDatabaseSecurityStatus().then(setDbSecurity).catch(() => setDbSecurity(null));
     const nextCases = await listCases();
     setCases(nextCases);
     const activeCaseId =
@@ -117,18 +137,66 @@ export default function App() {
     setSelectedCaseId(activeCaseId);
 
     if (activeCaseId) {
-      const [nextDocuments, nextSources, nextAudit] = await Promise.all([
+      const [nextDocuments, nextSources, nextAudit, nextWorkItems] = await Promise.all([
         listDocuments(activeCaseId),
         listSourceObjects(activeCaseId),
-        listAuditEvents(activeCaseId)
+        listAuditEvents(activeCaseId),
+        listWorkItems(activeCaseId)
       ]);
       setDocuments(nextDocuments);
       setSources(nextSources);
       setAudit(nextAudit);
+      setTimelineItems(nextWorkItems.chronology.map((item) => ({
+        id: item.id,
+        date: item.date_text,
+        event: item.event,
+        sourceId: item.source_id,
+        status: item.status,
+        uncertainty: item.uncertainty
+      })));
+      setEvidenceRows(nextWorkItems.evidence.map((item) => ({
+        id: item.id,
+        claim: item.claim,
+        supporting: item.supporting_source_ids,
+        weakening: item.weakening_source_ids,
+        strength: item.strength,
+        status: item.status
+      })));
+      setArgumentRows(nextWorkItems.arguments.map((item) => ({
+        id: item.id,
+        argument: item.argument,
+        factualBasis: item.factual_basis,
+        legalBasis: item.legal_basis,
+        evidenceIds: item.evidence_source_ids,
+        status: item.status
+      })));
+      setConflictRows(nextWorkItems.contradictions.map((item) => ({
+        id: item.id,
+        topic: item.topic,
+        sourceA: item.source_a_id,
+        sourceB: item.source_b_id,
+        conflict: item.conflict,
+        significance: item.significance,
+        status: item.status
+      })));
+      setRiskRows(nextWorkItems.risks.map((item) => ({
+        id: item.id,
+        risk: item.risk,
+        severity: item.severity,
+        affectedArguments: item.affected_arguments,
+        sourceBasis: item.source_basis,
+        recommendedAction: item.recommended_action
+      })));
     } else {
       setDocuments([]);
       setSources([]);
       setAudit([]);
+      const empty = emptyWorkState();
+      setTimelineItems(empty.chronology);
+      setEvidenceRows(empty.evidence);
+      setArgumentRows(empty.arguments);
+      setConflictRows(empty.contradictions);
+      setRiskRows(empty.risks);
     }
   }
 
@@ -140,14 +208,6 @@ export default function App() {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
-  useEffect(() => {
-    setTimelineItems([]);
-    setEvidenceRows([]);
-    setArgumentRows([]);
-    setConflictRows([]);
-    setRiskRows([]);
-  }, [selectedCaseId]);
-
   const selectedCase = cases.find((item) => item.id === selectedCaseId);
   const hasDocuments = documents.length > 0;
   const hasSources = sources.length > 0;
@@ -155,10 +215,8 @@ export default function App() {
   const needsOcr = documents.some((document) =>
     ["needs_ocr", "partial_needs_ocr", "failed"].includes(document.ocr_status)
   );
-  const analyzedPages = useMemo(
-    () => new Set(sources.map((source) => `${source.document_id}:${source.page_start}`)).size,
-    [sources]
-  );
+  const analyzedPages = documents.reduce((sum, document) => sum + (document.analyzed_page_count || 0), 0);
+  const pendingOcrPages = documents.reduce((sum, document) => sum + (document.pending_ocr_page_count || 0), 0);
   const totalPages = documents.reduce((sum, document) => sum + document.page_count, 0);
 
   const totals = useMemo(() => {
@@ -196,104 +254,96 @@ export default function App() {
     setActiveView("documents");
   }
 
-  const buildChronology = useCallback(() => {
+  const buildChronology = useCallback(async () => {
     if (!hasSources) {
       setReindexStatus("Kronologi trenger kildeobjekter. Importer tekstgrunnlag eller bygg kilder først.");
       setActiveView("control");
       return;
     }
-    setTimelineItems(
-      sources.slice(0, 8).map((source, index) => ({
-        id: `TL-${source.id}`,
-        date: extractDate(source.text_excerpt),
-        event: firstSentence(source.text_excerpt),
-        sourceId: source.id,
-        status: index === 0 ? "Til kontroll" : "Utkast",
-        uncertainty: extractDate(source.text_excerpt) === "Udatert" ? "Høy" : "Middels"
-      }))
-    );
+    const items = await buildChronologyApi(selectedCaseId);
+    setTimelineItems(items.map((item) => ({
+      id: item.id,
+      date: item.date_text,
+      event: item.event,
+      sourceId: item.source_id,
+      status: item.status,
+      uncertainty: item.uncertainty
+    })));
     setActiveView("chronology");
-  }, [hasSources, sources]);
+  }, [hasSources, selectedCaseId]);
 
-  const buildEvidence = useCallback(() => {
+  const buildEvidence = useCallback(async () => {
     if (!hasSources) {
       setReindexStatus("Bevismatrise trenger kildeobjekter. Importer tekstgrunnlag eller bygg kilder først.");
       setActiveView("control");
       return;
     }
-    const support = sources.slice(0, 3).map((source) => source.id);
-    const weakening = sources.slice(3, 5).map((source) => source.id);
-    setEvidenceRows([
-      {
-        id: "EV-1",
-        claim: "Foreløpig hovedpåstand basert på importerte kilder",
-        supporting: support,
-        weakening,
-        strength: support.length >= 2 ? "Middels" : "Svak",
-        status: "Utkast"
-      }
-    ]);
+    const items = await buildEvidenceMatrix(selectedCaseId);
+    setEvidenceRows(items.map((item) => ({
+      id: item.id,
+      claim: item.claim,
+      supporting: item.supporting_source_ids,
+      weakening: item.weakening_source_ids,
+      strength: item.strength,
+      status: item.status
+    })));
     setActiveView("evidence");
-  }, [hasSources, sources]);
+  }, [hasSources, selectedCaseId]);
 
-  function buildArguments() {
+  async function buildArguments() {
     if (!hasSources) {
       setReindexStatus("Anførsler trenger et kontrollert kildegrunnlag først.");
       setActiveView("control");
       return;
     }
-    setArgumentRows([
-      {
-        id: "ARG-1",
-        argument: "Foreløpig anførsel",
-        factualBasis: firstSentence(sources[0].text_excerpt),
-        legalBasis: "Ikke vurdert",
-        evidenceIds: sources.slice(0, 2).map((source) => source.id),
-        status: "Må kvalitetssikres"
-      }
-    ]);
+    const items = await createArgumentItem(selectedCaseId);
+    setArgumentRows(items.map((item) => ({
+      id: item.id,
+      argument: item.argument,
+      factualBasis: item.factual_basis,
+      legalBasis: item.legal_basis,
+      evidenceIds: item.evidence_source_ids,
+      status: item.status
+    })));
     setActiveView("arguments");
   }
 
-  function buildContradictions() {
+  async function buildContradictions() {
     if (sources.length < 2) {
       setReindexStatus("Motstridsanalyse trenger minst to kildeobjekter.");
       setActiveView("control");
       return;
     }
-    setConflictRows([
-      {
-        id: "CON-1",
-        topic: "Mulig avvik i faktum",
-        sourceA: sources[0].id,
-        sourceB: sources[1].id,
-        conflict: "Kildene bør sammenlignes manuelt før konklusjon.",
-        significance: "Middels",
-        status: "Til kontroll"
-      }
-    ]);
+    const items = await findContradictionsApi(selectedCaseId);
+    setConflictRows(items.map((item) => ({
+      id: item.id,
+      topic: item.topic,
+      sourceA: item.source_a_id,
+      sourceB: item.source_b_id,
+      conflict: item.conflict,
+      significance: item.significance,
+      status: item.status
+    })));
     setActiveView("contradictions");
   }
 
-  function buildRisk() {
+  async function buildRisk() {
     if (!hasSources) {
       setReindexStatus("Risikovurdering trenger kildeobjekter.");
       setActiveView("control");
       return;
     }
-    setRiskRows([
-      {
-        id: "RSK-1",
-        risk: needsOcr ? "Ufullstendig tekstgrunnlag" : "Kildegrunnlag ikke juridisk kvalitetssikret",
-        severity: needsOcr ? "Høy" : "Middels",
-        affectedArguments: argumentRows.length ? argumentRows.map((row) => row.id).join(", ") : "Ikke koblet",
-        sourceBasis: `${sources.length} kildeobjekter`,
-        recommendedAction: needsOcr ? "Kjør OCR/tekstkontroll før saksarbeid." : "Kontroller kilder og knytt dem til påstander."
-      }
-    ]);
+    const items = await assessRiskApi(selectedCaseId);
+    setRiskRows(items.map((item) => ({
+      id: item.id,
+      risk: item.risk,
+      severity: item.severity,
+      affectedArguments: item.affected_arguments,
+      sourceBasis: item.source_basis,
+      recommendedAction: item.recommended_action
+    })));
     setActiveView("risk");
   }
-
   const nextAction = useMemo(() => {
     if (!selectedCase) {
       return {
@@ -647,7 +697,7 @@ export default function App() {
             <span>PDF-sider <strong>{totalPages}</strong></span>
             <span>Analyserte sider <strong>{analyzedPages}</strong></span>
             <span>Kildeobjekter <strong>{sources.length}</strong></span>
-            <span>OCR <strong>{ocrStatus}</strong></span>
+            <span>OCR <strong>{pendingOcrPages > 0 ? `${pendingOcrPages} sider venter` : ocrStatus}</strong></span>
           </div>
         ) : null}
         {isImporting ? <div className="notice">Importerer dokumenter ...</div> : null}
@@ -747,6 +797,8 @@ export default function App() {
                 </div>
                 <div className="case-row__meta">
                   <span>{countLabel(document.page_count, "side", "sider")}</span>
+                  <span>{document.analyzed_page_count || 0} analysert</span>
+                  <span>{document.pending_ocr_page_count || 0} OCR-venter</span>
                   <span>{countLabel(document.source_count, "kildeobjekt", "kildeobjekter")}</span>
                   <span>{document.ocr_status}</span>
                   <span>{document.source_coverage_percent}% dekning</span>
@@ -794,7 +846,8 @@ export default function App() {
       { label: "PDF-sider", ok: totalPages > 0, detail: countLabel(totalPages, "side", "sider") },
       { label: "Analyserte sider", ok: analyzedPages > 0, detail: `${analyzedPages} av ${totalPages}` },
       { label: "Kildeobjekter", ok: hasSources, detail: countLabel(sources.length, "kildeobjekt", "kildeobjekter") },
-      { label: "OCR-status", ok: !needsOcr && hasDocuments, detail: ocrStatus },
+      { label: "OCR-status", ok: pendingOcrPages === 0 && hasDocuments, detail: pendingOcrPages > 0 ? `${pendingOcrPages} sider venter` : ocrStatus },
+      { label: "DB-kryptering", ok: Boolean(dbSecurity?.encrypted_at_rest), detail: dbSecurity?.cipher || "ukjent" },
       { label: "Audit trail", ok: audit.length > 0, detail: countLabel(audit.length, "event", "events") }
     ];
 
@@ -822,6 +875,9 @@ export default function App() {
           </div>
           {deviations.length > 0 ? (
             <div className="warning-notice">{deviations.join(" ")}</div>
+          ) : null}
+          {dbSecurity?.warnings.length ? (
+            <div className="warning-notice">{dbSecurity.warnings.join(" ")}</div>
           ) : null}
           {sources.length > 0 ? (
             <div className="source-preview-grid">

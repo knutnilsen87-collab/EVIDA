@@ -1,6 +1,7 @@
 use crate::domain::{
-    AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, MaintenanceReport,
-    ReindexReport, SourceObjectSummary,
+    ArgumentItem, AuditEvent, CaseSummary, ChronologyEvent, ContradictionItem,
+    DatabaseSecurityStatus, DocumentIngestionReport, DocumentSummary, EvidenceItem,
+    MaintenanceReport, ReindexReport, RiskItem, SourceObjectSummary, WorkItems,
 };
 use std::path::Path;
 
@@ -119,4 +120,45 @@ pub fn open_local_data_folder() -> Result<MaintenanceReport, String> {
 pub fn export_diagnostics() -> Result<MaintenanceReport, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
     crate::db::export_diagnostics(&conn).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_database_security_status() -> Result<DatabaseSecurityStatus, String> {
+    crate::db::database_security_status().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_work_items(case_id: String) -> Result<WorkItems, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::list_work_items(&conn, &case_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn build_chronology(case_id: String) -> Result<Vec<ChronologyEvent>, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::build_chronology(&conn, &case_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn build_evidence_matrix(case_id: String) -> Result<Vec<EvidenceItem>, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::build_evidence_matrix(&conn, &case_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn create_argument_item(case_id: String) -> Result<Vec<ArgumentItem>, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::create_argument_item(&conn, &case_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn find_contradictions(case_id: String) -> Result<Vec<ContradictionItem>, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::find_contradictions(&conn, &case_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn assess_risk(case_id: String) -> Result<Vec<RiskItem>, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::assess_risk(&conn, &case_id).map_err(|error| error.to_string())
 }

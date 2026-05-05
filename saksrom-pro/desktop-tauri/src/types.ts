@@ -32,6 +32,15 @@ export interface MaintenanceReport {
   sources_deleted?: number;
 }
 
+export interface DatabaseSecurityStatus {
+  encrypted_at_rest: boolean;
+  cipher: string;
+  key_source: string;
+  database_path: string;
+  plaintext_backups: number;
+  warnings: string[];
+}
+
 export interface DocumentSummary {
   id: string;
   case_id: string;
@@ -54,6 +63,8 @@ export interface DocumentSummary {
     | "needs_ocr";
   source_count: number;
   source_coverage_percent: number;
+  analyzed_page_count: number;
+  pending_ocr_page_count: number;
   bates_start?: string;
   bates_end?: string;
   exhibit_id?: string;
@@ -97,4 +108,68 @@ export interface AuditEvent {
   target_id: string;
   result: "PASS" | "WARN" | "FAIL";
   created_at: string;
+}
+
+export interface ChronologyEventDto {
+  id: string;
+  case_id: string;
+  date_text: string;
+  event: string;
+  source_id: string;
+  status: string;
+  uncertainty: string;
+  updated_at: string;
+}
+
+export interface EvidenceItemDto {
+  id: string;
+  case_id: string;
+  claim: string;
+  supporting_source_ids: string[];
+  weakening_source_ids: string[];
+  strength: string;
+  status: string;
+  updated_at: string;
+}
+
+export interface ArgumentItemDto {
+  id: string;
+  case_id: string;
+  argument: string;
+  factual_basis: string;
+  legal_basis: string;
+  evidence_source_ids: string[];
+  status: string;
+  updated_at: string;
+}
+
+export interface ContradictionItemDto {
+  id: string;
+  case_id: string;
+  topic: string;
+  source_a_id: string;
+  source_b_id: string;
+  conflict: string;
+  significance: string;
+  status: string;
+  updated_at: string;
+}
+
+export interface RiskItemDto {
+  id: string;
+  case_id: string;
+  risk: string;
+  severity: string;
+  affected_arguments: string;
+  source_basis: string;
+  recommended_action: string;
+  updated_at: string;
+}
+
+export interface WorkItemsDto {
+  chronology: ChronologyEventDto[];
+  evidence: EvidenceItemDto[];
+  arguments: ArgumentItemDto[];
+  contradictions: ContradictionItemDto[];
+  risks: RiskItemDto[];
 }

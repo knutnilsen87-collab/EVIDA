@@ -1,6 +1,8 @@
 mod audit;
 mod commands;
+mod crypto;
 mod db;
+mod db_key;
 mod domain;
 mod hash;
 mod ingestion;
@@ -20,7 +22,14 @@ pub fn run() {
             commands::list_source_objects,
             commands::reset_test_data,
             commands::open_local_data_folder,
-            commands::export_diagnostics
+            commands::export_diagnostics,
+            commands::get_database_security_status,
+            commands::list_work_items,
+            commands::build_chronology,
+            commands::build_evidence_matrix,
+            commands::create_argument_item,
+            commands::find_contradictions,
+            commands::assess_risk
         ])
         .run(tauri::generate_context!())
         .expect("error while running Saksrom Pro desktop app");
