@@ -23,7 +23,7 @@ export function ContradictionsView({
           <h2>Motstrid</h2>
           <p>Mulige avvik mellom kilder, med tema, betydning og status.</p>
         </div>
-        <button onClick={onFind}>Finn motstrid</button>
+        <button className="button-primary" onClick={onFind}>Finn motstrid</button>
       </div>
       {rows.length === 0 ? (
         <EmptyStateAction

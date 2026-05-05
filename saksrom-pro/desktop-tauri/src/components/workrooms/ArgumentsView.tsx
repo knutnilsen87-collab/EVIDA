@@ -18,7 +18,7 @@ export function ArgumentsView({ rows, sourcesById, onCreate, onOpenSource }: Arg
           <h2>Anførselstavle</h2>
           <p>Anførsel, faktisk grunnlag, rettslig grunnlag, tilknyttede bevis og status.</p>
         </div>
-        <button onClick={onCreate}>Opprett første anførsel</button>
+        <button className="button-primary" onClick={onCreate}>Opprett første anførsel</button>
       </div>
       {rows.length === 0 ? (
         <EmptyStateAction

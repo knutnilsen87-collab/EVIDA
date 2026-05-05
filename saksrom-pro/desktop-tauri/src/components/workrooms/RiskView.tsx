@@ -14,7 +14,7 @@ export function RiskView({ rows, onAssess }: RiskViewProps) {
           <h2>Risiko</h2>
           <p>Risikopunkter, alvorlighet, berørte anførsler, kildegrunnlag og anbefalt tiltak.</p>
         </div>
-        <button onClick={onAssess}>Kjør risikovurdering</button>
+        <button className="button-primary" onClick={onAssess}>Kjør risikovurdering</button>
       </div>
       {rows.length === 0 ? (
         <EmptyStateAction

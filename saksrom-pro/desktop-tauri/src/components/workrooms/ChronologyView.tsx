@@ -18,12 +18,12 @@ export function ChronologyView({ items, sourcesById, onBuild, onOpenSource }: Ch
           <h2>Kronologi</h2>
           <p>Tidslinjeobjekter med dato, hendelse, kilde, status og usikkerhet.</p>
         </div>
-        <button onClick={onBuild}>Bygg kronologi fra kilder</button>
+        <button className="button-primary" onClick={onBuild}>Bygg kronologi fra kilder</button>
       </div>
       {items.length === 0 ? (
         <EmptyStateAction
           title="Ingen kronologi bygget ennå."
-          description="Kronologi er en egen arbeidsflate og viser ikke rå kildechunks."
+          description="Kronologi er en egen arbeidsflate og viser ikke r\u00e5 tekstutdrag som hovedinnhold."
           actionLabel="Bygg kronologi fra kilder"
           onAction={onBuild}
         />

@@ -66,6 +66,7 @@ const viewTitles: Record<ViewKey, string> = {
 };
 
 const THEME_STORAGE_KEY = "saksrom-pro-theme";
+const AI_TRUST_STORAGE_KEY = "saksrom-pro-ai-trust-seen";
 
 type ThemeMode = "light" | "dark";
 
@@ -111,6 +112,8 @@ export default function App() {
   const [documentPath, setDocumentPath] = useState("");
   const [lastImport, setLastImport] = useState("");
   const [importError, setImportError] = useState("");
+  const [showAdvancedImport, setShowAdvancedImport] = useState(false);
+  const [expandedDocumentId, setExpandedDocumentId] = useState("");
   const [isDragActive, setIsDragActive] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [draftText, setDraftText] = useState("");
@@ -125,6 +128,12 @@ export default function App() {
   const [argumentRows, setArgumentRows] = useState<ArgumentRow[]>([]);
   const [conflictRows, setConflictRows] = useState<ConflictRow[]>([]);
   const [riskRows, setRiskRows] = useState<RiskRow[]>([]);
+  const [trustContractHidden, setTrustContractHidden] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem(AI_TRUST_STORAGE_KEY) === "true";
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function refresh(preferredCaseId = selectedCaseId) {
@@ -208,6 +217,10 @@ export default function App() {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
+  useEffect(() => {
+    window.localStorage.setItem(AI_TRUST_STORAGE_KEY, trustContractHidden ? "true" : "false");
+  }, [trustContractHidden]);
+
   const selectedCase = cases.find((item) => item.id === selectedCaseId);
   const hasDocuments = documents.length > 0;
   const hasSources = sources.length > 0;
@@ -232,16 +245,25 @@ export default function App() {
     ? Array.from(new Set(documents.map((document) => document.ocr_status))).join(", ")
     : "ikke startet";
 
+  const coveragePercent = selectedCase?.source_coverage_percent || 0;
+  const userCoverageExplanation = hasDocuments
+    ? `${coveragePercent}% av sidene kan brukes som sporbare kildeutdrag. ${
+        coveragePercent < 100
+          ? `${100 - coveragePercent}% m\u00e5 OCR-behandles eller kontrolleres f\u00f8r AI-analyse.`
+          : "Dokumentgrunnlaget er klart for kontrollert analyse."
+      }`
+    : "Importer et dokument for \u00e5 se hva AI trygt kan bruke.";
+
   const deviations = useMemo(() => {
     const items: string[] = [];
     if (hasDocuments && !hasSources) {
-      items.push("Dokument finnes, men ingen kildeobjekter er bygget.");
+      items.push("Dokument finnes, men ingen sporbare kildeutdrag er bygget.");
     }
     if (needsOcr) {
       items.push("Minst ett dokument trenger OCR eller tekstkontroll.");
     }
     if (hasDocuments && analyzedPages < totalPages) {
-      items.push(`${countLabel(totalPages - analyzedPages, "side", "sider")} mangler kildeobjekter.`);
+      items.push(`${countLabel(totalPages - analyzedPages, "side", "sider")} mangler sporbare kildeutdrag.`);
     }
     return items;
   }, [analyzedPages, hasDocuments, hasSources, needsOcr, totalPages]);
@@ -256,7 +278,7 @@ export default function App() {
 
   const buildChronology = useCallback(async () => {
     if (!hasSources) {
-      setReindexStatus("Kronologi trenger kildeobjekter. Importer tekstgrunnlag eller bygg kilder først.");
+      setReindexStatus("Kronologi trenger sporbare kildeutdrag. Importer tekstgrunnlag eller oppdater kildeutdrag f\u00f8rst.");
       setActiveView("control");
       return;
     }
@@ -274,7 +296,7 @@ export default function App() {
 
   const buildEvidence = useCallback(async () => {
     if (!hasSources) {
-      setReindexStatus("Bevismatrise trenger kildeobjekter. Importer tekstgrunnlag eller bygg kilder først.");
+      setReindexStatus("Bevismatrise trenger sporbare kildeutdrag. Importer tekstgrunnlag eller oppdater kildeutdrag f\u00f8rst.");
       setActiveView("control");
       return;
     }
@@ -292,7 +314,7 @@ export default function App() {
 
   async function buildArguments() {
     if (!hasSources) {
-      setReindexStatus("Anførsler trenger et kontrollert kildegrunnlag først.");
+      setReindexStatus("Anf\u00f8rsler trenger et kontrollert grunnlag med sporbare kildeutdrag f\u00f8rst.");
       setActiveView("control");
       return;
     }
@@ -310,7 +332,7 @@ export default function App() {
 
   async function buildContradictions() {
     if (sources.length < 2) {
-      setReindexStatus("Motstridsanalyse trenger minst to kildeobjekter.");
+      setReindexStatus("Motstridsanalyse trenger minst to sporbare kildeutdrag.");
       setActiveView("control");
       return;
     }
@@ -329,7 +351,7 @@ export default function App() {
 
   async function buildRisk() {
     if (!hasSources) {
-      setReindexStatus("Risikovurdering trenger kildeobjekter.");
+      setReindexStatus("Risikovurdering trenger sporbare kildeutdrag.");
       setActiveView("control");
       return;
     }
@@ -347,49 +369,79 @@ export default function App() {
   const nextAction = useMemo(() => {
     if (!selectedCase) {
       return {
+        step: 1,
+        stepTotal: 6,
         title: "Opprett første sak",
         description: "Start med en lokal evalueringssak før dokumenter importeres.",
+        why: "Saken samler dokumenter, audit trail og senere AI-forslag i ett lokalt arbeidsrom.",
         actionLabel: "Opprett sak",
-        onAction: handleCreateCase
+        onAction: handleCreateCase,
+        secondaryLabel: "Avansert arbeidsrom",
+        onSecondaryAction: () => setActiveView("documents")
       };
     }
     if (!hasDocuments) {
       return {
+        step: 2,
+        stepTotal: 6,
         title: "Importer dokument",
         description: "Legg inn PDF, tekstfil eller bilde i valgt sak.",
+        why: "Første verdi kommer når appen kan lese dokumentet og lage sporbare kildeutdrag.",
         actionLabel: "Gå til import",
-        onAction: () => setActiveView("documents")
+        onAction: () => setActiveView("documents"),
+        secondaryLabel: "Vis kontroll",
+        onSecondaryAction: () => setActiveView("control")
       };
     }
     if (!hasSources || needsOcr) {
       return {
-        title: "Kontroller dokumentgrunnlag",
-        description: "Se PDF-sider, analyserte sider, OCR-status og kildeobjekter før analyse.",
+        step: 3,
+        stepTotal: 6,
+        title: "Sjekk hva AI trygt kan bruke",
+        description: "Se sider, OCR-status og sporbare kildeutdrag f\u00f8r analyse.",
+        why: "Vi må vite hvilke sider som kan spores tilbake til originaldokumentet før kronologi eller utkast bygges.",
         actionLabel: "Åpne kontroll",
-        onAction: () => setActiveView("control")
+        onAction: () => setActiveView("control"),
+        secondaryLabel: "Importer mer",
+        onSecondaryAction: () => setActiveView("documents")
       };
     }
     if (timelineItems.length === 0) {
       return {
+        step: 4,
+        stepTotal: 6,
         title: "Bygg kronologi",
         description: "Lag tidslinjeobjekter fra kildegrunnlaget.",
+        why: "Kronologi gir første skannbare oversikt over hva som faktisk skjer i saken.",
         actionLabel: "Bygg kronologi",
-        onAction: buildChronology
+        onAction: buildChronology,
+        secondaryLabel: "Se kontroll",
+        onSecondaryAction: () => setActiveView("control")
       };
     }
     if (evidenceRows.length === 0) {
       return {
+        step: 5,
+        stepTotal: 6,
         title: "Bygg bevismatrise",
         description: "Koble påstander til støttende og svekkende kilder.",
+        why: "Bevismatrisen gjør kildegrunnlaget vurderbart før videre saksarbeid.",
         actionLabel: "Bygg bevismatrise",
-        onAction: buildEvidence
+        onAction: buildEvidence,
+        secondaryLabel: "Se kronologi",
+        onSecondaryAction: () => setActiveView("chronology")
       };
     }
     return {
+      step: 6,
+      stepTotal: 6,
       title: "Start saksarbeid",
       description: "Grunnflyten er klar for utkast, anførsler og kontroll.",
+      why: "AI-forslag er fortsatt draft og skal godkjennes av deg før bruk.",
       actionLabel: "Åpne utkast",
-      onAction: () => setActiveView("draft")
+      onAction: () => setActiveView("draft"),
+      secondaryLabel: "Se bevis",
+      onSecondaryAction: () => setActiveView("evidence")
     };
   }, [
     selectedCase,
@@ -428,7 +480,7 @@ export default function App() {
             pageCount,
             "side",
             "sider"
-          )}, ${countLabel(sourceCount, "kildeobjekt", "kildeobjekter")}`
+          )}, ${countLabel(sourceCount, "kildeutdrag", "kildeutdrag")}`
         );
         await refresh(selectedCaseId);
         setActiveView(sourceCount > 0 ? "control" : "documents");
@@ -495,7 +547,7 @@ export default function App() {
       void importDocuments(paths);
       return;
     }
-    setImportError("Nettlesermodus gir ikke tilgang til lokal filsti. Bruk desktop-appen og knappen Velg fil.");
+    setImportError("Nettlesermodus kan ikke lese lokal filsti. \u00c5pne desktop-appen for lokal filimport, eller bruk den bygde Saksrom Pro-appen.");
   }
 
   function handleDrop(event: DragEvent<HTMLElement>) {
@@ -530,7 +582,7 @@ export default function App() {
         report.pages_created,
         "side",
         "sider"
-      )}, ${countLabel(report.sources_created, "kildeobjekt", "kildeobjekter")}, ${countLabel(
+      )}, ${countLabel(report.sources_created, "kildeutdrag", "kildeutdrag")}, ${countLabel(
         report.warnings.length,
         "varsel",
         "varsler"
@@ -571,13 +623,14 @@ export default function App() {
 
   function generateDraft() {
     if (!hasSources) {
-      setDraftText("Utkast er blokkert til saken har kildeobjekter. Last opp en tekst-PDF/TXT eller kjør OCR før juridisk tekst genereres.");
+      setDraftText("Utkast kan lages n\u00e5r saken har sporbare kildeutdrag. Last opp en tekst-PDF/TXT eller kj\u00f8r OCR f\u00f8r juridisk tekst genereres.");
       return;
     }
     setDraftText(
       [
         `Utkast for ${selectedCase?.name || "valgt sak"}`,
         "",
+        "Status: Draft",
         "Evaluation build: lokalt arbeidsutkast, ikke produksjonsleveranse.",
         "",
         "Foreløpig bevisgrunnlag:",
@@ -619,7 +672,7 @@ export default function App() {
     const steps = [
       { label: "Opprett sak", done: Boolean(selectedCase), active: !selectedCase, action: () => setActiveView("overview") },
       { label: "Importer dokument", done: hasDocuments, active: Boolean(selectedCase) && !hasDocuments, action: () => setActiveView("documents") },
-      { label: "Kontroller dokumentgrunnlag", done: hasSources && !needsOcr, active: hasDocuments && (!hasSources || needsOcr), action: () => setActiveView("control") },
+      { label: "Sjekk hva AI trygt kan bruke", done: hasSources && !needsOcr, active: hasDocuments && (!hasSources || needsOcr), action: () => setActiveView("control") },
       { label: "Bygg kronologi", done: timelineItems.length > 0, active: hasSources && timelineItems.length === 0 && !needsOcr, action: buildChronology },
       { label: "Bygg bevismatrise", done: evidenceRows.length > 0, active: timelineItems.length > 0 && evidenceRows.length === 0, action: buildEvidence },
       { label: "Start saksarbeid", done: evidenceRows.length > 0, active: evidenceRows.length > 0, action: () => setActiveView("draft") }
@@ -635,8 +688,113 @@ export default function App() {
           >
             <span>{index + 1}</span>
             <strong>{step.label}</strong>
+            <small>{step.done ? "Fullf\u00f8rt" : step.active ? "Neste steg" : "Venter"}</small>
           </button>
         ))}
+      </section>
+    );
+  }
+
+  function FirstValueOnboarding() {
+    const steps = [
+      {
+        label: "Opprett sak",
+        done: Boolean(selectedCase),
+        active: !selectedCase,
+        reason: "Dette lager et lokalt arbeidsrom med audit trail.",
+        actionLabel: "Opprett sak",
+        action: handleCreateCase
+      },
+      {
+        label: "Importer dokument",
+        done: hasDocuments,
+        active: Boolean(selectedCase) && !hasDocuments,
+        reason: "Dokumentet er grunnlaget for alle sporbare forslag.",
+        actionLabel: "Importer dokument",
+        action: () => setActiveView("documents")
+      },
+      {
+        label: "Sjekk hva AI trygt kan bruke",
+        done: hasSources && !needsOcr,
+        active: hasDocuments && (!hasSources || needsOcr),
+        reason: "Vi viser hvilke sider som kan spores tilbake til originaldokumentet.",
+        actionLabel: "Sjekk grunnlag",
+        action: () => setActiveView("control")
+      },
+      {
+        label: "Bygg kronologi",
+        done: timelineItems.length > 0,
+        active: hasSources && timelineItems.length === 0 && !needsOcr,
+        reason: "F\u00f8rste nytte er en tidslinje med kildehenvisning.",
+        actionLabel: "Bygg kronologi",
+        action: buildChronology
+      },
+      {
+        label: "Bygg bevismatrise",
+        done: evidenceRows.length > 0,
+        active: timelineItems.length > 0 && evidenceRows.length === 0,
+        reason: "P\u00e5stander kobles til st\u00f8ttende og svekkende kildeutdrag.",
+        actionLabel: "Bygg bevismatrise",
+        action: buildEvidence
+      },
+      {
+        label: "Start saksarbeid",
+        done: evidenceRows.length > 0,
+        active: evidenceRows.length > 0,
+        reason: "Grunnlaget er klart for utkast, risiko og videre kontroll.",
+        actionLabel: "\u00c5pne utkast",
+        action: () => setActiveView("draft")
+      }
+    ];
+    const currentStep = steps.find((step) => step.active) || steps[steps.length - 1];
+
+    return (
+      <section className="panel onboarding-panel">
+        <div className="onboarding-hero">
+          <div>
+            <div className="eyebrow">F\u00f8rste verdi</div>
+            <h2>{currentStep.label}</h2>
+            <p>{currentStep.reason}</p>
+            <p className="trust-copy">AI foresl\u00e5r. Du godkjenner. Alt skal kunne spores til et kildeutdrag.</p>
+          </div>
+          <button className="button-primary primary-action" onClick={currentStep.action}>
+            {currentStep.actionLabel}
+          </button>
+        </div>
+        <div className="onboarding-steps">
+          {steps.map((step, index) => (
+            <div
+              key={step.label}
+              className={`onboarding-step ${step.done ? "onboarding-step--done" : ""} ${step.active ? "onboarding-step--active" : ""}`}
+            >
+              <span>{step.done ? "\u2713" : index + 1}</span>
+              <div>
+                <strong>{step.label}</strong>
+                <small>{step.done ? "Fullf\u00f8rt" : step.active ? "Neste handling" : "Kommer senere"}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button className="button-ghost secondary-link" onClick={() => setActiveView("documents")}>
+          \u00c5pne fullt arbeidsrom
+        </button>
+      </section>
+    );
+  }
+
+  function AiTrustContract() {
+    if (trustContractHidden) {
+      return null;
+    }
+
+    return (
+      <section className="trust-panel">
+        <div>
+          <div className="eyebrow">AI trust contract</div>
+          <h3>AI lager forslag. Du godkjenner.</h3>
+          <p>Alle forslag skal kunne spores til kildeutdrag. Bruk dette som arbeidsutkast, ikke som juridisk fasit uten faglig vurdering.</p>
+        </div>
+        <button className="button-secondary" onClick={() => setTrustContractHidden(true)}>Skj\u00f8nner</button>
       </section>
     );
   }
@@ -653,8 +811,12 @@ export default function App() {
         <div className="panel-header">
           <div>
             <h2>Dokumentimport</h2>
-            <p>Velg fil eller dra dokumenter inn. Importstatus viser sider, analyserte sider, kildeobjekter og OCR.</p>
+            <p>Velg filer eller dra dokumenter inn. Sporbare kildeutdrag er tekst vi kan vise tilbake til originaldokumentet.</p>
           </div>
+        </div>
+        <div className="import-helper">
+          <strong>St\u00f8ttede filtyper:</strong> PDF, TXT, MD, PNG, JPG og TIFF.
+          {!hasDesktopRuntime() ? " Lokal filimport krever desktop-appen." : ""}
         </div>
         <div className="form-row">
           <select value={selectedCaseId} onChange={(event) => void handleSelectCase(event.target.value)}>
@@ -665,8 +827,8 @@ export default function App() {
               </option>
             ))}
           </select>
-          <button disabled={!selectedCaseId || isImporting} onClick={handleChooseFiles}>
-            Velg fil
+          <button className="button-primary" disabled={!selectedCaseId || isImporting} onClick={handleChooseFiles}>
+            Velg filer
           </button>
           <input
             ref={fileInputRef}
@@ -676,30 +838,40 @@ export default function App() {
             accept=".pdf,.txt,.md,.markdown,.png,.jpg,.jpeg,.tif,.tiff"
             onChange={(event) => handleBrowserFileSelection(event.target.files)}
           />
-          <input
-            value={documentPath}
-            onChange={(event) => setDocumentPath(event.target.value)}
-            placeholder="Eller lim inn lokal filsti"
-          />
-          <button
-            disabled={!selectedCaseId || !documentPath.trim() || isImporting}
-            onClick={() => void importDocuments([documentPath])}
-          >
-            Registrer dokument
+          <button className="button-ghost secondary-link" onClick={() => setShowAdvancedImport((current) => !current)}>
+            {showAdvancedImport ? "Skjul avansert" : "Avansert import"}
           </button>
         </div>
+        {showAdvancedImport ? (
+          <div className="advanced-import">
+            <input
+              value={documentPath}
+              onChange={(event) => setDocumentPath(event.target.value)}
+              placeholder="Lim inn lokal filsti"
+            />
+            <button
+              className="button-primary"
+              disabled={!selectedCaseId || !documentPath.trim() || isImporting}
+              onClick={() => void importDocuments([documentPath])}
+            >
+              Registrer dokument
+            </button>
+          </div>
+        ) : null}
         <div className="drop-zone">
           <strong>{isDragActive ? "Slipp dokumentene her" : "Dra dokumenter hit"}</strong>
-          <span>PDF, TXT, MD og bilder støttes. Du kan slippe flere filer samtidig.</span>
+          <span>Du kan slippe flere filer samtidig. Bruk Velg filer hvis drag/drop ikke passer.</span>
         </div>
         {hasDocuments ? (
           <div className="import-status-grid">
             <span>PDF-sider <strong>{totalPages}</strong></span>
             <span>Analyserte sider <strong>{analyzedPages}</strong></span>
-            <span>Kildeobjekter <strong>{sources.length}</strong></span>
+            <span>Kildeutdrag <strong>{sources.length}</strong></span>
             <span>OCR <strong>{pendingOcrPages > 0 ? `${pendingOcrPages} sider venter` : ocrStatus}</strong></span>
           </div>
         ) : null}
+        {hasDocuments ? <div className="workflow-notice">{userCoverageExplanation}</div> : null}
+        {!selectedCaseId ? <div className="blocked-hint">Import er låst til du har valgt eller opprettet en sak.</div> : null}
         {isImporting ? <div className="notice">Importerer dokumenter ...</div> : null}
         {importError ? <div className="error-notice">{importError}</div> : null}
         {lastImport ? <div className="notice">{lastImport}</div> : null}
@@ -718,7 +890,7 @@ export default function App() {
         </div>
         <div className="form-row">
           <input value={caseName} onChange={(event) => setCaseName(event.target.value)} placeholder="Saksnavn" />
-          <button onClick={handleCreateCase}>Opprett sak</button>
+          <button className="button-primary" onClick={handleCreateCase}>Opprett sak</button>
         </div>
       </section>
     );
@@ -775,12 +947,12 @@ export default function App() {
         <div className="panel-header">
           <div>
             <h2>{selectedCase ? `Dokumenter i ${selectedCase.name}` : "Dokumenter"}</h2>
-            <p>{hasDocuments ? "Kontroller kildegrunnlaget før du går videre." : "Importer dokumenter for valgt sak."}</p>
+            <p>{hasDocuments ? "Sjekk hva AI trygt kan bruke før du går videre." : "Importer dokumenter for valgt sak."}</p>
           </div>
           {hasDocuments ? (
             <div className="panel-actions">
-              <button onClick={handleReindex}>Bygg kilder på nytt</button>
-              <button onClick={() => setActiveView("control")}>Gå til kontroll</button>
+              <button className="button-secondary" onClick={handleReindex}>Oppdater kildeutdrag fra dokumentene</button>
+              <button className="button-primary" onClick={() => setActiveView("control")}>Gå til kontroll</button>
             </div>
           ) : null}
         </div>
@@ -791,17 +963,32 @@ export default function App() {
             {documents.map((document) => (
               <article key={document.id} className="document-row">
                 <div>
-                  <strong>{document.original_name}</strong>
-                  <div className="muted">{document.id} · {document.mime_type || "ukjent type"}</div>
-                  <code>{document.sha256.slice(0, 24)}</code>
+                  <div className="document-primary">
+                    <strong>{document.original_name}</strong>
+                    {document.pending_ocr_page_count > 0 ? <span className="status-chip status-chip--warn">OCR må kjøres</span> : null}
+                    {document.source_count > 0 ? <span className="status-chip status-chip--ok">Kildeutdrag OK</span> : null}
+                  </div>
+                  <button
+                    className="button-ghost technical-toggle"
+                    onClick={() => setExpandedDocumentId((current) => (current === document.id ? "" : document.id))}
+                  >
+                    {expandedDocumentId === document.id ? "Skjul tekniske detaljer" : "Vis tekniske detaljer"}
+                  </button>
+                  {expandedDocumentId === document.id ? (
+                    <div className="technical-details">
+                      <span>{document.id}</span>
+                      <span>{document.mime_type || "ukjent type"}</span>
+                      <code>{document.sha256}</code>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="case-row__meta">
                   <span>{countLabel(document.page_count, "side", "sider")}</span>
                   <span>{document.analyzed_page_count || 0} analysert</span>
                   <span>{document.pending_ocr_page_count || 0} OCR-venter</span>
-                  <span>{countLabel(document.source_count, "kildeobjekt", "kildeobjekter")}</span>
+                  <span>{countLabel(document.source_count, "kildeutdrag", "kildeutdrag")}</span>
                   <span>{document.ocr_status}</span>
-                  <span>{document.source_coverage_percent}% dekning</span>
+                  <span>{document.source_coverage_percent}% lesbart</span>
                 </div>
               </article>
             ))}
@@ -809,9 +996,10 @@ export default function App() {
         )}
         {hasDocuments && !hasSources ? (
           <div className="warning-notice">
-            Dokumentet er registrert, men saken har ingen kildeobjekter. Det betyr normalt skannet PDF eller PDF uten tekstlag.
+            Dokumentet er registrert, men saken har ingen sporbare kildeutdrag. Det betyr normalt skannet PDF eller PDF uten tekstlag.
           </div>
         ) : null}
+        {hasDocuments ? <div className="workflow-notice">{userCoverageExplanation}</div> : null}
         {reindexStatus ? <div className="notice">{reindexStatus}</div> : null}
       </section>
     );
@@ -845,7 +1033,7 @@ export default function App() {
       { label: "Sak valgt", ok: Boolean(selectedCase), detail: selectedCase?.name || "Ingen sak" },
       { label: "PDF-sider", ok: totalPages > 0, detail: countLabel(totalPages, "side", "sider") },
       { label: "Analyserte sider", ok: analyzedPages > 0, detail: `${analyzedPages} av ${totalPages}` },
-      { label: "Kildeobjekter", ok: hasSources, detail: countLabel(sources.length, "kildeobjekt", "kildeobjekter") },
+      { label: "Kildeutdrag", ok: hasSources, detail: countLabel(sources.length, "kildeutdrag", "kildeutdrag") },
       { label: "OCR-status", ok: pendingOcrPages === 0 && hasDocuments, detail: pendingOcrPages > 0 ? `${pendingOcrPages} sider venter` : ocrStatus },
       { label: "DB-kryptering", ok: Boolean(dbSecurity?.encrypted_at_rest), detail: dbSecurity?.cipher || "ukjent" },
       { label: "Audit trail", ok: audit.length > 0, detail: countLabel(audit.length, "event", "events") }
@@ -857,11 +1045,11 @@ export default function App() {
           <div className="panel-header">
             <div>
               <h2>Kontroll</h2>
-              <p>Kontrollgrunnlag for lokal evalueringssak uten lange kildeutdrag.</p>
+              <p>{userCoverageExplanation}</p>
             </div>
             <div className="panel-actions">
-              <button onClick={handleReindex} disabled={!hasDocuments}>Bygg kilder på nytt</button>
-              <button onClick={() => void refresh(selectedCaseId)}>Oppdater</button>
+              <button className="button-primary" onClick={handleReindex} disabled={!hasDocuments}>Oppdater kildeutdrag</button>
+              <button className="button-secondary" onClick={() => void refresh(selectedCaseId)}>Oppdater</button>
             </div>
           </div>
           <div className="check-grid">
@@ -879,6 +1067,7 @@ export default function App() {
           {dbSecurity?.warnings.length ? (
             <div className="warning-notice">{dbSecurity.warnings.join(" ")}</div>
           ) : null}
+          {!hasDocuments ? <div className="blocked-hint">Kildekontroll er låst til saken har minst ett dokument.</div> : null}
           {sources.length > 0 ? (
             <div className="source-preview-grid">
               {sources.slice(0, 8).map((source) => (
@@ -897,16 +1086,19 @@ export default function App() {
 
   function DraftView() {
     return (
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Utkast</h2>
-            <p>Lokalt arbeidsutkast fra kontrollerte kildeobjekter.</p>
+      <>
+        <AiTrustContract />
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Utkast</h2>
+              <p>Lokalt arbeidsutkast fra kontrollerte, sporbare kildeutdrag.</p>
+            </div>
+            <button className="button-primary" onClick={generateDraft}>Lag utkast</button>
           </div>
-          <button onClick={generateDraft}>Lag utkast</button>
-        </div>
-        <textarea readOnly value={draftText} placeholder="Utkast vises her etter at du trykker Lag utkast." />
-      </section>
+          <textarea readOnly value={draftText} placeholder="Utkast vises her etter at du trykker Lag utkast." />
+        </section>
+      </>
     );
   }
 
@@ -919,7 +1111,7 @@ export default function App() {
               <h2>Eksport</h2>
               <p>Lokal evalueringsoppsummering og testverktøy.</p>
             </div>
-            <button onClick={generateExport}>Lag eksport</button>
+            <button className="button-primary" onClick={generateExport}>Lag eksport</button>
           </div>
           <textarea readOnly value={exportText} placeholder="Eksport vises her etter at du trykker Lag eksport." />
         </section>
@@ -934,10 +1126,10 @@ export default function App() {
             <button className="danger-button" onClick={() => setResetConfirmOpen(true)}>
               <RotateCcw size={16} /> Slett alle testdata
             </button>
-            <button onClick={handleOpenDataFolder}>
+            <button className="button-secondary" onClick={handleOpenDataFolder}>
               <FolderOpen size={16} /> Åpne lokal datamappe
             </button>
-            <button onClick={handleExportDiagnostics}>
+            <button className="button-secondary" onClick={handleExportDiagnostics}>
               <Download size={16} /> Eksporter diagnosepakke
             </button>
           </div>
@@ -953,17 +1145,21 @@ export default function App() {
         return (
           <>
             <NextAction {...nextAction} />
-            <GuidedFlow />
-            <CasePanel />
-            <ImportPanel />
-            <CaseList />
-            <DocumentList />
-            <AuditPanel />
+            <FirstValueOnboarding />
+            {evidenceRows.length > 0 ? (
+              <>
+                <GuidedFlow />
+                <CaseList />
+                <DocumentList />
+                <AuditPanel />
+              </>
+            ) : null}
           </>
         );
       case "documents":
         return (
           <>
+            {cases.length === 0 ? <CasePanel /> : null}
             <ImportPanel />
             <DocumentList />
             <CaseList />
@@ -971,42 +1167,59 @@ export default function App() {
         );
       case "chronology":
         return (
-          <ChronologyView
-            items={timelineItems}
-            sourcesById={sourceById}
-            onBuild={buildChronology}
-            onOpenSource={openSource}
-          />
+          <>
+            <AiTrustContract />
+            <ChronologyView
+              items={timelineItems}
+              sourcesById={sourceById}
+              onBuild={buildChronology}
+              onOpenSource={openSource}
+            />
+          </>
         );
       case "evidence":
         return (
-          <EvidenceView
-            rows={evidenceRows}
-            sourcesById={sourceById}
-            onBuild={buildEvidence}
-            onOpenSource={openSource}
-          />
+          <>
+            <AiTrustContract />
+            <EvidenceView
+              rows={evidenceRows}
+              sourcesById={sourceById}
+              onBuild={buildEvidence}
+              onOpenSource={openSource}
+            />
+          </>
         );
       case "arguments":
         return (
-          <ArgumentsView
-            rows={argumentRows}
-            sourcesById={sourceById}
-            onCreate={buildArguments}
-            onOpenSource={openSource}
-          />
+          <>
+            <AiTrustContract />
+            <ArgumentsView
+              rows={argumentRows}
+              sourcesById={sourceById}
+              onCreate={buildArguments}
+              onOpenSource={openSource}
+            />
+          </>
         );
       case "contradictions":
         return (
-          <ContradictionsView
-            rows={conflictRows}
-            sourcesById={sourceById}
-            onFind={buildContradictions}
-            onOpenSource={openSource}
-          />
+          <>
+            <AiTrustContract />
+            <ContradictionsView
+              rows={conflictRows}
+              sourcesById={sourceById}
+              onFind={buildContradictions}
+              onOpenSource={openSource}
+            />
+          </>
         );
       case "risk":
-        return <RiskView rows={riskRows} onAssess={buildRisk} />;
+        return (
+          <>
+            <AiTrustContract />
+            <RiskView rows={riskRows} onAssess={buildRisk} />
+          </>
+        );
       case "control":
         return <ControlView />;
       case "draft":
@@ -1039,7 +1252,7 @@ export default function App() {
               {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
               <span>{theme === "dark" ? "Lys" : "Mørk"}</span>
             </button>
-            <button className="command-button" onClick={() => setActiveView("control")}>
+            <button className="command-button button-secondary" onClick={() => setActiveView("control")}>
               Ctrl + K · Sakspilot
             </button>
           </div>
@@ -1049,7 +1262,7 @@ export default function App() {
           <StatusCard label="Saker" value={totals.cases} detail="lokal database" />
           <StatusCard label="Dokumenter" value={totals.documents} detail="registrert" />
           <StatusCard label="Sider" value={totals.pages} detail="registrert" />
-          <StatusCard label="Kilder" value={totals.sources} detail="kildeobjekter" tone="warn" />
+          <StatusCard label="Kildeutdrag" value={totals.sources} detail="sporbare utdrag" tone="warn" />
         </section>
 
         {renderView()}
@@ -1069,7 +1282,7 @@ export default function App() {
             <h2>Slett sak?</h2>
             <p>Saken fjernes fra aktiv liste. Data soft-deletes og audit event CASE_SOFT_DELETED registreres.</p>
             <div className="modal-actions">
-              <button onClick={() => setDeleteTarget(null)}>Avbryt</button>
+              <button className="button-secondary" onClick={() => setDeleteTarget(null)}>Avbryt</button>
               <button className="danger-button" onClick={confirmDeleteCase}>Slett sak</button>
             </div>
           </div>
@@ -1081,7 +1294,7 @@ export default function App() {
             <h2>Slett alle testdata?</h2>
             <p>Dette fjerner lokale evalueringssaker, dokumenter, kilder og audit-events fra testdatabasen.</p>
             <div className="modal-actions">
-              <button onClick={() => setResetConfirmOpen(false)}>Avbryt</button>
+              <button className="button-secondary" onClick={() => setResetConfirmOpen(false)}>Avbryt</button>
               <button className="danger-button" onClick={confirmResetTestData}>Slett testdata</button>
             </div>
           </div>

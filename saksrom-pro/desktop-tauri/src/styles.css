@@ -40,6 +40,39 @@ button:hover {
   border-color: #9b9384;
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  outline: 3px solid #1d4f91;
+  outline-offset: 2px;
+}
+
+.button-primary {
+  color: #fff;
+  background: #202533;
+  border-color: #202533;
+  font-weight: 700;
+}
+
+.button-primary:hover {
+  background: #111827;
+  border-color: #111827;
+}
+
+.button-secondary {
+  color: #202533;
+  background: #fff;
+  border-color: #d6d2c8;
+}
+
+.button-ghost {
+  color: #374151;
+  background: transparent;
+  border-color: transparent;
+}
+
 input {
   border: 1px solid #d6d2c8;
   border-radius: 10px;
@@ -58,8 +91,25 @@ select {
 
 button:disabled {
   cursor: not-allowed;
-  color: #9a9389;
+  color: #6f685d;
   background: #f3f1ec;
+  border-color: #d6d2c8;
+}
+
+.button-primary:disabled {
+  color: #4f4942;
+  background: #e6e1d8;
+  border-color: #c8c0b2;
+}
+
+.blocked-hint {
+  margin-top: 10px;
+  color: #5f574d;
+  background: #f8f5ef;
+  border: 1px solid #d8d3c7;
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 13px;
 }
 
 .app-shell {
@@ -223,6 +273,23 @@ p {
   flex-wrap: wrap;
 }
 
+.import-helper,
+.advanced-import {
+  margin-bottom: 12px;
+}
+
+.import-helper {
+  color: #5f574d;
+  font-size: 14px;
+}
+
+.advanced-import {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .hidden-file-input {
   display: none;
 }
@@ -300,6 +367,50 @@ p {
   font-size: 13px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.document-primary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.status-chip--ok {
+  color: #315b3c;
+  background: #eef7ef;
+  border: 1px solid #cfe6d3;
+}
+
+.status-chip--warn {
+  color: #745414;
+  background: #fff7df;
+  border: 1px solid #ead28b;
+}
+
+.technical-toggle {
+  margin-top: 6px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.technical-details {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  color: #5f574d;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 code {
@@ -504,24 +615,55 @@ textarea {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  padding: 16px;
-  border: 1px solid #cbd5e1;
+  padding: 22px;
+  border: 1px solid #202533;
   border-radius: 12px;
-  background: #f8fbff;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
 
 .next-action h2 {
-  font-size: 22px;
+  font-size: 24px;
+  letter-spacing: 0;
 }
 
 .next-action p {
   margin-top: 4px;
 }
 
+.next-action .eyebrow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.next-action .eyebrow span {
+  color: #202533;
+  background: #eef5fb;
+  border: 1px solid #c8dbea;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.next-action__why {
+  color: #304255;
+  font-weight: 650;
+}
+
+.next-action__actions {
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
+}
+
 .next-action--compact {
   display: grid;
   margin-top: 18px;
   background: #fff;
+  padding: 16px;
+  box-shadow: none;
 }
 
 .next-action--compact h2 {
@@ -530,6 +672,14 @@ textarea {
 
 .next-action--compact button {
   width: 100%;
+}
+
+.primary-action {
+  min-width: 180px;
+}
+
+.secondary-link {
+  justify-self: start;
 }
 
 .guided-flow {
@@ -562,6 +712,11 @@ textarea {
   font-size: 12px;
 }
 
+.flow-step small {
+  color: #746d62;
+  font-size: 12px;
+}
+
 .flow-step--active {
   border-color: #202533;
   box-shadow: inset 0 -3px 0 #202533;
@@ -570,6 +725,94 @@ textarea {
 .flow-step--done span {
   background: #315b3c;
   color: #fff;
+}
+
+.onboarding-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.onboarding-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+}
+
+.onboarding-hero h2 {
+  font-size: 26px;
+}
+
+.trust-copy {
+  font-weight: 700;
+  color: #304255;
+}
+
+.onboarding-steps {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.onboarding-step {
+  min-height: 84px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e5e0d7;
+  border-radius: 10px;
+  background: #faf9f6;
+}
+
+.onboarding-step span {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #5f574d;
+  background: #f0eee8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.onboarding-step small {
+  display: block;
+  margin-top: 4px;
+  color: #746d62;
+  font-size: 12px;
+}
+
+.onboarding-step--active {
+  border-color: #202533;
+  background: #f8fbff;
+}
+
+.onboarding-step--done span {
+  color: #fff;
+  background: #315b3c;
+}
+
+.trust-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #c8dbea;
+  border-radius: 12px;
+  background: #eef5fb;
+}
+
+.trust-panel h3 {
+  margin: 0;
+}
+
+.trust-panel p {
+  margin-top: 4px;
 }
 
 .import-status-grid {
@@ -820,6 +1063,14 @@ textarea {
   background: #151515;
 }
 
+.app-shell[data-theme="dark"] button:focus-visible,
+.app-shell[data-theme="dark"] input:focus-visible,
+.app-shell[data-theme="dark"] select:focus-visible,
+.app-shell[data-theme="dark"] textarea:focus-visible,
+.app-shell[data-theme="dark"] [role="button"]:focus-visible {
+  outline-color: #9fc9ff;
+}
+
 .app-shell[data-theme="dark"] .sidebar {
   background: #1d1c1a;
   border-right-color: #37332d;
@@ -833,6 +1084,8 @@ textarea {
 .app-shell[data-theme="dark"] .brand-subtitle,
 .app-shell[data-theme="dark"] p,
 .app-shell[data-theme="dark"] .muted,
+.app-shell[data-theme="dark"] .import-helper,
+.app-shell[data-theme="dark"] .technical-details,
 .app-shell[data-theme="dark"] .status-card__label,
 .app-shell[data-theme="dark"] .status-card__detail,
 .app-shell[data-theme="dark"] .case-row__meta,
@@ -842,7 +1095,9 @@ textarea {
 .app-shell[data-theme="dark"] .line-clamp,
 .app-shell[data-theme="dark"] .drop-zone span,
 .app-shell[data-theme="dark"] .source-empty,
-.app-shell[data-theme="dark"] .source-empty span {
+.app-shell[data-theme="dark"] .source-empty span,
+.app-shell[data-theme="dark"] .flow-step small,
+.app-shell[data-theme="dark"] .onboarding-step small {
   color: #bdb6aa;
 }
 
@@ -878,6 +1133,7 @@ textarea {
 .app-shell[data-theme="dark"] .source-item,
 .app-shell[data-theme="dark"] .check-card,
 .app-shell[data-theme="dark"] .flow-step,
+.app-shell[data-theme="dark"] .onboarding-step,
 .app-shell[data-theme="dark"] .source-preview-card,
 .app-shell[data-theme="dark"] .modal,
 .app-shell[data-theme="dark"] .source-drawer {
@@ -896,17 +1152,67 @@ textarea {
 
 .app-shell[data-theme="dark"] .command-button,
 .app-shell[data-theme="dark"] .theme-toggle,
+.app-shell[data-theme="dark"] .button-secondary,
 .app-shell[data-theme="dark"] .next-action,
-.app-shell[data-theme="dark"] .next-action--compact {
+.app-shell[data-theme="dark"] .next-action--compact,
+.app-shell[data-theme="dark"] .trust-panel,
+.app-shell[data-theme="dark"] .onboarding-step--active {
   color: #f4f1ea;
   background: #272b2a;
   border-color: #48514c;
 }
 
+.app-shell[data-theme="dark"] .primary-action {
+  color: #151515;
+  background: #d4b85f;
+  border-color: #d4b85f;
+}
+
+.app-shell[data-theme="dark"] .button-primary {
+  color: #151515;
+  background: #d4b85f;
+  border-color: #d4b85f;
+}
+
+.app-shell[data-theme="dark"] .button-primary:hover {
+  background: #f1d779;
+  border-color: #f1d779;
+}
+
+.app-shell[data-theme="dark"] .button-primary:disabled {
+  color: #c8c0b2;
+  background: #2d2b27;
+  border-color: #575044;
+}
+
+.app-shell[data-theme="dark"] .secondary-link {
+  color: #9fc9ff;
+  background: transparent;
+}
+
+.app-shell[data-theme="dark"] .button-ghost {
+  color: #9fc9ff;
+  background: transparent;
+  border-color: transparent;
+}
+
+.app-shell[data-theme="dark"] .status-chip--ok {
+  color: #bce5c4;
+  background: #163022;
+  border-color: #2f6847;
+}
+
+.app-shell[data-theme="dark"] .status-chip--warn {
+  color: #f5d98c;
+  background: #342913;
+  border-color: #775d24;
+}
+
 .app-shell[data-theme="dark"] .empty-state,
 .app-shell[data-theme="dark"] .empty-action,
 .app-shell[data-theme="dark"] .drop-zone,
-.app-shell[data-theme="dark"] .source-empty {
+.app-shell[data-theme="dark"] .source-empty,
+.app-shell[data-theme="dark"] .blocked-hint {
   color: #d8d2c7;
   background: #1f1e1c;
   border-color: #575044;

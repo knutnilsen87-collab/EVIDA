@@ -12,6 +12,11 @@ interface SourcePanelProps {
     description: string;
     actionLabel: string;
     onAction: () => void;
+    step?: number;
+    stepTotal?: number;
+    why?: string;
+    secondaryLabel?: string;
+    onSecondaryAction?: () => void;
   };
 }
 
@@ -33,7 +38,7 @@ export function SourcePanel({
       <div className="source-checklist">
         <div>Dokumentdekning: <strong>{coverage}%</strong></div>
         <div>OCR-status: <strong>{ocrStatus}</strong></div>
-        <div>Kildeobjekter: <strong>{sourceCount}</strong></div>
+        <div>Kildeutdrag: <strong>{sourceCount}</strong></div>
         <div>Avvik: <strong>{deviations.length}</strong></div>
       </div>
       {deviations.length > 0 ? (

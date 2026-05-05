@@ -17,7 +17,7 @@ export function EmptyStateAction({
         <h3>{title}</h3>
         <p>{description}</p>
       </div>
-      <button onClick={onAction}>{actionLabel}</button>
+      <button className="button-primary" onClick={onAction}>{actionLabel}</button>
     </div>
   );
 }
