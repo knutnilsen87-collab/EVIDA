@@ -1,6 +1,6 @@
 use crate::domain::{
-    AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, ReindexReport,
-    SourceObjectSummary,
+    AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, MaintenanceReport,
+    ReindexReport, SourceObjectSummary,
 };
 use std::path::Path;
 
@@ -20,6 +20,12 @@ pub fn create_case(name: String, jurisdiction: String) -> Result<CaseSummary, St
 pub fn list_cases() -> Result<Vec<CaseSummary>, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
     crate::db::list_cases(&conn).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn soft_delete_case(case_id: String) -> Result<(), String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::soft_delete_case(&conn, &case_id).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -85,4 +91,32 @@ pub fn list_audit_events(case_id: Option<String>) -> Result<Vec<AuditEvent>, Str
 pub fn list_source_objects(case_id: String) -> Result<Vec<SourceObjectSummary>, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
     crate::db::list_source_objects(&conn, &case_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn reset_test_data() -> Result<MaintenanceReport, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::reset_test_data(&conn).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn open_local_data_folder() -> Result<MaintenanceReport, String> {
+    let path = crate::db::default_data_dir().map_err(|error| error.to_string())?;
+    std::process::Command::new("explorer")
+        .arg(&path)
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    Ok(MaintenanceReport {
+        message: "Lokal datamappe åpnet.".to_string(),
+        path: Some(path.display().to_string()),
+        cases_deleted: None,
+        documents_deleted: None,
+        sources_deleted: None,
+    })
+}
+
+#[tauri::command]
+pub fn export_diagnostics() -> Result<MaintenanceReport, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::export_diagnostics(&conn).map_err(|error| error.to_string())
 }

@@ -4,6 +4,7 @@ import type {
   CaseSummary,
   DocumentIngestionReport,
   DocumentSummary,
+  MaintenanceReport,
   ReindexReport,
   SourceObjectSummary
 } from "../types";
@@ -105,7 +106,25 @@ export async function listCases(): Promise<CaseSummary[]> {
   try {
     return await callTauri<CaseSummary[]>("list_cases");
   } catch {
-    return readStore().cases;
+    return readStore().cases.filter((item) => item.status !== "deleted");
+  }
+}
+
+export async function softDeleteCase(caseId: string): Promise<void> {
+  try {
+    await callTauri<void>("soft_delete_case", { caseId });
+  } catch {
+    const store = readStore();
+    store.cases = store.cases.map((item) =>
+      item.id === caseId ? { ...item, status: "deleted", updated_at: now() } : item
+    );
+    appendAudit(store, {
+      case_id: caseId,
+      action: "CASE_SOFT_DELETED",
+      target_type: "case",
+      target_id: caseId
+    });
+    writeStore(store);
   }
 }
 
@@ -218,5 +237,49 @@ export async function listAuditEvents(caseId?: string): Promise<AuditEvent[]> {
   } catch {
     const audit = readStore().audit;
     return caseId ? audit.filter((event) => event.case_id === caseId) : audit;
+  }
+}
+
+export async function resetTestData(): Promise<MaintenanceReport> {
+  try {
+    return await callTauri<MaintenanceReport>("reset_test_data");
+  } catch {
+    const store = readStore();
+    const report: MaintenanceReport = {
+      message: "Testdata slettet fra browser-store.",
+      cases_deleted: store.cases.length,
+      documents_deleted: store.documents.length,
+      sources_deleted: store.sources.length
+    };
+    writeStore({ cases: [], documents: [], sources: [], audit: [] });
+    return report;
+  }
+}
+
+export async function openLocalDataFolder(): Promise<MaintenanceReport> {
+  try {
+    return await callTauri<MaintenanceReport>("open_local_data_folder");
+  } catch {
+    return { message: "Lokal datamappe kan bare åpnes fra desktop-appen." };
+  }
+}
+
+export async function exportDiagnostics(): Promise<MaintenanceReport> {
+  try {
+    return await callTauri<MaintenanceReport>("export_diagnostics");
+  } catch {
+    const store = readStore();
+    const payload = {
+      generated_at: now(),
+      mode: "browser-dev",
+      cases: store.cases.length,
+      documents: store.documents.length,
+      sources: store.sources.length,
+      audit_events: store.audit.length
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    return { message: "Diagnosepakke åpnet i ny fane for browser-store." };
   }
 }

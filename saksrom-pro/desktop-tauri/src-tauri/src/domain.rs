@@ -73,3 +73,12 @@ pub struct AuditEvent {
     pub result: String,
     pub created_at: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintenanceReport {
+    pub message: String,
+    pub path: Option<String>,
+    pub cases_deleted: Option<i64>,
+    pub documents_deleted: Option<i64>,
+    pub sources_deleted: Option<i64>,
+}

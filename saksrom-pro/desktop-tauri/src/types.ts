@@ -1,4 +1,4 @@
-export type CaseStatus = "active" | "archived";
+export type CaseStatus = "active" | "archived" | "deleted";
 
 export type ViewKey =
   | "overview"
@@ -22,6 +22,14 @@ export interface CaseSummary {
   source_coverage_percent: number;
   risk_level: "low" | "medium" | "high" | "unknown";
   updated_at: string;
+}
+
+export interface MaintenanceReport {
+  message: string;
+  path?: string;
+  cases_deleted?: number;
+  documents_deleted?: number;
+  sources_deleted?: number;
 }
 
 export interface DocumentSummary {

@@ -1,6 +1,6 @@
 use crate::domain::{
-    AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, ReindexReport,
-    SourceObjectSummary,
+    AuditEvent, CaseSummary, DocumentIngestionReport, DocumentSummary, MaintenanceReport,
+    ReindexReport, SourceObjectSummary,
 };
 use crate::ingestion::DocumentExtraction;
 use anyhow::{Context, Result};
@@ -10,11 +10,15 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub fn default_db_path() -> Result<PathBuf> {
+    Ok(default_data_dir()?.join("saksrom.local.sqlite3"))
+}
+
+pub fn default_data_dir() -> Result<PathBuf> {
     let base = dirs::data_local_dir()
         .context("Could not resolve local data directory")?
         .join("SaksromPro");
     std::fs::create_dir_all(&base)?;
-    Ok(base.join("saksrom.local.sqlite3"))
+    Ok(base)
 }
 
 pub fn open_connection() -> Result<Connection> {
@@ -117,6 +121,7 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "documents", "mime_type", "TEXT")?;
     add_column_if_missing(conn, "documents", "ocr_quality", "REAL")?;
     add_column_if_missing(conn, "documents", "exhibit_id", "TEXT")?;
+    add_column_if_missing(conn, "cases", "deleted_at", "TEXT")?;
 
     Ok(())
 }
@@ -169,7 +174,7 @@ pub fn get_case(conn: &Connection, case_id: &str) -> Result<CaseSummary> {
           c.updated_at
         FROM cases c
         LEFT JOIN documents d ON d.case_id = c.id
-        WHERE c.id = ?1
+        WHERE c.id = ?1 AND c.deleted_at IS NULL
         GROUP BY c.id
         "#,
     )?;
@@ -203,6 +208,7 @@ pub fn list_cases(conn: &Connection) -> Result<Vec<CaseSummary>> {
           c.updated_at
         FROM cases c
         LEFT JOIN documents d ON d.case_id = c.id
+        WHERE c.deleted_at IS NULL
         GROUP BY c.id
         ORDER BY c.updated_at DESC
         "#,
@@ -223,6 +229,84 @@ pub fn list_cases(conn: &Connection) -> Result<Vec<CaseSummary>> {
     })?;
 
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+pub fn soft_delete_case(conn: &Connection, case_id: &str) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE cases SET status = 'deleted', deleted_at = ?1, updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+        params![now, case_id],
+    )?;
+
+    crate::audit::append_audit_event(
+        conn,
+        Some(case_id),
+        "local-user",
+        "CASE_SOFT_DELETED",
+        "case",
+        case_id,
+        "PASS",
+        Some(r#"{"mode":"soft_delete"}"#),
+    )?;
+
+    Ok(())
+}
+
+pub fn reset_test_data(conn: &Connection) -> Result<MaintenanceReport> {
+    let cases_deleted = count_table(conn, "cases")?;
+    let documents_deleted = count_table(conn, "documents")?;
+    let sources_deleted = count_table(conn, "source_objects")?;
+
+    conn.execute("DELETE FROM source_objects", [])?;
+    conn.execute("DELETE FROM chunks", [])?;
+    conn.execute("DELETE FROM pages", [])?;
+    conn.execute("DELETE FROM documents", [])?;
+    conn.execute("DELETE FROM cases", [])?;
+    conn.execute("DELETE FROM audit_events", [])?;
+
+    Ok(MaintenanceReport {
+        message: "Alle lokale testdata er slettet.".to_string(),
+        path: Some(default_data_dir()?.display().to_string()),
+        cases_deleted: Some(cases_deleted),
+        documents_deleted: Some(documents_deleted),
+        sources_deleted: Some(sources_deleted),
+    })
+}
+
+pub fn export_diagnostics(conn: &Connection) -> Result<MaintenanceReport> {
+    let dir = default_data_dir()?.join("diagnostics");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!(
+        "saksrom-diagnostics-{}.json",
+        Utc::now().format("%Y%m%d-%H%M%S")
+    ));
+    let payload = serde_json::json!({
+        "generated_at": Utc::now().to_rfc3339(),
+        "mode": "evaluation_build",
+        "database_path": default_db_path()?.display().to_string(),
+        "counts": {
+            "active_cases": list_cases(conn)?.len(),
+            "total_cases": count_table(conn, "cases")?,
+            "documents": count_table(conn, "documents")?,
+            "pages": count_table(conn, "pages")?,
+            "source_objects": count_table(conn, "source_objects")?,
+            "audit_events": count_table(conn, "audit_events")?
+        }
+    });
+    std::fs::write(&path, serde_json::to_string_pretty(&payload)?)?;
+
+    Ok(MaintenanceReport {
+        message: "Diagnosepakke eksportert.".to_string(),
+        path: Some(path.display().to_string()),
+        cases_deleted: None,
+        documents_deleted: None,
+        sources_deleted: None,
+    })
+}
+
+fn count_table(conn: &Connection, table: &str) -> Result<i64> {
+    let sql = format!("SELECT COUNT(*) FROM {}", table);
+    Ok(conn.query_row(&sql, [], |row| row.get(0))?)
 }
 
 pub fn insert_document(
@@ -697,5 +781,31 @@ mod tests {
         assert!(reindex.sources_created > 0);
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn soft_delete_hides_case_and_writes_audit_event() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        apply_schema(&conn).expect("apply schema");
+        let case = create_case(&conn, "Slettbar sak", "NO").expect("create case");
+
+        assert_eq!(list_cases(&conn).expect("list cases").len(), 1);
+        soft_delete_case(&conn, &case.id).expect("soft delete");
+
+        assert!(list_cases(&conn).expect("list cases after delete").is_empty());
+        let audit = list_audit_events(&conn, Some(&case.id)).expect("audit");
+        assert!(audit.iter().any(|event| event.action == "CASE_SOFT_DELETED"));
+    }
+
+    #[test]
+    fn reset_test_data_clears_local_tables() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        apply_schema(&conn).expect("apply schema");
+        create_case(&conn, "Reset sak", "NO").expect("create case");
+
+        let report = reset_test_data(&conn).expect("reset");
+        assert_eq!(report.cases_deleted, Some(1));
+        assert!(list_cases(&conn).expect("cases").is_empty());
+        assert!(list_audit_events(&conn, None).expect("audit").is_empty());
     }
 }
