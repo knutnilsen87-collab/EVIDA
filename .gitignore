@@ -1,9 +1,10 @@
 # Archives and extracted analysis
 *.zip
-_zip_analysis/
-
-# Abandoned initial scaffold
-casepilot-app/
+archives/
+Evida Release/
+legacy/partial-evida-core-delete-me/
+legacy/zip-analysis/
+legacy/abandoned-initial-app/
 
 # Dependencies and local tooling
 **/node_modules/

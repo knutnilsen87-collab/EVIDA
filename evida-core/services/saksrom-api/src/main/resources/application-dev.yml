@@ -1,0 +1,3 @@
+evida:
+  security:
+    local-dev-mode: true

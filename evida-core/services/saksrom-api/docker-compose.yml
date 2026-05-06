@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: evida-postgres
+    environment:
+      POSTGRES_DB: evida
+      POSTGRES_USER: evida
+      POSTGRES_PASSWORD: evida_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - evida_postgres:/var/lib/postgresql/data
+
+volumes:
+  evida_postgres:

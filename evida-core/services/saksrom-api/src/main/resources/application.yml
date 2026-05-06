@@ -1,0 +1,40 @@
+server:
+  port: ${EVIDA_API_PORT:8080}
+
+spring:
+  application:
+    name: evida-api
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/evida}
+    username: ${DATABASE_USER:evida}
+    password: ${DATABASE_PASSWORD:evida_dev_password}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,flyway
+  endpoint:
+    health:
+      show-details: when_authorized
+
+evida:
+  security:
+    local-dev-mode: ${EVIDA_LOCAL_DEV_MODE:false}
+  ai:
+    provider-calls-enabled: ${EVIDA_AI_PROVIDER_CALLS_ENABLED:false}
+  documents:
+    raw-upload-allowed: ${EVIDA_RAW_DOCUMENT_UPLOAD_ALLOWED:false}
