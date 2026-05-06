@@ -59,19 +59,40 @@ const viewTitles: Record<ViewKey, string> = {
   caseRoom: "Saksrom",
   chronology: "Kronologi",
   evidence: "Bevismatrise",
-  arguments: "AnfÃ¸rsler",
+  arguments: "Anførsler",
   contradictions: "Motstrid",
   risk: "Risiko",
   draft: "Utkast",
-  control: "Kontrollrapport",
+  control: "Kontrollgrunnlag",
   export: "Eksport"
 };
 
 const THEME_STORAGE_KEY = "evida-theme";
 const AI_TRUST_STORAGE_KEY = "evida-ai-trust-seen";
+const EVAL_SESSION_STORAGE_KEY = "evida-eval-session";
+const EVAL_LOGIN_EMAIL = "eval@evida.local";
+const EVAL_LOGIN_PASSWORD = "eval-2026";
 
 type ThemeMode = "light" | "dark";
 type OnboardingStage = "intro" | "login" | "start" | "import" | "caseRoom";
+type ImportQueueStatus =
+  | "selected"
+  | "validating"
+  | "hashing"
+  | "extracting"
+  | "chunking"
+  | "ready"
+  | "needs_attention"
+  | "failed";
+
+interface ImportQueueItem {
+  path: string;
+  name: string;
+  status: ImportQueueStatus;
+  detail: string;
+  pages?: number;
+  sources?: number;
+}
 
 function countLabel(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -96,10 +117,74 @@ function emptyWorkState() {
   };
 }
 
+function fileNameFromPath(path: string) {
+  return path.split(/[\\/]/).pop() || path;
+}
+
+function importStatusLabel(status: ImportQueueStatus) {
+  switch (status) {
+    case "selected":
+      return "Valgt";
+    case "validating":
+      return "Sjekker fil";
+    case "hashing":
+      return "Beregner hash";
+    case "extracting":
+      return "Leser tekst";
+    case "chunking":
+      return "Lager kildegrunnlag";
+    case "ready":
+      return "Klar";
+    case "needs_attention":
+      return "Krever oppmerksomhet";
+    case "failed":
+      return "Feilet";
+  }
+}
+
+function documentReadiness(document: DocumentSummary) {
+  if (document.source_count > 0) {
+    return {
+      status: "ready" as const,
+      label: "Klar for Saksrom",
+      detail: `${countLabel(document.page_count, "side", "sider")} · ${countLabel(document.source_count, "kildeutdrag", "kildeutdrag")}`
+    };
+  }
+  if (["needs_ocr", "partial_needs_ocr", "failed", "empty", "unsupported_file_type"].includes(document.ocr_status)) {
+    return {
+      status: "needs_attention" as const,
+      label: "Krever oppmerksomhet",
+      detail:
+        document.pending_ocr_page_count > 0
+          ? `${countLabel(document.pending_ocr_page_count, "side", "sider")} trenger OCR eller tekstkontroll`
+          : "Ingen lesbare kildeutdrag funnet"
+    };
+  }
+  return {
+    status: "processing" as const,
+    label: "Behandles",
+    detail: document.analyzed_page_count > 0 ? `${document.analyzed_page_count} sider analysert` : "Venter på behandling"
+  };
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<ViewKey>("overview");
-  const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>("intro");
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem(EVAL_SESSION_STORAGE_KEY) === "true";
+  });
+  const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>(() => {
+    if (typeof window === "undefined") {
+      return "intro";
+    }
+    return "intro";
+  });
   const [casePickerOpen, setCasePickerOpen] = useState(false);
+  const [loginEmail, setLoginEmail] = useState(EVAL_LOGIN_EMAIL);
+  const [loginPassword, setLoginPassword] = useState(EVAL_LOGIN_PASSWORD);
+  const [loginError, setLoginError] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === "undefined") {
       return "light";
@@ -116,6 +201,8 @@ export default function App() {
   const [caseName, setCaseName] = useState("Ny prosessak");
   const [documentPath, setDocumentPath] = useState("");
   const [lastImport, setLastImport] = useState("");
+  const [importQueue, setImportQueue] = useState<ImportQueueItem[]>([]);
+  const [processingLog, setProcessingLog] = useState<string[]>([]);
   const [importError, setImportError] = useState("");
   const [showAdvancedImport, setShowAdvancedImport] = useState(false);
   const [expandedDocumentId, setExpandedDocumentId] = useState("");
@@ -223,6 +310,14 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    if (isAuthenticated) {
+      window.localStorage.setItem(EVAL_SESSION_STORAGE_KEY, "true");
+    } else {
+      window.localStorage.removeItem(EVAL_SESSION_STORAGE_KEY);
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
     window.localStorage.setItem(AI_TRUST_STORAGE_KEY, trustContractHidden ? "true" : "false");
   }, [trustContractHidden]);
 
@@ -242,7 +337,8 @@ export default function App() {
   const documentsRequiringAttention = documents.filter((document) =>
     ["needs_ocr", "partial_needs_ocr", "failed", "empty", "unsupported_file_type"].includes(document.ocr_status)
   );
-  const isWorkspaceUnlocked = onboardingStage === "caseRoom";
+  const isWorkspaceUnlocked = isAuthenticated && onboardingStage === "caseRoom";
+  const hasAnalysis = timelineItems.length > 0 || evidenceRows.length > 0 || riskRows.length > 0;
 
   const totals = useMemo(() => {
     return {
@@ -384,8 +480,8 @@ export default function App() {
       return {
         step: 1,
         stepTotal: 6,
-        title: "Opprett fÃ¸rste sak",
-        description: "Start med en lokal evalueringssak fÃ¸r dokumenter importeres.",
+        title: "Opprett første sak",
+        description: "Start med en lokal evalueringssak før dokumenter importeres.",
         why: "Saken samler dokumenter, audit trail og senere AI-forslag i ett lokalt arbeidsrom.",
         actionLabel: "Opprett sak",
         onAction: handleCreateCase,
@@ -399,8 +495,8 @@ export default function App() {
         stepTotal: 6,
         title: "Importer dokument",
         description: "Legg inn PDF, tekstfil eller bilde i valgt sak.",
-        why: "FÃ¸rste verdi kommer nÃ¥r appen kan lese dokumentet og lage sporbare kildeutdrag.",
-        actionLabel: "GÃ¥ til import",
+        why: "Første verdi kommer når appen kan lese dokumentet og lage sporbare kildeutdrag.",
+        actionLabel: "Gå til import",
         onAction: () => setActiveView("documents"),
         secondaryLabel: "Vis kontroll",
         onSecondaryAction: () => setActiveView("control")
@@ -410,12 +506,12 @@ export default function App() {
       return {
         step: 3,
         stepTotal: 6,
-        title: "Ã…pne Saksrom",
-        description: "Se sammendrag, dokumentstatus, mulige temaer og spÃ¸r saken fÃ¸r du gÃ¥r videre.",
-        why: "Saksrom gir fÃ¸rste samlede verdi etter import uten at du mÃ¥ lese rÃ¥kildene selv.",
-        actionLabel: "Ã…pne Saksrom",
+        title: "Åpne Saksrom",
+        description: "Se sammendrag, dokumentstatus, mulige temaer og spør saken før du går videre.",
+        why: "Saksrom gir første samlede verdi etter import uten at du må lese råkildene selv.",
+        actionLabel: "Åpne Saksrom",
         onAction: () => setActiveView("caseRoom"),
-        secondaryLabel: "GÃ¥ til kontroll",
+        secondaryLabel: "Gå til kontroll",
         onSecondaryAction: () => setActiveView("control")
       };
     }
@@ -425,8 +521,8 @@ export default function App() {
         stepTotal: 6,
         title: "Sjekk hva AI trygt kan bruke",
         description: "Se sider, OCR-status og sporbare kildeutdrag f\u00f8r analyse.",
-        why: "Vi mÃ¥ vite hvilke sider som kan spores tilbake til originaldokumentet fÃ¸r kronologi eller utkast bygges.",
-        actionLabel: "Ã…pne kontroll",
+        why: "Vi må vite hvilke sider som kan spores tilbake til originaldokumentet før kronologi eller utkast bygges.",
+        actionLabel: "Åpne kontroll",
         onAction: () => setActiveView("control"),
         secondaryLabel: "Importer mer",
         onSecondaryAction: () => setActiveView("documents")
@@ -438,7 +534,7 @@ export default function App() {
         stepTotal: 6,
         title: "Bygg kronologi",
         description: "Lag tidslinjeobjekter fra kildegrunnlaget.",
-        why: "Kronologi gir fÃ¸rste skannbare oversikt over hva som faktisk skjer i saken.",
+        why: "Kronologi gir første skannbare oversikt over hva som faktisk skjer i saken.",
         actionLabel: "Bygg kronologi",
         onAction: buildChronology,
         secondaryLabel: "Se kontroll",
@@ -450,8 +546,8 @@ export default function App() {
         step: 5,
         stepTotal: 6,
         title: "Bygg bevismatrise",
-        description: "Koble pÃ¥stander til stÃ¸ttende og svekkende kilder.",
-        why: "Bevismatrisen gjÃ¸r kildegrunnlaget vurderbart fÃ¸r videre saksarbeid.",
+        description: "Koble påstander til støttende og svekkende kilder.",
+        why: "Bevismatrisen gjør kildegrunnlaget vurderbart før videre saksarbeid.",
         actionLabel: "Bygg bevismatrise",
         onAction: buildEvidence,
         secondaryLabel: "Se kronologi",
@@ -462,9 +558,9 @@ export default function App() {
       step: 6,
       stepTotal: 6,
       title: "Start saksarbeid",
-      description: "Grunnflyten er klar for utkast, anfÃ¸rsler og kontroll.",
-      why: "AI-forslag er fortsatt draft og skal godkjennes av deg fÃ¸r bruk.",
-      actionLabel: "Ã…pne utkast",
+      description: "Grunnflyten er klar for utkast, anførsler og kontroll.",
+      why: "AI-forslag er fortsatt draft og skal godkjennes av deg før bruk.",
+      actionLabel: "Åpne utkast",
       onAction: () => setActiveView("draft"),
       secondaryLabel: "Se bevis",
       onSecondaryAction: () => setActiveView("evidence")
@@ -485,7 +581,7 @@ export default function App() {
     async (paths: string[]) => {
       const cleanPaths = paths.map((path) => path.trim()).filter(Boolean);
       if (!selectedCaseId) {
-        setImportError("Velg eller opprett en sak fÃ¸r du importerer dokumenter.");
+        setImportError("Velg eller opprett en sak før du importerer dokumenter.");
         return;
       }
       if (cleanPaths.length === 0) {
@@ -494,10 +590,50 @@ export default function App() {
 
       setImportError("");
       setIsImporting(true);
+      setImportQueue(
+        cleanPaths.map((path) => ({
+          path,
+          name: fileNameFromPath(path),
+          status: "selected",
+          detail: "Klar til import"
+        }))
+      );
+      const updateQueueItem = (path: string, patch: Partial<ImportQueueItem>) => {
+        setImportQueue((current) =>
+          current.map((item) => (item.path === path ? { ...item, ...patch } : item))
+        );
+      };
+      setProcessingLog([
+        "Validerer filer",
+        "Beregner SHA-256",
+        "Registrerer dokumenter i lokal database"
+      ]);
       try {
         const reports = [];
         for (const path of cleanPaths) {
-          reports.push(await registerDocument(selectedCaseId, path));
+          const name = fileNameFromPath(path);
+          updateQueueItem(path, { status: "validating", detail: "Sjekker filtype og størrelse" });
+          setProcessingLog((current) => [...current, `Sjekker ${name}`]);
+          updateQueueItem(path, { status: "hashing", detail: "Beregner SHA-256" });
+          setProcessingLog((current) => [...current, `Beregner hash for ${name}`]);
+          updateQueueItem(path, { status: "extracting", detail: "Leser tekst, sider og eventuell OCR-status" });
+          const report = await registerDocument(selectedCaseId, path);
+          updateQueueItem(path, {
+            status: "chunking",
+            detail: "Lager sporbare kildeutdrag",
+            pages: report.pages_created,
+            sources: report.sources_created
+          });
+          reports.push(report);
+          updateQueueItem(path, {
+            status: report.sources_created > 0 ? "ready" : "needs_attention",
+            detail:
+              report.sources_created > 0
+                ? `${countLabel(report.pages_created, "side", "sider")} og ${countLabel(report.sources_created, "kildeutdrag", "kildeutdrag")} klare`
+                : "Dokumentet er importert, men trenger OCR eller manuell tekstkontroll",
+            pages: report.pages_created,
+            sources: report.sources_created
+          });
         }
         setDocumentPath("");
         const pageCount = reports.reduce((sum, report) => sum + report.pages_created, 0);
@@ -511,10 +647,19 @@ export default function App() {
         );
         await runAutomaticAnalysis(selectedCaseId, sourceCount);
         await refresh(selectedCaseId);
+        setProcessingLog((current) => [...current, "Saksrom er klart"]);
         setOnboardingStage("caseRoom");
         setActiveView("caseRoom");
       } catch (error) {
         setImportError(`Import feilet: ${String(error)}`);
+        setImportQueue((current) =>
+          current.map((item) =>
+            ["ready", "needs_attention"].includes(item.status)
+              ? item
+              : { ...item, status: "failed", detail: String(error) }
+          )
+        );
+        setProcessingLog((current) => [...current, "Import feilet"]);
       } finally {
         setIsImporting(false);
       }
@@ -568,6 +713,27 @@ export default function App() {
     await importDocuments(paths);
   }
 
+  function handleEvalLogin() {
+    const email = loginEmail.trim().toLowerCase();
+    if (email !== EVAL_LOGIN_EMAIL || loginPassword !== EVAL_LOGIN_PASSWORD) {
+      setLoginError("Feil evalueringsinnlogging. Bruk eval@evida.local / eval-2026.");
+      return;
+    }
+    setLoginError("");
+    setIsAuthenticated(true);
+    setOnboardingStage("start");
+  }
+
+  function handleIntroComplete() {
+    setOnboardingStage(isAuthenticated ? "start" : "login");
+  }
+
+  function handleLogout() {
+    setIsAuthenticated(false);
+    setOnboardingStage("login");
+    setActiveView("overview");
+  }
+
   function handleBrowserFileSelection(files: FileList | null) {
     const paths = Array.from(files || [])
       .map((file) => (file as File & { path?: string }).path || "")
@@ -606,10 +772,10 @@ export default function App() {
 
   async function handleReindex() {
     if (!selectedCaseId) {
-      setReindexStatus("Velg sak fÃ¸r du bygger kilder pÃ¥ nytt.");
+      setReindexStatus("Velg sak før du bygger kilder på nytt.");
       return;
     }
-    setReindexStatus("Bygger kilder pÃ¥ nytt ...");
+    setReindexStatus("Bygger kilder på nytt ...");
     const report = await reindexCaseDocuments(selectedCaseId);
     setReindexStatus(
       `Reindeksert ${countLabel(report.documents_processed, "dokument", "dokumenter")}: ${countLabel(
@@ -627,16 +793,27 @@ export default function App() {
 
   async function runAutomaticAnalysis(caseId: string, importedSourceCount: number) {
     if (importedSourceCount <= 0) {
-      setReindexStatus("Dokumentet er importert. Kildegrunnlaget trenger OCR eller manuell kontroll fÃ¸r automatisk analyse.");
+      setProcessingLog((current) => [
+        ...current,
+        "OCR eller manuell tekstkontroll kreves før automatisk analyse"
+      ]);
+      setReindexStatus("Dokumentet er importert. Kildegrunnlaget trenger OCR eller manuell kontroll før automatisk analyse.");
       return;
     }
-    setReindexStatus("Automatisk analyse kjÃ¸rer: kronologi, bevismatrise og risiko ...");
+    setProcessingLog((current) => [
+      ...current,
+      "Bygger foreløpig saksoversikt",
+      "Bygger foreløpig kronologi",
+      "Bygger foreløpig bevismatrise",
+      "Kjører foreløpig risikovurdering"
+    ]);
+    setReindexStatus("Automatisk analyse kjører: kronologi, bevismatrise og risiko ...");
     await Promise.allSettled([
       buildChronologyApi(caseId),
       buildEvidenceMatrix(caseId),
       assessRiskApi(caseId)
     ]);
-    setReindexStatus("ForelÃ¸pig analyse er klar i Saksrom.");
+    setReindexStatus("Foreløpig analyse er klar i Saksrom.");
   }
 
   async function confirmDeleteCase() {
@@ -681,7 +858,7 @@ export default function App() {
         "Status: Draft",
         "Evaluation build: lokalt arbeidsutkast, ikke produksjonsleveranse.",
         "",
-        "ForelÃ¸pig bevisgrunnlag:",
+        "Foreløpig bevisgrunnlag:",
         ...sources.slice(0, 6).map((source) => `- [${source.id}] side ${source.page_start}: ${firstSentence(source.text_excerpt)}`)
       ].join("\n")
     );
@@ -839,7 +1016,7 @@ export default function App() {
           "dokument",
           "dokumenter"
         )} ferdig behandlet.`
-      : "Ingen dokumenter er lastet opp ennÃ¥.";
+      : "Ingen dokumenter er lastet opp ennå.";
 
     return (
       <section className="processing-panel">
@@ -848,7 +1025,7 @@ export default function App() {
             <div className="eyebrow">Behandlingsstatus</div>
             <h2>{statusText}</h2>
             <p>
-              Evida viser hva som er lastet opp, hva som behandles, og nÃ¥r saken kan Ã¥pnes i
+              Evida viser hva som er lastet opp, hva som behandles, og når saken kan åpnes i
               Saksrom.
             </p>
           </div>
@@ -857,14 +1034,14 @@ export default function App() {
               setOnboardingStage("caseRoom");
               setActiveView("caseRoom");
             }}>
-              GÃ¥ til Saksrom
+              Gå til Saksrom
             </button>
           ) : null}
         </div>
         <div className="processing-stats">
           <span><strong>{documents.length}</strong> lastet opp</span>
           <span><strong>{readyCount}</strong> ferdig behandlet</span>
-          <span><strong>{activeCount}</strong> analyseres nÃ¥</span>
+          <span><strong>{activeCount}</strong> analyseres nå</span>
           <span><strong>{documentsRequiringAttention.length}</strong> krever oppmerksomhet</span>
         </div>
         {documents.length > 0 ? (
@@ -872,16 +1049,16 @@ export default function App() {
             {documents.map((document) => {
               const statusLabel =
                 document.source_count > 0
-                  ? `Ferdig Â· ${countLabel(document.page_count, "side", "sider")} Â· ${countLabel(
+                  ? `Ferdig · ${countLabel(document.page_count, "side", "sider")} · ${countLabel(
                       document.source_count,
                       "kilde",
                       "kilder"
                     )}`
                   : document.pending_ocr_page_count > 0
-                    ? `KjÃ¸rer OCR/tekstkontroll Â· ${countLabel(document.pending_ocr_page_count, "side", "sider")} venter`
+                    ? `Kjører OCR/tekstkontroll · ${countLabel(document.pending_ocr_page_count, "side", "sider")} venter`
                     : document.analyzed_page_count > 0
-                      ? `Leser tekst Â· ${document.analyzed_page_count} sider analysert`
-                      : "Lastet opp Â· venter pÃ¥ behandling";
+                      ? `Leser tekst · ${document.analyzed_page_count} sider analysert`
+                      : "Lastet opp · venter på behandling";
 
               return (
                 <article key={document.id} className="processing-row">
@@ -890,21 +1067,28 @@ export default function App() {
                     <span>{statusLabel}</span>
                   </div>
                   <span className={document.source_count > 0 ? "status-chip status-chip--ok" : "status-chip status-chip--warn"}>
-                    {document.source_count > 0 ? "Klar" : "PÃ¥gÃ¥r"}
+                    {document.source_count > 0 ? "Klar" : "Pågår"}
                   </span>
                 </article>
               );
             })}
           </div>
         ) : (
-          <div className="empty-state">Last opp minst ett dokument for Ã¥ bygge fÃ¸rste saksoversikt.</div>
+          <div className="empty-state">Last opp minst ett dokument for å bygge første saksoversikt.</div>
         )}
         {isImporting ? (
           <div className="assistant-work-steps" aria-live="polite">
             <span>Leser dokumenter ...</span>
             <span>Finner relevante kilder ...</span>
-            <span>Bygger forelÃ¸pig saksoversikt ...</span>
+            <span>Bygger foreløpig saksoversikt ...</span>
           </div>
+        ) : null}
+        {processingLog.length > 0 ? (
+          <ol className="processing-log" aria-label="Behandlingslogg">
+            {processingLog.slice(-8).map((item, index) => (
+              <li key={`${item}-${index}`}>{item}</li>
+            ))}
+          </ol>
         ) : null}
       </section>
     );
@@ -913,14 +1097,16 @@ export default function App() {
   function GuidedExperience() {
     const steps = [
       { label: "Intro", done: onboardingStage !== "intro" },
-      { label: "Innlogging", done: !["intro", "login"].includes(onboardingStage) },
+      { label: "Innlogging", done: isAuthenticated },
       { label: "Sak", done: Boolean(selectedCase) },
       { label: "Dokumenter", done: hasDocuments },
       { label: "Saksrom", done: onboardingStage === "caseRoom" }
     ];
 
     return (
-      <section className="guided-shell">
+      <section className={`guided-shell ${onboardingStage === "intro" ? "guided-shell--intro" : ""}`}>
+        {onboardingStage !== "intro" ? (
+          <>
         <header className="guided-header">
           <div className="brand">
             <img className="brand-logo" src="/logo.png" alt="" />
@@ -931,14 +1117,19 @@ export default function App() {
           </div>
           <div className="guided-header-actions">
             <span className="local-pill">Lokal behandling</span>
+            {isAuthenticated ? (
+              <button className="button-ghost" onClick={handleLogout}>
+                Logg ut
+              </button>
+            ) : null}
             <button
               className="theme-toggle"
               onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-              aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mÃ¸rk modus"}
-              title={theme === "dark" ? "Lys modus" : "MÃ¸rk modus"}
+              aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mørk modus"}
+              title={theme === "dark" ? "Lys modus" : "Mørk modus"}
             >
               {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-              <span>{theme === "dark" ? "Lys" : "MÃ¸rk"}</span>
+              <span>{theme === "dark" ? "Lys" : "Mørk"}</span>
             </button>
           </div>
         </header>
@@ -946,28 +1137,17 @@ export default function App() {
         <div className="guided-stepper" aria-label="Oppstartsflyt">
           {steps.map((step, index) => (
             <div key={step.label} className={`guided-step ${step.done ? "guided-step--done" : ""}`}>
-              <span>{step.done ? "âœ“" : index + 1}</span>
+              <span>{step.done ? "✓" : index + 1}</span>
               <strong>{step.label}</strong>
             </div>
           ))}
         </div>
+          </>
+        ) : null}
 
         {onboardingStage === "intro" ? (
-          <section className="guided-card guided-card--hero">
-            <div>
-              <div className="eyebrow">Velkommen</div>
-              <h1>Bygg et strukturert saksrom fra dokumentene dine.</h1>
-              <p>
-                Evida leser, organiserer og oppsummerer materialet med sporbare kilder, slik at
-                du kan arbeide raskere og tryggere.
-              </p>
-              <div className="guided-mini-steps">
-                <span>Opprett eller velg sak</span>
-                <span>Last opp dokumenter</span>
-                <span>Arbeid videre i Saksrom</span>
-              </div>
-            </div>
-            <div className="intro-media">
+          <section className="intro-vignette" aria-label="Evida introduksjon">
+            <button className="intro-vignette__button" onClick={handleIntroComplete}>
               <video
                 src="/introvideo.mp4"
                 autoPlay
@@ -975,12 +1155,9 @@ export default function App() {
                 loop
                 playsInline
                 preload="metadata"
-                aria-label="Kort introduksjon til Evida"
+                aria-hidden="true"
               />
-              <button className="button-primary primary-action" onClick={() => setOnboardingStage("login")}>
-                Kom i gang
-              </button>
-            </div>
+            </button>
           </section>
         ) : null}
 
@@ -989,24 +1166,44 @@ export default function App() {
             <div>
               <div className="eyebrow">Innlogging</div>
               <h1>Logg inn i Evida</h1>
-              <p>FÃ¥ tilgang til dine saker, dokumenter og saksrom. All aktivitet knyttes til bruker for sikkerhet og revisjon.</p>
+              <p>Få tilgang til dine saker, dokumenter og saksrom. All aktivitet knyttes til bruker for sikkerhet og revisjon.</p>
             </div>
             <div className="guided-login-form">
-              <input type="email" placeholder="E-post" aria-label="E-post" />
-              <input type="password" placeholder="Passord" aria-label="Passord" />
-              <button className="button-primary" onClick={() => setOnboardingStage("start")}>Logg inn</button>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+                placeholder="E-post"
+                aria-label="E-post"
+              />
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                placeholder="Passord"
+                aria-label="Passord"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    handleEvalLogin();
+                  }
+                }}
+              />
+              <button className="button-primary" onClick={handleEvalLogin}>Logg inn</button>
             </div>
+            <div className="eval-login-hint">
+              Evalueringsbruker: <strong>{EVAL_LOGIN_EMAIL}</strong> / <strong>{EVAL_LOGIN_PASSWORD}</strong>
+            </div>
+            {loginError ? <div className="error-notice">{loginError}</div> : null}
             <p className="security-note">Evaluation build: lokal behandling. Ikke bruk reelle klientdata uten avtale.</p>
           </section>
         ) : null}
-
         {onboardingStage === "start" ? (
           <section className="guided-card">
             <div className="guided-section-header">
               <div>
                 <div className="eyebrow">Startpunkt</div>
                 <h1>Hva vil du jobbe med?</h1>
-                <p>Start en ny sak, eller Ã¥pne et eksisterende saksrom og fortsett der du slapp.</p>
+                <p>Start en ny sak, eller åpne et eksisterende saksrom og fortsett der du slapp.</p>
               </div>
             </div>
             <div className="choice-grid">
@@ -1020,7 +1217,7 @@ export default function App() {
               </article>
               <article className="choice-card">
                 <h2>Tidligere saker</h2>
-                <p>Ã…pne en eksisterende sak. Hvis den mangler dokumenter, gÃ¥r du rett til import.</p>
+                <p>Åpne en eksisterende sak. Hvis den mangler dokumenter, går du rett til import.</p>
                 <button className="button-secondary" onClick={() => setCasePickerOpen((current) => !current)}>
                   Se saker
                 </button>
@@ -1043,7 +1240,7 @@ export default function App() {
                   setOnboardingStage("caseRoom");
                   setActiveView("caseRoom");
                 }}>
-                  GÃ¥ til Saksrom mens resten behandles
+                  Gå til Saksrom mens resten behandles
                 </button>
               ) : null}
             </div>
@@ -1089,7 +1286,7 @@ export default function App() {
           </div>
         </div>
         <div className="import-helper">
-          <strong>St\u00f8ttede filtyper:</strong> PDF, TXT, MD, PNG, JPG og TIFF.
+          <strong>St\u00f8ttede filtyper:</strong> PDF, DOCX, TXT, MD, PNG, JPG og TIFF.
           {!hasDesktopRuntime() ? " Lokal filimport krever desktop-appen." : ""}
         </div>
         <div className="form-row">
@@ -1109,7 +1306,7 @@ export default function App() {
             className="hidden-file-input"
             type="file"
             multiple
-            accept=".pdf,.txt,.md,.markdown,.png,.jpg,.jpeg,.tif,.tiff"
+            accept=".pdf,.docx,.txt,.md,.markdown,.png,.jpg,.jpeg,.tif,.tiff"
             onChange={(event) => handleBrowserFileSelection(event.target.files)}
           />
           <button className="button-ghost secondary-link" onClick={() => setShowAdvancedImport((current) => !current)}>
@@ -1136,6 +1333,29 @@ export default function App() {
           <strong>{isDragActive ? "Slipp dokumentene her" : "Dra dokumenter hit"}</strong>
           <span>Du kan slippe flere filer samtidig. Bruk Velg filer hvis drag/drop ikke passer.</span>
         </div>
+        {importQueue.length > 0 ? (
+          <div className="import-queue" aria-live="polite">
+            <div className="import-queue__header">
+              <strong>Importkø</strong>
+              <span>{importQueue.filter((item) => item.status === "ready").length} av {importQueue.length} klare</span>
+            </div>
+            {importQueue.map((item) => (
+              <article key={item.path} className={`import-queue-row import-queue-row--${item.status}`}>
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>{item.detail}</span>
+                </div>
+                <div className="import-queue-row__meta">
+                  {typeof item.pages === "number" ? <span>{countLabel(item.pages, "side", "sider")}</span> : null}
+                  {typeof item.sources === "number" ? <span>{countLabel(item.sources, "kildeutdrag", "kildeutdrag")}</span> : null}
+                  <span className={item.status === "ready" ? "status-chip status-chip--ok" : item.status === "failed" || item.status === "needs_attention" ? "status-chip status-chip--warn" : "status-chip"}>
+                    {importStatusLabel(item.status)}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
         {hasDocuments ? (
           <div className="import-status-grid">
             <span>PDF-sider <strong>{totalPages}</strong></span>
@@ -1145,7 +1365,7 @@ export default function App() {
           </div>
         ) : null}
         {hasDocuments ? <div className="workflow-notice">{userCoverageExplanation}</div> : null}
-        {!selectedCaseId ? <div className="blocked-hint">Import er lÃ¥st til du har valgt eller opprettet en sak.</div> : null}
+        {!selectedCaseId ? <div className="blocked-hint">Import er låst til du har valgt eller opprettet en sak.</div> : null}
         {isImporting ? <div className="notice">Importerer dokumenter ...</div> : null}
         {importError ? <div className="error-notice">{importError}</div> : null}
         {lastImport ? <div className="notice">{lastImport}</div> : null}
@@ -1177,7 +1397,7 @@ export default function App() {
           <h2>Saker</h2>
         </div>
         {cases.length === 0 ? (
-          <div className="empty-state">Ingen saker ennÃ¥. Opprett en sak for Ã¥ starte dokumentarbeidet.</div>
+          <div className="empty-state">Ingen saker ennå. Opprett en sak for å starte dokumentarbeidet.</div>
         ) : (
           <div className="case-list">
             {cases.map((item) => (
@@ -1188,7 +1408,7 @@ export default function App() {
               >
                 <div>
                   <strong>{item.name}</strong>
-                  <div className="muted">{item.id} Â· {item.jurisdiction}</div>
+                  <div className="muted">{item.id} · {item.jurisdiction}</div>
                 </div>
                 <div className="case-row__meta">
                   <span>{countLabel(item.document_count, "dokument", "dokumenter")}</span>
@@ -1217,7 +1437,7 @@ export default function App() {
     const primaryLabel = !selectedCase
       ? "Opprett sak"
       : hasDocuments
-        ? "Ã…pne Saksrom"
+        ? "Åpne Saksrom"
         : "Last opp dokumenter";
     const primaryAction = !selectedCase
       ? undefined
@@ -1231,10 +1451,10 @@ export default function App() {
               <h2>{selectedCase ? selectedCase.name : "Start en ny evalueringssak"}</h2>
               <p>
                 {!selectedCase
-                  ? "Opprett en sak fÃ¸rst. Deretter laster du opp dokumenter og gÃ¥r videre til Saksrom."
+                  ? "Opprett en sak først. Deretter laster du opp dokumenter og går videre til Saksrom."
                   : hasDocuments
-                    ? "Dokumenter er importert. Neste steg er Ã¥ Ã¥pne Saksrom for oppsummering og spÃ¸rsmÃ¥l."
-                    : "Saken er klar. Last opp dokumenter for Ã¥ starte analyse og saksarbeid."}
+                    ? "Dokumenter er importert. Neste steg er å åpne Saksrom for oppsummering og spørsmål."
+                    : "Saken er klar. Last opp dokumenter for å starte analyse og saksarbeid."}
               </p>
             </div>
             {selectedCase ? (
@@ -1263,12 +1483,12 @@ export default function App() {
         <div className="panel-header">
           <div>
             <h2>{selectedCase ? `Dokumenter i ${selectedCase.name}` : "Dokumenter"}</h2>
-            <p>{hasDocuments ? "Sjekk hva AI trygt kan bruke fÃ¸r du gÃ¥r videre." : "Importer dokumenter for valgt sak."}</p>
+            <p>{hasDocuments ? "Sjekk hva AI trygt kan bruke før du går videre." : "Importer dokumenter for valgt sak."}</p>
           </div>
           {hasDocuments ? (
             <div className="panel-actions">
               <button className="button-secondary" onClick={handleReindex}>Oppdater kildeutdrag fra dokumentene</button>
-              <button className="button-primary" onClick={() => setActiveView("control")}>GÃ¥ til kontroll</button>
+              <button className="button-primary" onClick={() => setActiveView("control")}>Gå til kontroll</button>
             </div>
           ) : null}
         </div>
@@ -1281,7 +1501,7 @@ export default function App() {
                 <div>
                   <div className="document-primary">
                     <strong>{document.original_name}</strong>
-                    {document.pending_ocr_page_count > 0 ? <span className="status-chip status-chip--warn">OCR mÃ¥ kjÃ¸res</span> : null}
+                    {document.pending_ocr_page_count > 0 ? <span className="status-chip status-chip--warn">OCR må kjøres</span> : null}
                     {document.source_count > 0 ? <span className="status-chip status-chip--ok">Kildeutdrag OK</span> : null}
                   </div>
                   <button
@@ -1366,7 +1586,7 @@ export default function App() {
         <section className="panel">
           <div className="panel-header">
             <div>
-              <h2>Kontrollrapport</h2>
+              <h2>Kontrollgrunnlag</h2>
               <p>{hasDocuments ? userCoverageExplanation : "Kontrollgrunnlag vises etter import."}</p>
             </div>
             <div className="panel-actions">
@@ -1431,7 +1651,7 @@ export default function App() {
           <div className="panel-header">
             <div>
               <h2>Eksport</h2>
-              <p>Lokal evalueringsoppsummering og testverktÃ¸y.</p>
+              <p>Lokal evalueringsoppsummering og testverktøy.</p>
             </div>
             <button className="button-primary" onClick={generateExport}>Lag eksport</button>
           </div>
@@ -1441,7 +1661,7 @@ export default function App() {
           <div className="panel-header">
             <div>
               <h2>Test og cleanup</h2>
-              <p>Slett testdata, Ã¥pne lokal datamappe eller eksporter diagnosepakke.</p>
+              <p>Slett testdata, åpne lokal datamappe eller eksporter diagnosepakke.</p>
             </div>
           </div>
           <div className="maintenance-actions">
@@ -1449,7 +1669,7 @@ export default function App() {
               <RotateCcw size={16} /> Slett alle testdata
             </button>
             <button className="button-secondary" onClick={handleOpenDataFolder}>
-              <FolderOpen size={16} /> Ã…pne lokal datamappe
+              <FolderOpen size={16} /> Åpne lokal datamappe
             </button>
             <button className="button-secondary" onClick={handleExportDiagnostics}>
               <Download size={16} /> Eksporter diagnosepakke
@@ -1568,14 +1788,22 @@ export default function App() {
 
   return (
     <div className={shellClassName} data-theme={theme}>
-      {showNavigation ? <Sidebar activeView={activeView} onNavigate={setActiveView} /> : null}
+      {showNavigation ? (
+        <Sidebar
+          activeView={activeView}
+          onNavigate={setActiveView}
+          hasDocuments={hasDocuments}
+          hasSources={hasSources}
+          hasAnalysis={hasAnalysis}
+        />
+      ) : null}
       <main className={`workspace ${!showNavigation ? "workspace--guided" : ""} ${showNavigation && isCaseRoomView ? "workspace--chat" : ""}`}>
         {showNavigation && !isCaseRoomView ? (
           <header className="topbar">
             <div>
               <div className="topbar-labels">
-                <span className="evaluation-pill">Evaluation build</span>
-                <span className="local-pill">Lokal behandling</span>
+                <span className="evaluation-pill">PRE-ALPHA · testdata only</span>
+                <span className="local-pill">Sikker lokalmodus</span>
               </div>
               <h1>{viewTitles[activeView]}</h1>
               <p>{status}</p>
@@ -1584,17 +1812,29 @@ export default function App() {
               <button
                 className="theme-toggle"
                 onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-                aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mÃ¸rk modus"}
-                title={theme === "dark" ? "Lys modus" : "MÃ¸rk modus"}
+                aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mørk modus"}
+                title={theme === "dark" ? "Lys modus" : "Mørk modus"}
               >
                 {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-                <span>{theme === "dark" ? "Lys" : "MÃ¸rk"}</span>
+                <span>{theme === "dark" ? "Lys" : "Mørk"}</span>
               </button>
               <button className="command-button button-secondary" onClick={() => setActiveView("control")}>
-                Ctrl + K Â· Sakspilot
+                Ctrl + K · Sakspilot
               </button>
             </div>
           </header>
+        ) : null}
+
+        {showNavigation && !isCaseRoomView ? (
+          <div className="data-safety-banner" role="status">
+            <strong>PRE-ALPHA</strong>
+            <span>Bruk testdata. Lokal behandling er aktiv. Ekstern AI brukes bare når provider er eksplisitt konfigurert.</span>
+            {dbSecurity?.encrypted_at_rest ? (
+              <span>Kryptert lagring: {dbSecurity.cipher}</span>
+            ) : (
+              <span>Kryptering ikke verifisert for ekte klientdata.</span>
+            )}
+          </div>
         ) : null}
 
         {renderView()}

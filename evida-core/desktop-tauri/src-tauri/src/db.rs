@@ -966,7 +966,7 @@ pub fn build_chronology(conn: &Connection, case_id: &str) -> Result<Vec<Chronolo
                 crate::crypto::encrypt_text(&first_sentence(&source.text_excerpt))?,
                 source.id,
                 if index == 0 { "Til kontroll" } else { "Utkast" },
-                if date_text == "Udatert" { "HÃ¸y" } else { "Middels" },
+                if date_text == "Udatert" { "Høy" } else { "Middels" },
                 now,
                 now
             ],
@@ -992,7 +992,7 @@ pub fn build_evidence_matrix(conn: &Connection, case_id: &str) -> Result<Vec<Evi
         params![
             format!("EV-{}", Uuid::new_v4()),
             case_id,
-            crate::crypto::encrypt_text("ForelÃ¸pig hovedpÃ¥stand basert pÃ¥ importerte kilder")?,
+            crate::crypto::encrypt_text("Foreløpig hovedpåstand basert på importerte kilder")?,
             serde_json::to_string(&supporting)?,
             serde_json::to_string(&weakening)?,
             if supporting.len() >= 2 { "Middels" } else { "Svak" },
@@ -1008,7 +1008,7 @@ pub fn build_evidence_matrix(conn: &Connection, case_id: &str) -> Result<Vec<Evi
 pub fn create_argument_item(conn: &Connection, case_id: &str) -> Result<Vec<ArgumentItem>> {
     let sources = list_source_objects(conn, case_id)?;
     if sources.is_empty() {
-        anyhow::bail!("AnfÃ¸rsler trenger kildeobjekter.");
+        anyhow::bail!("Anførsler trenger kildeobjekter.");
     }
     let now = Utc::now().to_rfc3339();
     let linked: Vec<String> = sources.iter().take(2).map(|source| source.id.clone()).collect();
@@ -1019,11 +1019,11 @@ pub fn create_argument_item(conn: &Connection, case_id: &str) -> Result<Vec<Argu
         params![
             format!("ARG-{}", Uuid::new_v4()),
             case_id,
-            crate::crypto::encrypt_text("ForelÃ¸pig anfÃ¸rsel")?,
+            crate::crypto::encrypt_text("Foreløpig anførsel")?,
             crate::crypto::encrypt_text(&first_sentence(&sources[0].text_excerpt))?,
             crate::crypto::encrypt_text("Ikke vurdert")?,
             serde_json::to_string(&linked)?,
-            "MÃ¥ kvalitetssikres",
+            "Må kvalitetssikres",
             now,
             now
         ],
@@ -1049,7 +1049,7 @@ pub fn find_contradictions(conn: &Connection, case_id: &str) -> Result<Vec<Contr
             crate::crypto::encrypt_text("Mulig avvik i faktum")?,
             sources[0].id,
             sources[1].id,
-            crate::crypto::encrypt_text("Kildene bÃ¸r sammenlignes manuelt fÃ¸r konklusjon.")?,
+            crate::crypto::encrypt_text("Kildene bør sammenlignes manuelt før konklusjon.")?,
             "Middels",
             "Til kontroll",
             now,
@@ -1078,14 +1078,14 @@ pub fn assess_risk(conn: &Connection, case_id: &str) -> Result<Vec<RiskItem>> {
             format!("RSK-{}", Uuid::new_v4()),
             case_id,
             crate::crypto::encrypt_text(if needs_ocr { "Ufullstendig tekstgrunnlag" } else { "Kildegrunnlag ikke juridisk kvalitetssikret" })?,
-            if needs_ocr { "HÃ¸y" } else { "Middels" },
+            if needs_ocr { "Høy" } else { "Middels" },
             if arguments.is_empty() {
                 "Ikke koblet".to_string()
             } else {
                 arguments.iter().map(|item| item.id.clone()).collect::<Vec<_>>().join(", ")
             },
             crate::crypto::encrypt_text(&format!("{} kildeobjekter", sources.len()))?,
-            crate::crypto::encrypt_text(if needs_ocr { "KjÃ¸r OCR/tekstkontroll fÃ¸r saksarbeid." } else { "Kontroller kilder og knytt dem til pÃ¥stander." })?,
+            crate::crypto::encrypt_text(if needs_ocr { "Kjør OCR/tekstkontroll før saksarbeid." } else { "Kontroller kilder og knytt dem til påstander." })?,
             now,
             now
         ],
@@ -1611,7 +1611,7 @@ mod tests {
             .next()
             .expect("one source");
         let answer = serde_json::json!({
-            "answer": "ForelÃ¸pig svar",
+            "answer": "Foreløpig svar",
             "sources": [source.id],
             "uncertainty": ["Middels"],
             "missing": ["Bevismatrise"],

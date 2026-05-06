@@ -31,6 +31,7 @@ pub fn run() {
             commands::create_argument_item,
             commands::find_contradictions,
             commands::assess_risk,
+            commands::ask_case_ai,
             commands::record_case_ai_exchange,
             commands::list_case_ai_messages
         ])

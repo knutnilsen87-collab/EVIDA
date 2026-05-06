@@ -69,3 +69,27 @@ npm.cmd run tauri:build
 ```
 
 After a release build, `evida-desktop.exe` can be copied to `Evida Release\Evida.exe`.
+
+## Release preparation
+
+Prepare and verify the local evaluation release:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ops\New-EvidaRelease.ps1
+powershell -ExecutionPolicy Bypass -File ops\Test-EvidaRelease.ps1
+```
+
+This creates:
+
+```text
+Evida Release\SHA256SUMS.txt
+Evida Release\release-manifest.json
+```
+
+## Pilot docs
+
+```text
+docs\PILOT_EVALUATION_PLAN.md
+docs\ACCEPTANCE_SMOKE_TEST.md
+docs\RELEASE_CHECKLIST.md
+```

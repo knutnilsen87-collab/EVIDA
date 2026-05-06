@@ -2,6 +2,8 @@ use crate::hash::sha256_text;
 use anyhow::{Context, Result};
 use std::{fs, path::Path, process::Command};
 
+const MAX_IMPORT_BYTES: u64 = 250 * 1024 * 1024;
+
 #[derive(Debug, Clone)]
 pub struct ExtractedPage {
     pub page_number: i64,
@@ -34,9 +36,18 @@ pub fn extract_document(path: &Path) -> Result<DocumentExtraction> {
     if !path.is_file() {
         anyhow::bail!("Document path is not a file: {}", path.display());
     }
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("Could not inspect document: {}", path.display()))?;
+    if metadata.len() > MAX_IMPORT_BYTES {
+        anyhow::bail!(
+            "Document is too large for this evaluation build: {} MB",
+            metadata.len() / 1024 / 1024
+        );
+    }
 
     match path.extension().and_then(|value| value.to_str()).unwrap_or("").to_lowercase().as_str() {
         "pdf" => extract_pdf(path),
+        "docx" => extract_docx(path),
         "txt" | "md" | "csv" | "log" => extract_text_file(path),
         "png" | "jpg" | "jpeg" | "tif" | "tiff" | "bmp" => extract_image(path),
         _ => Ok(DocumentExtraction {
@@ -48,6 +59,107 @@ pub fn extract_document(path: &Path) -> Result<DocumentExtraction> {
             warnings: vec!["unsupported_file_type".to_string()],
         }),
     }
+}
+
+fn extract_docx(path: &Path) -> Result<DocumentExtraction> {
+    let temp_root = std::env::temp_dir().join(format!("evida-docx-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&temp_root)
+        .with_context(|| format!("Could not create temporary DOCX folder: {}", temp_root.display()))?;
+    let zip_path = temp_root.join("document.zip");
+    fs::copy(path, &zip_path)
+        .with_context(|| format!("Could not prepare DOCX for extraction: {}", path.display()))?;
+
+    let command = format!(
+        "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+        zip_path.display().to_string().replace('\'', "''"),
+        temp_root.display().to_string().replace('\'', "''")
+    );
+    let output = Command::new("powershell")
+        .arg("-NoProfile")
+        .arg("-Command")
+        .arg(command)
+        .output();
+
+    let document_xml = temp_root.join("word").join("document.xml");
+    let result = match output {
+        Ok(result) if result.status.success() && document_xml.exists() => {
+            let xml = fs::read_to_string(&document_xml)
+                .with_context(|| format!("Could not read DOCX text XML: {}", document_xml.display()))?;
+            let text = xml_to_plain_text(&xml);
+            let chunks = split_text_into_chunks(&text, 1);
+            Ok(DocumentExtraction {
+                mime_type: Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()),
+                page_count: 1,
+                ocr_status: if chunks.is_empty() { "empty" } else { "not_required" }.to_string(),
+                pages: vec![ExtractedPage {
+                    page_number: 1,
+                    sha256: if text.trim().is_empty() { None } else { Some(sha256_text(&text)) },
+                    text_status: if text.trim().is_empty() { "empty" } else { "extracted" }.to_string(),
+                }],
+                chunks,
+                warnings: vec![],
+            })
+        }
+        Ok(result) => Ok(DocumentExtraction {
+            mime_type: Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()),
+            page_count: 1,
+            ocr_status: "failed".to_string(),
+            pages: vec![ExtractedPage {
+                page_number: 1,
+                text_status: "failed".to_string(),
+                sha256: None,
+            }],
+            chunks: vec![],
+            warnings: vec![format!(
+                "docx_extract_failed:{}",
+                String::from_utf8_lossy(&result.stderr).trim()
+            )],
+        }),
+        Err(error) => Ok(DocumentExtraction {
+            mime_type: Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()),
+            page_count: 1,
+            ocr_status: "failed".to_string(),
+            pages: vec![ExtractedPage {
+                page_number: 1,
+                text_status: "failed".to_string(),
+                sha256: None,
+            }],
+            chunks: vec![],
+            warnings: vec![format!("docx_extract_not_available:{}", error)],
+        }),
+    };
+
+    let _ = fs::remove_dir_all(&temp_root);
+    result
+}
+
+fn xml_to_plain_text(xml: &str) -> String {
+    let with_breaks = xml
+        .replace("</w:p>", "\n")
+        .replace("<w:tab/>", " ")
+        .replace("<w:br/>", "\n");
+    let mut output = String::with_capacity(with_breaks.len());
+    let mut in_tag = false;
+    for ch in with_breaks.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                output.push(' ');
+            }
+            _ if !in_tag => output.push(ch),
+            _ => {}
+        }
+    }
+    output
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn extract_image(path: &Path) -> Result<DocumentExtraction> {
@@ -237,6 +349,7 @@ fn mime_type_for_path(path: &Path) -> String {
     match path.extension().and_then(|value| value.to_str()).unwrap_or("").to_lowercase().as_str() {
         "txt" => "text/plain",
         "md" => "text/markdown",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "csv" => "text/csv",
         "log" => "text/plain",
         "png" => "image/png",

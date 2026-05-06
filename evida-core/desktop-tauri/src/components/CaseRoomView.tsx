@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CaseAiMessageDto, CaseSummary, DocumentSummary, SourceObjectSummary } from "../types";
-import { listCaseAiMessages, recordCaseAiExchange } from "../lib/api";
+import { askCaseAi, listCaseAiMessages, recordCaseAiExchange } from "../lib/api";
 
 interface CaseRoomViewProps {
   selectedCase?: CaseSummary;
@@ -61,7 +61,7 @@ function buildAnswer(
 ): CaseAnswer {
   if (sources.length === 0) {
     return {
-      answer: "AI-provider ikke aktivert. Lokal kildebasert fallback fant ingen sporbare kildeutdrag å svare fra.",
+      answer: "Sikker lokalmodus fant ingen sporbare kildeutdrag å svare fra ennå.",
       sourceIds: [],
       validatedSources: [],
       answerStrength: {
@@ -84,7 +84,7 @@ function buildAnswer(
   const answerSentences = selected.map((source) => firstSentence(source.text_excerpt));
 
   return {
-    answer: `AI-provider ikke aktivert. Lokal kildebasert fallback peker foreløpig på dette: ${answerSentences.join(" ")}`,
+    answer: `Sikker lokalmodus finner foreløpig dette i sakens kildeutdrag: ${answerSentences.join(" ")}`,
     sourceIds: selected.map((source) => source.id),
     validatedSources: selected.map((source) => ({
       sourceId: source.id,
@@ -94,12 +94,12 @@ function buildAnswer(
     })),
     answerStrength: {
       level: selected.length >= 4 && coverage >= 80 && pendingOcrPages === 0 ? "Høy" : selected.length >= 2 ? "Middels" : "Lav",
-      reason: `Svaret bygger på ${selected.length} kildeutdrag fra lokal fallback.`
+      reason: `Svaret bygger på ${selected.length} lokale kildeutdrag. Ekstern AI er av.`
     },
     uncertainty:
       coverage < 80 || pendingOcrPages > 0
         ? "Middels til høy. Dokumentdekning eller OCR er ikke komplett."
-        : "Middels. Svaret er extractive og må vurderes faglig.",
+        : "Middels. Svaret er kildebasert, men må vurderes faglig.",
     missing: deviations.length > 0 ? deviations.join(" ") : "Juridisk vurdering, full kontekst og manuell godkjenning.",
     nextStep: nextActionTitle
   };
@@ -143,20 +143,17 @@ export function CaseRoomView({
 }: CaseRoomViewProps) {
   const [question, setQuestion] = useState("");
   const [answers, setAnswers] = useState<Array<{ question: string; result: CaseAnswer }>>([]);
+  const [isAsking, setIsAsking] = useState(false);
+  const [providerNotice, setProviderNotice] = useState("");
   const hasSources = sources.length > 0;
   const hasDocuments = documents.length > 0;
   const totalPages = documents.reduce((sum, document) => sum + document.page_count, 0);
   const processedDocuments = documents.filter((document) => document.source_count > 0 || document.analyzed_page_count > 0);
   const canAsk = Boolean(selectedCase?.id && hasDocuments);
   const isIncomplete = !hasSources || coverage < 95 || pendingOcrPages > 0 || deviations.length > 0;
-  const summary = hasSources
-    ? `${selectedCase?.name || "Valgt sak"} har et foreløpig kildebasert grunnlag. Still spørsmål til saken, og Saksrom svarer med kilder, usikkerhet og hva som mangler.`
-    : hasDocuments
-      ? `${selectedCase?.name || "Valgt sak"} har dokumenter, men mangler foreløpig sporbare kildeutdrag. Saksrom kan fortsatt svare, men grunnlaget bør kontrolleres.`
-      : "Importer dokumenter først. Saksrom blir samtaleflaten for oppsummering og spørsmål når saken har dokumentgrunnlag.";
-  const summaryIntro = hasDocuments
+  const summary = hasDocuments
     ? "Jeg har gått gjennom dokumentene som er ferdig behandlet og laget en foreløpig saksoversikt."
-    : summary;
+    : "Importer dokumenter først. Saksrom blir samtaleflaten for oppsummering og spørsmål når saken har dokumentgrunnlag.";
   const summaryLines = hasDocuments
     ? [
         `Dokumentgrunnlag: ${documents.length} dokumenter, ${totalPages} PDF-sider og ${processedDocuments.length} dokumenter ferdig behandlet.`,
@@ -192,12 +189,36 @@ export function CaseRoomView({
     if (!cleanQuestion || !selectedCase?.id || !canAsk) {
       return;
     }
+    setIsAsking(true);
+    setProviderNotice("");
+    try {
+      const providerMessage = await askCaseAi({
+        caseId: selectedCase.id,
+        question: cleanQuestion,
+        coverage,
+        pendingOcrPages,
+        deviations,
+        nextActionTitle
+      });
+      const providerAnswer = parseStoredAnswer(providerMessage);
+      if (providerAnswer) {
+        setAnswers((current) => [providerAnswer, ...current].slice(0, 20));
+        setQuestion("");
+        return;
+      }
+      setProviderNotice("Sikker lokalmodus aktiv: ekstern AI svarte ikke med gyldig struktur, så Evida bruker lokale kildeutdrag.");
+    } catch {
+      setProviderNotice("Sikker lokalmodus aktiv: ekstern AI er av eller utilgjengelig. Evida bruker bare lokale kildeutdrag fra saken.");
+    } finally {
+      setIsAsking(false);
+    }
+
     const result = buildAnswer(cleanQuestion, sources, coverage, deviations, pendingOcrPages, nextActionTitle);
     const answerJson = JSON.stringify({
       question: cleanQuestion,
       result,
-      model_id: "local-source-fallback",
-      prompt_version: "case_room_fallback_v1",
+      model_id: "safe-local-source-mode",
+      prompt_version: "case_room_safe_local_v1",
       source_index_version: `sources-${sources.length}`
     });
     const persisted = await recordCaseAiExchange({
@@ -205,8 +226,8 @@ export function CaseRoomView({
       question: cleanQuestion,
       answerJson,
       sourceIds: result.sourceIds,
-      modelId: "local-source-fallback",
-      promptVersion: "case_room_fallback_v1",
+      modelId: "safe-local-source-mode",
+      promptVersion: "case_room_safe_local_v1",
       sourceIndexVersion: `sources-${sources.length}`
     });
     const stored = parseStoredAnswer(persisted);
@@ -221,8 +242,12 @@ export function CaseRoomView({
           <p className="eyebrow">Saksrom</p>
           <h2>{selectedCase?.name || "Valgt sak"}</h2>
           <div className="case-summary-card">
+            <div className="mode-line">
+              <span className="local-pill">Sikker lokalmodus</span>
+              <span>Ekstern AI er av. Svar bygger kun på lokale kilder i saken.</span>
+            </div>
             <h3>Oppsummering</h3>
-            <p>{summaryIntro}</p>
+            <p>{summary}</p>
             {summaryLines.length > 0 ? (
               <ul className="case-summary-list">
                 {summaryLines.map((line) => (
@@ -301,6 +326,7 @@ export function CaseRoomView({
               </article>
             ))
           )}
+          {providerNotice ? <div className="case-provider-notice">{providerNotice}</div> : null}
         </div>
       </div>
 
@@ -322,10 +348,10 @@ export function CaseRoomView({
           }}
           placeholder="Still et spørsmål om saken"
           rows={1}
-          disabled={!canAsk}
+          disabled={!canAsk || isAsking}
         />
-        <button type="submit" className="button-primary" disabled={!question.trim() || !selectedCase?.id || !canAsk}>
-          Send
+        <button type="submit" className="button-primary" disabled={!question.trim() || !selectedCase?.id || !canAsk || isAsking}>
+          {isAsking ? "Svarer ..." : "Send"}
         </button>
       </form>
     </section>

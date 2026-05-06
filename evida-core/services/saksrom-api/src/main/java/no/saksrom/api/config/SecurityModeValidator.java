@@ -24,10 +24,22 @@ public class SecurityModeValidator {
         if (properties.security().localDevMode() && isProductionProfile()) {
             throw new IllegalStateException("local-dev-mode cannot be enabled in production");
         }
+        if (!properties.security().localDevMode() && isProductionProfile() && !hasJwtTrustConfiguration()) {
+            throw new IllegalStateException("production profile requires JWT issuer-uri or jwk-set-uri");
+        }
     }
 
     private boolean isProductionProfile() {
         return Arrays.stream(environment.getActiveProfiles())
                 .anyMatch(profile -> profile.equalsIgnoreCase("prod") || profile.equalsIgnoreCase("production"));
+    }
+
+    private boolean hasJwtTrustConfiguration() {
+        return hasText(environment.getProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri"))
+                || hasText(environment.getProperty("spring.security.oauth2.resourceserver.jwt.jwk-set-uri"));
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

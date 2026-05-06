@@ -341,6 +341,17 @@ export async function recordCaseAiExchange(params: {
   }
 }
 
+export async function askCaseAi(params: {
+  caseId: string;
+  question: string;
+  coverage: number;
+  pendingOcrPages: number;
+  deviations: string[];
+  nextActionTitle: string;
+}): Promise<CaseAiMessageDto> {
+  return callTauri<CaseAiMessageDto>("ask_case_ai", params);
+}
+
 export async function listCaseAiMessages(caseId: string): Promise<CaseAiMessageDto[]> {
   try {
     return await callTauri<CaseAiMessageDto[]>("list_case_ai_messages", { caseId });

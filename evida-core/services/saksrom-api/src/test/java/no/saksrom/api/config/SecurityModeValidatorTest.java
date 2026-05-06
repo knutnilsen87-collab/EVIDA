@@ -36,4 +36,35 @@ class SecurityModeValidatorTest {
 
         assertDoesNotThrow(validator::validateSecurityMode);
     }
+
+    @Test
+    void productionProfileRequiresJwtTrustConfiguration() {
+        var props = new EvidaProperties(
+                new EvidaProperties.Security(false),
+                new EvidaProperties.Ai(false),
+                new EvidaProperties.Documents(false)
+        );
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+
+        var validator = new SecurityModeValidator(props, environment);
+
+        assertThrows(IllegalStateException.class, validator::validateSecurityMode);
+    }
+
+    @Test
+    void productionProfileAllowsConfiguredJwtIssuer() {
+        var props = new EvidaProperties(
+                new EvidaProperties.Security(false),
+                new EvidaProperties.Ai(false),
+                new EvidaProperties.Documents(false)
+        );
+        var environment = new MockEnvironment()
+                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.test");
+        environment.setActiveProfiles("prod");
+
+        var validator = new SecurityModeValidator(props, environment);
+
+        assertDoesNotThrow(validator::validateSecurityMode);
+    }
 }
