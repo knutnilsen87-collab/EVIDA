@@ -164,3 +164,29 @@ pub struct WorkItems {
     pub contradictions: Vec<ContradictionItem>,
     pub risks: Vec<RiskItem>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaseAiMessageSource {
+    pub id: String,
+    pub message_id: String,
+    pub source_id: String,
+    pub document_id: String,
+    pub page_number: Option<i64>,
+    pub validation_status: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaseAiMessage {
+    pub id: String,
+    pub session_id: String,
+    pub case_id: String,
+    pub role: String,
+    pub content: String,
+    pub answer_json: Option<String>,
+    pub model_id: Option<String>,
+    pub prompt_version: Option<String>,
+    pub source_index_version: Option<String>,
+    pub created_at: String,
+    pub sources: Vec<CaseAiMessageSource>,
+}

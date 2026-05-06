@@ -29,7 +29,9 @@ pub fn run() {
             commands::build_evidence_matrix,
             commands::create_argument_item,
             commands::find_contradictions,
-            commands::assess_risk
+            commands::assess_risk,
+            commands::record_case_ai_exchange,
+            commands::list_case_ai_messages
         ])
         .run(tauri::generate_context!())
         .expect("error while running Saksrom Pro desktop app");

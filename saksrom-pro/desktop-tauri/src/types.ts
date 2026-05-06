@@ -3,6 +3,7 @@ export type CaseStatus = "active" | "archived" | "deleted";
 export type ViewKey =
   | "overview"
   | "documents"
+  | "caseRoom"
   | "chronology"
   | "evidence"
   | "arguments"
@@ -172,4 +173,28 @@ export interface WorkItemsDto {
   arguments: ArgumentItemDto[];
   contradictions: ContradictionItemDto[];
   risks: RiskItemDto[];
+}
+
+export interface CaseAiMessageSourceDto {
+  id: string;
+  message_id: string;
+  source_id: string;
+  document_id: string;
+  page_number?: number;
+  validation_status: "PASS" | "FAIL" | string;
+  created_at: string;
+}
+
+export interface CaseAiMessageDto {
+  id: string;
+  session_id: string;
+  case_id: string;
+  role: "assistant" | "user" | string;
+  content: string;
+  answer_json?: string;
+  model_id?: string;
+  prompt_version?: string;
+  source_index_version?: string;
+  created_at: string;
+  sources: CaseAiMessageSourceDto[];
 }

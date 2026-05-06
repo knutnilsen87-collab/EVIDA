@@ -982,6 +982,187 @@ textarea {
   border-radius: 10px;
 }
 
+.case-room {
+  display: grid;
+  gap: 16px;
+}
+
+.case-room-summary {
+  border-color: #202533;
+}
+
+.case-room-lead {
+  max-width: 78ch;
+  color: #312d28;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.case-room-status,
+.case-room-metrics {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.case-room-status {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.case-room-status span,
+.case-room-metrics span {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e5e0d7;
+  border-radius: 10px;
+  background: #faf9f6;
+  color: #5f574d;
+  font-size: 13px;
+}
+
+.case-room-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.key-point-list,
+.case-answer-list {
+  display: grid;
+  gap: 10px;
+}
+
+.key-point {
+  display: grid;
+  gap: 6px;
+  padding: 13px;
+  border: 1px solid #e5e0d7;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.key-point span {
+  color: #5f574d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.topic-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.topic-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid #c8dbea;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #304255;
+  font-weight: 750;
+  font-size: 13px;
+}
+
+.topic-chip small {
+  color: #5f574d;
+  font-weight: 650;
+}
+
+.topic-chip--tentative {
+  border-color: #e5e0d7;
+  background: #faf9f6;
+  color: #5f574d;
+}
+
+.ask-case-panel {
+  border-color: #c8dbea;
+}
+
+.ask-case-form {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.ask-case-form input {
+  flex: 1;
+}
+
+.case-answer {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e5e0d7;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.case-answer h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.case-answer p {
+  max-width: 76ch;
+  line-height: 1.55;
+}
+
+.case-answer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.case-answer-grid span {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid #e5e0d7;
+  border-radius: 10px;
+  background: #faf9f6;
+  color: #5f574d;
+  font-size: 13px;
+}
+
+.case-source-card-list {
+  display: grid;
+  gap: 8px;
+}
+
+.case-source-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 2fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #e5e0d7;
+  border-radius: 10px;
+  background: #faf9f6;
+}
+
+.case-source-card span {
+  display: block;
+  margin-top: 3px;
+  color: #5f574d;
+  font-size: 12px;
+}
+
+.case-source-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #5f574d;
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 .line-clamp {
   display: -webkit-box;
   overflow: hidden;
@@ -1130,6 +1311,8 @@ textarea {
 .app-shell[data-theme="dark"] .source-panel,
 .app-shell[data-theme="dark"] .case-row,
 .app-shell[data-theme="dark"] .document-row,
+.app-shell[data-theme="dark"] .key-point,
+.app-shell[data-theme="dark"] .case-answer,
 .app-shell[data-theme="dark"] .source-item,
 .app-shell[data-theme="dark"] .check-card,
 .app-shell[data-theme="dark"] .flow-step,
@@ -1254,11 +1437,42 @@ textarea {
 
 .app-shell[data-theme="dark"] code,
 .app-shell[data-theme="dark"] .import-status-grid span,
+.app-shell[data-theme="dark"] .case-room-status span,
+.app-shell[data-theme="dark"] .case-room-metrics span,
+.app-shell[data-theme="dark"] .case-answer-grid span,
+.app-shell[data-theme="dark"] .case-source-card,
 .app-shell[data-theme="dark"] .work-row > *,
 .app-shell[data-theme="dark"] .source-chip {
   color: #f0ece4;
   background: #1c1b19;
   border-color: #3f3a33;
+}
+
+.app-shell[data-theme="dark"] .case-room-lead,
+.app-shell[data-theme="dark"] .case-answer p {
+  color: #ebe5dc;
+}
+
+.app-shell[data-theme="dark"] .case-source-card p,
+.app-shell[data-theme="dark"] .case-source-card span {
+  color: #bdb6aa;
+}
+
+.app-shell[data-theme="dark"] .topic-chip {
+  color: #dbeafe;
+  background: #1d2835;
+  border-color: #37516d;
+}
+
+.app-shell[data-theme="dark"] .topic-chip small,
+.app-shell[data-theme="dark"] .key-point span {
+  color: #bdb6aa;
+}
+
+.app-shell[data-theme="dark"] .topic-chip--tentative {
+  color: #d8d2c7;
+  background: #1f1e1c;
+  border-color: #575044;
 }
 
 .app-shell[data-theme="dark"] .work-table {

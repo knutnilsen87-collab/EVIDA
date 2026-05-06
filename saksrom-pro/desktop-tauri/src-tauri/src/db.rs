@@ -1,7 +1,8 @@
 use crate::domain::{
-    ArgumentItem, AuditEvent, CaseSummary, ChronologyEvent, ContradictionItem,
-    DatabaseSecurityStatus, DocumentIngestionReport, DocumentSummary, EvidenceItem,
-    MaintenanceReport, ReindexReport, RiskItem, SourceObjectSummary, WorkItems,
+    ArgumentItem, AuditEvent, CaseAiMessage, CaseAiMessageSource, CaseSummary,
+    ChronologyEvent, ContradictionItem, DatabaseSecurityStatus, DocumentIngestionReport,
+    DocumentSummary, EvidenceItem, MaintenanceReport, ReindexReport, RiskItem,
+    SourceObjectSummary, WorkItems,
 };
 use crate::ingestion::DocumentExtraction;
 use anyhow::{Context, Result};
@@ -201,6 +202,36 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
             updated_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS case_ai_sessions (
+            id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS case_ai_messages (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES case_ai_sessions(id) ON DELETE CASCADE,
+            case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            answer_json TEXT,
+            model_id TEXT,
+            prompt_version TEXT,
+            source_index_version TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS case_ai_message_sources (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL REFERENCES case_ai_messages(id) ON DELETE CASCADE,
+            source_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            page_number INTEGER,
+            validation_status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_documents_case ON documents(case_id);
         CREATE INDEX IF NOT EXISTS idx_pages_document ON pages(document_id);
         CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id);
@@ -212,6 +243,9 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_argument_case ON argument_items(case_id);
         CREATE INDEX IF NOT EXISTS idx_contradiction_case ON contradiction_items(case_id);
         CREATE INDEX IF NOT EXISTS idx_risk_case ON risk_items(case_id);
+        CREATE INDEX IF NOT EXISTS idx_case_ai_sessions_case ON case_ai_sessions(case_id);
+        CREATE INDEX IF NOT EXISTS idx_case_ai_messages_case ON case_ai_messages(case_id);
+        CREATE INDEX IF NOT EXISTS idx_case_ai_message_sources_message ON case_ai_message_sources(message_id);
         "#,
     )?;
 
@@ -237,6 +271,8 @@ fn encrypt_existing_sensitive_fields(conn: &Connection) -> Result<()> {
     encrypt_existing_column(conn, "risk_items", "risk")?;
     encrypt_existing_column(conn, "risk_items", "source_basis")?;
     encrypt_existing_column(conn, "risk_items", "recommended_action")?;
+    encrypt_existing_column(conn, "case_ai_messages", "content")?;
+    encrypt_existing_column(conn, "case_ai_messages", "answer_json")?;
     Ok(())
 }
 
@@ -391,6 +427,9 @@ pub fn reset_test_data(conn: &Connection) -> Result<MaintenanceReport> {
     conn.execute("DELETE FROM argument_items", [])?;
     conn.execute("DELETE FROM contradiction_items", [])?;
     conn.execute("DELETE FROM risk_items", [])?;
+    conn.execute("DELETE FROM case_ai_message_sources", [])?;
+    conn.execute("DELETE FROM case_ai_messages", [])?;
+    conn.execute("DELETE FROM case_ai_sessions", [])?;
     conn.execute("DELETE FROM chunks", [])?;
     conn.execute("DELETE FROM pages", [])?;
     conn.execute("DELETE FROM documents", [])?;
@@ -429,6 +468,7 @@ pub fn export_diagnostics(conn: &Connection) -> Result<MaintenanceReport> {
             "argument_items": count_table(conn, "argument_items")?,
             "contradiction_items": count_table(conn, "contradiction_items")?,
             "risk_items": count_table(conn, "risk_items")?,
+            "case_ai_messages": count_table(conn, "case_ai_messages")?,
             "audit_events": count_table(conn, "audit_events")?
         }
     });
@@ -1179,6 +1219,237 @@ fn extract_date_text(value: &str) -> String {
     "Udatert".to_string()
 }
 
+pub fn record_case_ai_exchange(
+    conn: &Connection,
+    case_id: &str,
+    question: &str,
+    answer_json: &str,
+    source_ids: &[String],
+    model_id: Option<&str>,
+    prompt_version: Option<&str>,
+    source_index_version: Option<&str>,
+) -> Result<CaseAiMessage> {
+    let now = Utc::now().to_rfc3339();
+    let session_id = ensure_case_ai_session(conn, case_id, &now)?;
+    let user_message_id = format!("AIMSG-{}", Uuid::new_v4());
+    let answer_message_id = format!("AIMSG-{}", Uuid::new_v4());
+
+    conn.execute(
+        "INSERT INTO case_ai_messages
+         (id, session_id, case_id, role, content, answer_json, model_id, prompt_version, source_index_version, created_at)
+         VALUES (?1, ?2, ?3, 'user', ?4, NULL, ?5, ?6, ?7, ?8)",
+        params![
+            user_message_id,
+            session_id,
+            case_id,
+            crate::crypto::encrypt_text(question)?,
+            model_id,
+            prompt_version,
+            source_index_version,
+            now
+        ],
+    )?;
+    conn.execute(
+        "INSERT INTO case_ai_messages
+         (id, session_id, case_id, role, content, answer_json, model_id, prompt_version, source_index_version, created_at)
+         VALUES (?1, ?2, ?3, 'assistant', ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            answer_message_id,
+            session_id,
+            case_id,
+            crate::crypto::encrypt_text(answer_json)?,
+            crate::crypto::encrypt_text(answer_json)?,
+            model_id,
+            prompt_version,
+            source_index_version,
+            now
+        ],
+    )?;
+
+    crate::audit::append_audit_event(
+        conn,
+        Some(case_id),
+        "local-user",
+        "CASE_AI_QUESTION_ASKED",
+        "case_ai_message",
+        &user_message_id,
+        "PASS",
+        None,
+    )?;
+
+    let mut validation_failed = false;
+    let mut persisted_sources = Vec::new();
+    for source_id in source_ids {
+        let validation = validate_source_for_case(conn, case_id, source_id)?;
+        if validation.validation_status != "PASS" {
+            validation_failed = true;
+        }
+        let row_id = format!("AIMSRC-{}", Uuid::new_v4());
+        conn.execute(
+            "INSERT INTO case_ai_message_sources
+             (id, message_id, source_id, document_id, page_number, validation_status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                row_id,
+                answer_message_id,
+                source_id,
+                validation.document_id,
+                validation.page_number,
+                validation.validation_status,
+                now
+            ],
+        )?;
+        crate::audit::append_audit_event(
+            conn,
+            Some(case_id),
+            "local-user",
+            if validation.validation_status == "PASS" {
+                "CASE_AI_SOURCE_VALIDATED"
+            } else {
+                "CASE_AI_SOURCE_VALIDATION_FAILED"
+            },
+            "source_object",
+            source_id,
+            if validation.validation_status == "PASS" { "PASS" } else { "FAIL" },
+            None,
+        )?;
+        persisted_sources.push(CaseAiMessageSource {
+            id: row_id,
+            message_id: answer_message_id.clone(),
+            source_id: source_id.clone(),
+            document_id: validation.document_id,
+            page_number: validation.page_number,
+            validation_status: validation.validation_status,
+            created_at: now.clone(),
+        });
+    }
+
+    crate::audit::append_audit_event(
+        conn,
+        Some(case_id),
+        "local-user",
+        "CASE_AI_ANSWER_GENERATED",
+        "case_ai_message",
+        &answer_message_id,
+        if validation_failed { "WARN" } else { "PASS" },
+        Some(&serde_json::json!({
+            "model_id": model_id,
+            "prompt_version": prompt_version,
+            "source_index_version": source_index_version,
+            "sources": source_ids.len(),
+            "validation": if validation_failed { "failed" } else { "passed" }
+        }).to_string()),
+    )?;
+
+    Ok(CaseAiMessage {
+        id: answer_message_id,
+        session_id,
+        case_id: case_id.to_string(),
+        role: "assistant".to_string(),
+        content: answer_json.to_string(),
+        answer_json: Some(answer_json.to_string()),
+        model_id: model_id.map(ToString::to_string),
+        prompt_version: prompt_version.map(ToString::to_string),
+        source_index_version: source_index_version.map(ToString::to_string),
+        created_at: now,
+        sources: persisted_sources,
+    })
+}
+
+pub fn list_case_ai_messages(conn: &Connection, case_id: &str) -> Result<Vec<CaseAiMessage>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, session_id, case_id, role, content, answer_json, model_id, prompt_version, source_index_version, created_at
+         FROM case_ai_messages
+         WHERE case_id = ?1 AND role = 'assistant'
+         ORDER BY created_at DESC
+         LIMIT 50",
+    )?;
+    let rows = stmt.query_map(params![case_id], |row| {
+        let message_id: String = row.get(0)?;
+        Ok(CaseAiMessage {
+            id: message_id.clone(),
+            session_id: row.get(1)?,
+            case_id: row.get(2)?,
+            role: row.get(3)?,
+            content: crate::crypto::decrypt_text(&row.get::<_, String>(4)?),
+            answer_json: row
+                .get::<_, Option<String>>(5)?
+                .map(|value| crate::crypto::decrypt_text(&value)),
+            model_id: row.get(6)?,
+            prompt_version: row.get(7)?,
+            source_index_version: row.get(8)?,
+            created_at: row.get(9)?,
+            sources: list_case_ai_message_sources(conn, &message_id).unwrap_or_default(),
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+struct SourceValidation {
+    document_id: String,
+    page_number: Option<i64>,
+    validation_status: String,
+}
+
+fn ensure_case_ai_session(conn: &Connection, case_id: &str, now: &str) -> Result<String> {
+    if let Ok(id) = conn.query_row(
+        "SELECT id FROM case_ai_sessions WHERE case_id = ?1 ORDER BY updated_at DESC LIMIT 1",
+        params![case_id],
+        |row| row.get::<_, String>(0),
+    ) {
+        conn.execute("UPDATE case_ai_sessions SET updated_at = ?1 WHERE id = ?2", params![now, id])?;
+        return Ok(id);
+    }
+    let id = format!("AISES-{}", Uuid::new_v4());
+    conn.execute(
+        "INSERT INTO case_ai_sessions (id, case_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+        params![id, case_id, now],
+    )?;
+    Ok(id)
+}
+
+fn validate_source_for_case(conn: &Connection, case_id: &str, source_id: &str) -> Result<SourceValidation> {
+    let found = conn.query_row(
+        "SELECT document_id, page_start FROM source_objects WHERE id = ?1 AND case_id = ?2",
+        params![source_id, case_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+    );
+    match found {
+        Ok((document_id, page_number)) => Ok(SourceValidation {
+            document_id,
+            page_number: Some(page_number),
+            validation_status: "PASS".to_string(),
+        }),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(SourceValidation {
+            document_id: "MISSING".to_string(),
+            page_number: None,
+            validation_status: "FAIL".to_string(),
+        }),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn list_case_ai_message_sources(conn: &Connection, message_id: &str) -> Result<Vec<CaseAiMessageSource>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, message_id, source_id, document_id, page_number, validation_status, created_at
+         FROM case_ai_message_sources
+         WHERE message_id = ?1
+         ORDER BY created_at ASC",
+    )?;
+    let rows = stmt.query_map(params![message_id], |row| {
+        Ok(CaseAiMessageSource {
+            id: row.get(0)?,
+            message_id: row.get(1)?,
+            source_id: row.get(2)?,
+            document_id: row.get(3)?,
+            page_number: row.get(4)?,
+            validation_status: row.get(5)?,
+            created_at: row.get(6)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
 fn append_work_audit(conn: &Connection, case_id: &str, action: &str, target_type: &str) -> Result<()> {
     crate::audit::append_audit_event(
         conn,
@@ -1298,6 +1569,66 @@ mod tests {
         assert_eq!(work.evidence.len(), 1);
         assert_eq!(work.arguments.len(), 1);
         assert_eq!(work.risks.len(), 1);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn case_ai_exchange_is_persisted_and_audited() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        apply_schema(&conn).expect("apply schema");
+        let case = create_case(&conn, "Saksrom AI", "NO").expect("create case");
+
+        let path = std::env::temp_dir().join(format!("saksrom-ai-{}.txt", Uuid::new_v4()));
+        std::fs::write(
+            &path,
+            "Saken omtaler betaling, faktura og selskapsstruktur. Dokumentet viser flere transaksjoner.",
+        )
+        .expect("write ai smoke file");
+        let sha256 = crate::hash::sha256_file(&path).expect("hash file");
+        let extraction = crate::ingestion::extract_document(&path).expect("extract document");
+        insert_document(
+            &conn,
+            &case.id,
+            "ai.txt",
+            path.to_str().expect("path utf8"),
+            &sha256,
+            &extraction,
+        )
+        .expect("insert document");
+
+        let source = list_source_objects(&conn, &case.id)
+            .expect("sources")
+            .into_iter()
+            .next()
+            .expect("one source");
+        let answer = serde_json::json!({
+            "answer": "Foreløpig svar",
+            "sources": [source.id],
+            "uncertainty": ["Middels"],
+            "missing": ["Bevismatrise"],
+            "next_action": { "label": "Bygg bevismatrise" }
+        })
+        .to_string();
+        let message = record_case_ai_exchange(
+            &conn,
+            &case.id,
+            "Hva handler saken om?",
+            &answer,
+            std::slice::from_ref(&source.id),
+            Some("local-source-fallback"),
+            Some("case_room_fallback_v1"),
+            Some("sources-1"),
+        )
+        .expect("record ai exchange");
+
+        assert_eq!(message.sources.len(), 1);
+        assert_eq!(message.sources[0].validation_status, "PASS");
+        assert_eq!(list_case_ai_messages(&conn, &case.id).expect("messages").len(), 1);
+        let audit = list_audit_events(&conn, Some(&case.id)).expect("audit");
+        assert!(audit.iter().any(|event| event.action == "CASE_AI_QUESTION_ASKED"));
+        assert!(audit.iter().any(|event| event.action == "CASE_AI_ANSWER_GENERATED"));
+        assert!(audit.iter().any(|event| event.action == "CASE_AI_SOURCE_VALIDATED"));
 
         let _ = std::fs::remove_file(path);
     }

@@ -13,7 +13,8 @@ import type {
   EvidenceItemDto,
   ArgumentItemDto,
   ContradictionItemDto,
-  RiskItemDto
+  RiskItemDto,
+  CaseAiMessageDto
 } from "../types";
 
 const STORE_KEY = "saksrom-pro-dev-store-v1";
@@ -24,6 +25,7 @@ interface DevStore {
   sources: SourceObjectSummary[];
   audit: AuditEvent[];
   workItems: Record<string, WorkItemsDto>;
+  aiMessages: Record<string, CaseAiMessageDto[]>;
 }
 
 function hasTauriRuntime() {
@@ -44,7 +46,7 @@ async function callTauri<T>(command: string, args?: Record<string, unknown>): Pr
 function readStore(): DevStore {
   const raw = window.localStorage.getItem(STORE_KEY);
   if (!raw) {
-    return { cases: [], documents: [], sources: [], audit: [], workItems: {} };
+    return { cases: [], documents: [], sources: [], audit: [], workItems: {}, aiMessages: {} };
   }
   const parsed = JSON.parse(raw) as Partial<DevStore>;
   return {
@@ -52,7 +54,8 @@ function readStore(): DevStore {
     documents: parsed.documents || [],
     sources: parsed.sources || [],
     audit: parsed.audit || [],
-    workItems: parsed.workItems || {}
+    workItems: parsed.workItems || {},
+    aiMessages: parsed.aiMessages || {}
   };
 }
 
@@ -281,6 +284,71 @@ export async function listAuditEvents(caseId?: string): Promise<AuditEvent[]> {
   }
 }
 
+export async function recordCaseAiExchange(params: {
+  caseId: string;
+  question: string;
+  answerJson: string;
+  sourceIds: string[];
+  modelId?: string;
+  promptVersion?: string;
+  sourceIndexVersion?: string;
+}): Promise<CaseAiMessageDto> {
+  try {
+    return await callTauri<CaseAiMessageDto>("record_case_ai_exchange", params);
+  } catch {
+    const store = readStore();
+    const sources = params.sourceIds.map((sourceId) => {
+      const source = store.sources.find((item) => item.case_id === params.caseId && item.id === sourceId);
+      return {
+        id: id("AIMSRC"),
+        message_id: "",
+        source_id: sourceId,
+        document_id: source?.document_id || "MISSING",
+        page_number: source?.page_start,
+        validation_status: source ? "PASS" : "FAIL",
+        created_at: now()
+      };
+    });
+    const messageId = id("AIMSG");
+    const message: CaseAiMessageDto = {
+      id: messageId,
+      session_id: id("AISES"),
+      case_id: params.caseId,
+      role: "assistant",
+      content: params.answerJson,
+      answer_json: params.answerJson,
+      model_id: params.modelId,
+      prompt_version: params.promptVersion,
+      source_index_version: params.sourceIndexVersion,
+      created_at: now(),
+      sources: sources.map((source) => ({ ...source, message_id: messageId }))
+    };
+    store.aiMessages[params.caseId] = [message, ...(store.aiMessages[params.caseId] || [])].slice(0, 50);
+    appendAudit(store, {
+      case_id: params.caseId,
+      action: "CASE_AI_QUESTION_ASKED",
+      target_type: "case_ai_message",
+      target_id: messageId
+    });
+    appendAudit(store, {
+      case_id: params.caseId,
+      action: "CASE_AI_ANSWER_GENERATED",
+      target_type: "case_ai_message",
+      target_id: messageId
+    });
+    writeStore(store);
+    return message;
+  }
+}
+
+export async function listCaseAiMessages(caseId: string): Promise<CaseAiMessageDto[]> {
+  try {
+    return await callTauri<CaseAiMessageDto[]>("list_case_ai_messages", { caseId });
+  } catch {
+    return readStore().aiMessages[caseId] || [];
+  }
+}
+
 export async function listWorkItems(caseId: string): Promise<WorkItemsDto> {
   try {
     return await callTauri<WorkItemsDto>("list_work_items", { caseId });
@@ -421,7 +489,7 @@ export async function resetTestData(): Promise<MaintenanceReport> {
       documents_deleted: store.documents.length,
       sources_deleted: store.sources.length
     };
-    writeStore({ cases: [], documents: [], sources: [], audit: [], workItems: {} });
+    writeStore({ cases: [], documents: [], sources: [], audit: [], workItems: {}, aiMessages: {} });
     return report;
   }
 }

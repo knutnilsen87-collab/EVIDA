@@ -38,6 +38,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SourcePanel } from "./components/SourcePanel";
 import { SourcePreviewDrawer } from "./components/SourcePreviewDrawer";
 import { StatusCard } from "./components/StatusCard";
+import { CaseRoomView } from "./components/CaseRoomView";
 import { ArgumentsView } from "./components/workrooms/ArgumentsView";
 import { ChronologyView } from "./components/workrooms/ChronologyView";
 import { ContradictionsView } from "./components/workrooms/ContradictionsView";
@@ -55,13 +56,14 @@ import type {
 const viewTitles: Record<ViewKey, string> = {
   overview: "Saksoversikt",
   documents: "Dokumenter",
+  caseRoom: "Saksrom",
   chronology: "Kronologi",
-  evidence: "Bevis",
+  evidence: "Bevismatrise",
   arguments: "Anførsler",
   contradictions: "Motstrid",
   risk: "Risiko",
   draft: "Utkast",
-  control: "Kontroll",
+  control: "Kontrollrapport",
   export: "Eksport"
 };
 
@@ -393,6 +395,19 @@ export default function App() {
         onSecondaryAction: () => setActiveView("control")
       };
     }
+    if (activeView !== "caseRoom") {
+      return {
+        step: 3,
+        stepTotal: 6,
+        title: "Åpne Saksrom",
+        description: "Se sammendrag, dokumentstatus, mulige temaer og spør saken før du går videre.",
+        why: "Saksrom gir første samlede verdi etter import uten at du må lese råkildene selv.",
+        actionLabel: "Åpne Saksrom",
+        onAction: () => setActiveView("caseRoom"),
+        secondaryLabel: "Gå til kontroll",
+        onSecondaryAction: () => setActiveView("control")
+      };
+    }
     if (!hasSources || needsOcr) {
       return {
         step: 3,
@@ -448,6 +463,7 @@ export default function App() {
     hasDocuments,
     hasSources,
     needsOcr,
+    activeView,
     timelineItems.length,
     evidenceRows.length,
     buildChronology,
@@ -483,7 +499,7 @@ export default function App() {
           )}, ${countLabel(sourceCount, "kildeutdrag", "kildeutdrag")}`
         );
         await refresh(selectedCaseId);
-        setActiveView(sourceCount > 0 ? "control" : "documents");
+        setActiveView("caseRoom");
       } catch (error) {
         setImportError(`Import feilet: ${String(error)}`);
       } finally {
@@ -1164,6 +1180,25 @@ export default function App() {
             <DocumentList />
             <CaseList />
           </>
+        );
+      case "caseRoom":
+        return (
+          <CaseRoomView
+            selectedCase={selectedCase}
+            documents={documents}
+            sources={sources}
+            sourcesById={sourceById}
+            timelineItems={timelineItems}
+            evidenceRows={evidenceRows}
+            totalPages={totalPages}
+            analyzedPages={analyzedPages}
+            pendingOcrPages={pendingOcrPages}
+            ocrStatus={ocrStatus}
+            coverage={coveragePercent}
+            deviations={deviations}
+            nextAction={nextAction}
+            onOpenSource={openSource}
+          />
         );
       case "chronology":
         return (

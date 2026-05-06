@@ -3,13 +3,14 @@ import type { ViewKey } from "../types";
 const items: Array<{ key: ViewKey; label: string }> = [
   { key: "overview", label: "Saksoversikt" },
   { key: "documents", label: "Dokumenter" },
+  { key: "caseRoom", label: "Saksrom" },
   { key: "chronology", label: "Kronologi" },
-  { key: "evidence", label: "Bevis" },
+  { key: "evidence", label: "Bevismatrise" },
   { key: "arguments", label: "Anførsler" },
   { key: "contradictions", label: "Motstrid" },
   { key: "risk", label: "Risiko" },
   { key: "draft", label: "Utkast" },
-  { key: "control", label: "Kontroll" },
+  { key: "control", label: "Kontrollrapport" },
   { key: "export", label: "Eksport" }
 ];
 

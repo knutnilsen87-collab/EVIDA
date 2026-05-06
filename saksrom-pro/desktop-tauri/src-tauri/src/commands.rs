@@ -1,7 +1,7 @@
 use crate::domain::{
-    ArgumentItem, AuditEvent, CaseSummary, ChronologyEvent, ContradictionItem,
-    DatabaseSecurityStatus, DocumentIngestionReport, DocumentSummary, EvidenceItem,
-    MaintenanceReport, ReindexReport, RiskItem, SourceObjectSummary, WorkItems,
+    ArgumentItem, AuditEvent, CaseAiMessage, CaseSummary, ChronologyEvent,
+    ContradictionItem, DatabaseSecurityStatus, DocumentIngestionReport, DocumentSummary,
+    EvidenceItem, MaintenanceReport, ReindexReport, RiskItem, SourceObjectSummary, WorkItems,
 };
 use std::path::Path;
 
@@ -161,4 +161,34 @@ pub fn find_contradictions(case_id: String) -> Result<Vec<ContradictionItem>, St
 pub fn assess_risk(case_id: String) -> Result<Vec<RiskItem>, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
     crate::db::assess_risk(&conn, &case_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn record_case_ai_exchange(
+    case_id: String,
+    question: String,
+    answer_json: String,
+    source_ids: Vec<String>,
+    model_id: Option<String>,
+    prompt_version: Option<String>,
+    source_index_version: Option<String>,
+) -> Result<CaseAiMessage, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::record_case_ai_exchange(
+        &conn,
+        &case_id,
+        &question,
+        &answer_json,
+        &source_ids,
+        model_id.as_deref(),
+        prompt_version.as_deref(),
+        source_index_version.as_deref(),
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_case_ai_messages(case_id: String) -> Result<Vec<CaseAiMessage>, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::list_case_ai_messages(&conn, &case_id).map_err(|error| error.to_string())
 }
