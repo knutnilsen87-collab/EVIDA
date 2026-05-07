@@ -1,6 +1,6 @@
-import type { ViewKey } from "../types";
+import type { CaseReadinessVerdict, ViewKey } from "../types";
 
-type UnlockLevel = "base" | "documents" | "sources" | "analysis";
+type UnlockLevel = "base" | "documents" | "sources" | "analysis" | "litigation";
 
 const items: Array<{ key: ViewKey; label: string; unlock: UnlockLevel }> = [
   { key: "overview", label: "Saksoversikt", unlock: "base" },
@@ -12,6 +12,7 @@ const items: Array<{ key: ViewKey; label: string; unlock: UnlockLevel }> = [
   { key: "arguments", label: "Anførsler", unlock: "analysis" },
   { key: "contradictions", label: "Motstrid", unlock: "analysis" },
   { key: "risk", label: "Risiko", unlock: "analysis" },
+  { key: "litigation", label: "Rettssimulering", unlock: "litigation" },
   { key: "draft", label: "Utkast", unlock: "analysis" },
   { key: "export", label: "Eksport", unlock: "analysis" }
 ];
@@ -22,9 +23,19 @@ interface SidebarProps {
   hasDocuments: boolean;
   hasSources: boolean;
   hasAnalysis: boolean;
+  readinessVerdict?: CaseReadinessVerdict;
 }
 
-function isUnlocked(unlock: UnlockLevel, hasDocuments: boolean, hasSources: boolean, hasAnalysis: boolean) {
+function isUnlocked(
+  unlock: UnlockLevel,
+  hasDocuments: boolean,
+  hasSources: boolean,
+  hasAnalysis: boolean,
+  readinessVerdict?: CaseReadinessVerdict
+) {
+  if (unlock === "litigation") {
+    return readinessVerdict?.status !== "not_ready";
+  }
   if (unlock === "documents") {
     return hasDocuments;
   }
@@ -38,6 +49,9 @@ function isUnlocked(unlock: UnlockLevel, hasDocuments: boolean, hasSources: bool
 }
 
 function lockedReason(unlock: UnlockLevel) {
+  if (unlock === "litigation") {
+    return "Åpnes når saken har dokumenter og minst forhåndsvisning av kildegrunnlag.";
+  }
   if (unlock === "documents") {
     return "Åpnes etter at minst ett dokument er importert.";
   }
@@ -50,7 +64,7 @@ function lockedReason(unlock: UnlockLevel) {
   return "";
 }
 
-export function Sidebar({ activeView, onNavigate, hasDocuments, hasSources, hasAnalysis }: SidebarProps) {
+export function Sidebar({ activeView, onNavigate, hasDocuments, hasSources, hasAnalysis, readinessVerdict }: SidebarProps) {
   return (
     <nav className="sidebar" aria-label="Hovednavigasjon">
       <div className="brand">
@@ -60,9 +74,15 @@ export function Sidebar({ activeView, onNavigate, hasDocuments, hasSources, hasA
           <div className="brand-subtitle">Kildebasert saksrom</div>
         </div>
       </div>
+      {readinessVerdict ? (
+        <div className={`sidebar-readiness sidebar-readiness--${readinessVerdict.status}`}>
+          <strong>{readinessVerdict.label}</strong>
+          <span>{readinessVerdict.nextStep}</span>
+        </div>
+      ) : null}
       <ul>
         {items.map((item) => {
-          const unlocked = isUnlocked(item.unlock, hasDocuments, hasSources, hasAnalysis);
+          const unlocked = isUnlocked(item.unlock, hasDocuments, hasSources, hasAnalysis, readinessVerdict);
           return (
             <li key={item.key} title={unlocked ? item.label : lockedReason(item.unlock)}>
               <button

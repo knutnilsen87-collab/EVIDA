@@ -27,6 +27,7 @@ import {
 } from "./lib/api";
 import type {
   AuditEvent,
+  CaseReadinessVerdict,
   CaseSummary,
   DatabaseSecurityStatus,
   DocumentSummary,
@@ -34,11 +35,13 @@ import type {
   ViewKey
 } from "./types";
 import { NextAction } from "./components/NextAction";
+import { PdfImportPanel } from "./components/PdfImportPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SourcePanel } from "./components/SourcePanel";
 import { SourcePreviewDrawer } from "./components/SourcePreviewDrawer";
 import { StatusCard } from "./components/StatusCard";
 import { CaseRoomView } from "./components/CaseRoomView";
+import { LitigationSimulationView } from "./components/LitigationSimulationView";
 import { ArgumentsView } from "./components/workrooms/ArgumentsView";
 import { ChronologyView } from "./components/workrooms/ChronologyView";
 import { ContradictionsView } from "./components/workrooms/ContradictionsView";
@@ -62,6 +65,7 @@ const viewTitles: Record<ViewKey, string> = {
   arguments: "Anførsler",
   contradictions: "Motstrid",
   risk: "Risiko",
+  litigation: "Rettssimulering",
   draft: "Utkast",
   control: "Kontrollgrunnlag",
   export: "Eksport"
@@ -167,6 +171,80 @@ function documentReadiness(document: DocumentSummary) {
   };
 }
 
+function buildReadinessVerdict(params: {
+  selectedCase?: CaseSummary;
+  hasDocuments: boolean;
+  hasSources: boolean;
+  coveragePercent: number;
+  pendingOcrPages: number;
+  deviations: string[];
+  analyzedPages: number;
+  totalPages: number;
+  hasAnalysis: boolean;
+  sourceCount: number;
+}): CaseReadinessVerdict {
+  const {
+    selectedCase,
+    hasDocuments,
+    hasSources,
+    coveragePercent,
+    pendingOcrPages,
+    deviations,
+    analyzedPages,
+    totalPages,
+    hasAnalysis,
+    sourceCount
+  } = params;
+
+  if (!selectedCase || !hasDocuments) {
+    return {
+      status: "not_ready",
+      label: "Ikke klar",
+      description: "Saken trenger dokumenter før Evida kan lage kildebasert analyse.",
+      detail: selectedCase ? "Importer minst ett dokument." : "Opprett eller velg en sak.",
+      nextStep: selectedCase ? "Importer dokument" : "Opprett sak"
+    };
+  }
+
+  if (!hasSources) {
+    return {
+      status: "needs_control",
+      label: "Krever kontroll",
+      description: "Dokumenter finnes, men mangler sporbare kildeutdrag.",
+      detail: "Kjør import/reindeksering eller OCR/tekstkontroll.",
+      nextStep: "Åpne kontrollgrunnlag"
+    };
+  }
+
+  if (pendingOcrPages > 0 || deviations.length > 0 || analyzedPages < totalPages || coveragePercent < 50) {
+    return {
+      status: "needs_control",
+      label: "Krever kontroll",
+      description: "Saken kan brukes foreløpig, men dokumentgrunnlaget har åpne kontrollpunkter.",
+      detail: deviations.length ? deviations.join(" ") : `${pendingOcrPages} sider trenger OCR eller tekstkontroll.`,
+      nextStep: "Løs avvik før utkast eller endelig kontroll"
+    };
+  }
+
+  if (coveragePercent >= 95 && hasAnalysis) {
+    return {
+      status: "draft_ready",
+      label: "Klar for utkastkontroll",
+      description: "Kilder og første analyse er klare nok for kontrollert utkastarbeid.",
+      detail: `${coveragePercent}% kildeklar dekning, ${countLabel(sourceCount, "kildeutdrag", "kildeutdrag")}.`,
+      nextStep: "Kjør kvalitet/endelig kontroll før bruk"
+    };
+  }
+
+  return {
+    status: "preliminary_ready",
+    label: "Klar for foreløpig analyse",
+    description: "Saksrom kan lage kildebaserte foreløpige svar, kronologi og bevisliste.",
+    detail: `${coveragePercent}% kildeklar dekning.`,
+    nextStep: "Bygg kronologi og bevismatrise"
+  };
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<ViewKey>("overview");
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -215,6 +293,7 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<CaseSummary | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [activeSource, setActiveSource] = useState<SourceObjectSummary | undefined>();
+  const [litigationContext, setLitigationContext] = useState("");
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
   const [evidenceRows, setEvidenceRows] = useState<EvidenceRow[]>([]);
   const [argumentRows, setArgumentRows] = useState<ArgumentRow[]>([]);
@@ -375,6 +454,34 @@ export default function App() {
     }
     return items;
   }, [analyzedPages, hasDocuments, hasSources, needsOcr, totalPages]);
+
+  const readinessVerdict = useMemo(
+    () =>
+      buildReadinessVerdict({
+        selectedCase,
+        hasDocuments,
+        hasSources,
+        coveragePercent,
+        pendingOcrPages,
+        deviations,
+        analyzedPages,
+        totalPages,
+        hasAnalysis,
+        sourceCount: sources.length
+      }),
+    [
+      selectedCase,
+      hasDocuments,
+      hasSources,
+      coveragePercent,
+      pendingOcrPages,
+      deviations,
+      analyzedPages,
+      totalPages,
+      hasAnalysis,
+      sources.length
+    ]
+  );
 
   async function handleCreateCase() {
     const name = caseName.trim() || "Ny sak";
@@ -846,9 +953,23 @@ export default function App() {
     setActiveSource(sourceById.get(sourceId));
   }
 
+  function openLitigation(context?: string) {
+    setLitigationContext(context || "");
+    setActiveView("litigation");
+  }
+
   function generateDraft() {
-    if (!hasSources) {
-      setDraftText("Utkast kan lages n\u00e5r saken har sporbare kildeutdrag. Last opp en tekst-PDF/TXT eller kj\u00f8r OCR f\u00f8r juridisk tekst genereres.");
+    if (readinessVerdict.status !== "draft_ready") {
+      setDraftText(
+        [
+          `Utkast er blokkert: ${readinessVerdict.label}.`,
+          readinessVerdict.description,
+          "",
+          `Neste steg: ${readinessVerdict.nextStep}`,
+          "",
+          "Kjør kontrollgrunnlag, kronologi og bevismatrise før juridisk tekst genereres."
+        ].join("\n")
+      );
       return;
     }
     setDraftText(
@@ -875,7 +996,8 @@ export default function App() {
             pdf_pages: totalPages,
             analyzed_pages: analyzedPages,
             source_objects: sources.length,
-            ocr_status: ocrStatus
+            ocr_status: ocrStatus,
+            readiness_verdict: readinessVerdict
           },
           workflow: {
             chronology_items: timelineItems.length,
@@ -1327,12 +1449,18 @@ export default function App() {
             >
               Registrer dokument
             </button>
+            {selectedCaseId ? <PdfImportPanel caseId={selectedCaseId} /> : null}
           </div>
         ) : null}
-        <div className="drop-zone">
+        <button
+          type="button"
+          className="drop-zone"
+          disabled={!selectedCaseId || isImporting}
+          onClick={() => void handleChooseFiles()}
+        >
           <strong>{isDragActive ? "Slipp dokumentene her" : "Dra dokumenter hit"}</strong>
           <span>Du kan slippe flere filer samtidig. Bruk Velg filer hvis drag/drop ikke passer.</span>
-        </div>
+        </button>
         {importQueue.length > 0 ? (
           <div className="import-queue" aria-live="polite">
             <div className="import-queue__header">
@@ -1594,6 +1722,14 @@ export default function App() {
               <button className="button-secondary" onClick={() => void refresh(selectedCaseId)}>Oppdater</button>
             </div>
           </div>
+          <div className={`readiness-verdict readiness-verdict--${readinessVerdict.status}`}>
+            <strong>{readinessVerdict.label}</strong>
+            <span>{readinessVerdict.description}</span>
+            <small>{readinessVerdict.detail}</small>
+            <button type="button" className="button-secondary" onClick={() => setActiveView("caseRoom")}>
+              Åpne Saksrom
+            </button>
+          </div>
           <div className="check-grid">
             {checks.map((check) => (
               <article key={check.label} className={`check-card ${check.ok ? "check-card--ok" : "check-card--warn"}`}>
@@ -1636,7 +1772,12 @@ export default function App() {
               <h2>Utkast</h2>
               <p>Lokalt arbeidsutkast fra kontrollerte, sporbare kildeutdrag.</p>
             </div>
-            <button className="button-primary" onClick={generateDraft}>Lag utkast</button>
+            <button className="button-primary" onClick={generateDraft} disabled={readinessVerdict.status !== "draft_ready"}>Lag utkast</button>
+          </div>
+          <div className={`readiness-verdict readiness-verdict--${readinessVerdict.status}`}>
+            <strong>{readinessVerdict.label}</strong>
+            <span>{readinessVerdict.status === "draft_ready" ? "Utkastkontroll kan kjøres, men må fortsatt godkjennes manuelt." : "Utkast er låst til saken er klar for utkastkontroll."}</span>
+            <small>{readinessVerdict.nextStep}</small>
           </div>
           <textarea readOnly value={draftText} placeholder="Utkast vises her etter at du trykker Lag utkast." />
         </section>
@@ -1654,6 +1795,11 @@ export default function App() {
               <p>Lokal evalueringsoppsummering og testverktøy.</p>
             </div>
             <button className="button-primary" onClick={generateExport}>Lag eksport</button>
+          </div>
+          <div className={`readiness-verdict readiness-verdict--${readinessVerdict.status}`}>
+            <strong>{readinessVerdict.label}</strong>
+            <span>Eksport inkluderer readiness-dom og kontrollstatus.</span>
+            <small>{readinessVerdict.detail}</small>
           </div>
           <textarea readOnly value={exportText} placeholder="Eksport vises her etter at du trykker Lag eksport." />
         </section>
@@ -1708,9 +1854,11 @@ export default function App() {
             pendingOcrPages={pendingOcrPages}
             coverage={coveragePercent}
             deviations={deviations}
+            readinessVerdict={readinessVerdict}
             nextActionTitle={nextAction.title}
             onOpenSource={openSource}
             onOpenControl={() => setActiveView("control")}
+            onOpenLitigation={openLitigation}
           />
         );
       case "chronology":
@@ -1768,6 +1916,21 @@ export default function App() {
             <RiskView rows={riskRows} onAssess={buildRisk} />
           </>
         );
+      case "litigation":
+        return (
+          <LitigationSimulationView
+            selectedCase={selectedCase}
+            documents={documents}
+            sources={sources}
+            readinessVerdict={readinessVerdict}
+            coverage={coveragePercent}
+            pendingOcrPages={pendingOcrPages}
+            deviations={deviations}
+            initialContext={litigationContext}
+            onOpenSource={openSource}
+            onOpenControl={() => setActiveView("control")}
+          />
+        );
       case "control":
         return <ControlView />;
       case "draft":
@@ -1795,6 +1958,7 @@ export default function App() {
           hasDocuments={hasDocuments}
           hasSources={hasSources}
           hasAnalysis={hasAnalysis}
+          readinessVerdict={readinessVerdict}
         />
       ) : null}
       <main className={`workspace ${!showNavigation ? "workspace--guided" : ""} ${showNavigation && isCaseRoomView ? "workspace--chat" : ""}`}>

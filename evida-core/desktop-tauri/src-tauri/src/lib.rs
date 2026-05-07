@@ -6,6 +6,7 @@ mod db_key;
 mod domain;
 mod hash;
 mod ingestion;
+mod import;
 
 pub fn run() {
     tauri::Builder::default()
@@ -33,7 +34,9 @@ pub fn run() {
             commands::assess_risk,
             commands::ask_case_ai,
             commands::record_case_ai_exchange,
-            commands::list_case_ai_messages
+            commands::list_case_ai_messages,
+            import::pdf_import::import_single_pdf,
+            import::pdf_search::search_imported_pdf
         ])
         .run(tauri::generate_context!())
         .expect("error while running Evida desktop app");

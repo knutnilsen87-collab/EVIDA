@@ -250,6 +250,10 @@ pub fn ask_case_ai(
     let model = env::var("EVIDA_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.2".to_string());
     let prompt_version = "case_room_openai_responses_v1";
     let source_index_version = format!("sources-{}", sources.len());
+    let turn_id = format!("turn-{}", Uuid::new_v4());
+    let collaboration_mode = detect_collaboration_mode(&question);
+    let suggested_actions = suggested_actions_for_mode(&turn_id, collaboration_mode);
+    let readiness = provider_readiness(coverage, pending_ocr_pages, deviations.len(), sources.len());
     let missing = if deviations.is_empty() {
         "Juridisk vurdering, full kontekst og manuell godkjenning.".to_string()
     } else {
@@ -303,6 +307,7 @@ pub fn ask_case_ai(
     let answer = json!({
         "question": question,
         "result": {
+            "turnId": turn_id,
             "answer": provider_json
                 .get("answer")
                 .and_then(Value::as_str)
@@ -335,7 +340,19 @@ pub fn ask_case_ai(
             "nextStep": provider_json
                 .get("next_step")
                 .and_then(Value::as_str)
-                .unwrap_or(next_action_title.as_str())
+                .unwrap_or(next_action_title.as_str()),
+            "collaborationMode": collaboration_mode,
+            "selectedAction": null,
+            "suggestedActions": suggested_actions,
+            "retrievalSnapshot": {
+                "strategy": retrieval_strategy_for_mode(collaboration_mode),
+                "candidateSourceIds": selected_sources.iter().map(|source| source.id.clone()).collect::<Vec<_>>(),
+                "selectedSourceIds": source_ids.clone(),
+                "coverage": coverage,
+                "pendingOcrPages": pending_ocr_pages,
+                "deviations": deviations,
+                "readiness": readiness
+            }
         },
         "model_id": model_id,
         "prompt_version": prompt_version,
@@ -363,6 +380,516 @@ pub fn ask_case_ai(
     .map_err(|error| error.to_string())
 }
 
+fn detect_collaboration_mode(question: &str) -> &'static str {
+    let value = question.to_lowercase();
+    if value.contains("'prosess")
+        || value.contains("rettssakssimulering")
+        || value.contains("prosessforberedelse")
+        || value.contains("forbered rettssak")
+    {
+        "litigation_preparation"
+    } else if value.contains("'hovedforhandling")
+        || value.contains("hovedforhandling")
+        || value.contains("main hearing")
+    {
+        "trial_hearing"
+    } else if value.contains("'dommer")
+        || value.contains("dommerspørsmål")
+        || value.contains("dommerpanel")
+        || value.contains("kritisk dommer")
+        || value.contains("simuler dommeren")
+    {
+        "judge_panel"
+    } else if value.contains("'motpart")
+        || value.contains("motpartens advokat")
+        || value.contains("angrip saken")
+        || value.contains("angrip anførslene")
+    {
+        "opposing_counsel"
+    } else if value.contains("'kryssforhor")
+        || value.contains("'kryssforhør")
+        || value.contains("kryssforhør")
+        || value.contains("kryssforhor")
+        || value.contains("cross-examination")
+    {
+        "cross_examination"
+    } else if value.contains("'direkte")
+        || value.contains("direkte eksaminasjon")
+        || value.contains("direkteeksaminasjon")
+        || value.contains("ikke-ledende spørsmål")
+    {
+        "direct_examination"
+    } else if value.contains("'prosedyre")
+        || value.contains("prosedyretest")
+        || value.contains("test prosedyren")
+        || value.contains("closing argument")
+    {
+        "closing_argument_test"
+    } else if value.contains("'dom")
+        || value.contains("simulert dom")
+        || value.contains("domssimulering")
+        || value.contains("simuler dom")
+        || value.contains("hvordan kan retten vurdere")
+    {
+        "judgment_simulation"
+    } else if value.contains("'rolle")
+        || value.contains("rollespill")
+        || value.contains("roleplay")
+        || value.contains("vær vitne")
+        || value.contains("vær klient")
+    {
+        "roleplay"
+    } else if value.contains("'prosesskontroll")
+        || value.contains("rettssakskontroll")
+        || value.contains("prosessklar")
+    {
+        "final_litigation_quality_check"
+    } else if value.contains("'kronologi") || value.contains("kronologi") || value.contains("tidslinje") {
+        "chronology"
+    } else if value.contains("'bevis") || value.contains("bevisliste") || value.contains("bevisanalyse") {
+        "evidence"
+    } else if value.contains("'krysskobling") || value.contains("mønster") || value.contains("går igjen") || value.contains("transaksjon") {
+        "crosslink"
+    } else if value.contains("motstrid") || value.contains("motsier") || value.contains("avvik") {
+        "contradictions"
+    } else if value.contains("'motargumenter") || value.contains("motargument") || value.contains("innsigelse") {
+        "counterarguments"
+    } else if value.contains("'anforsler") || value.contains("anførsel") || value.contains("anforsel") {
+        "claims"
+    } else if value.contains("'presedens") || value.contains("rettskilde") || value.contains("rettspraksis") {
+        "legal_sources"
+    } else if value.contains("'risiko") || value.contains("risiko") {
+        "risk"
+    } else if value.contains("'frister") || value.contains("frist") || value.contains("foreldelse") {
+        "deadlines"
+    } else if value.contains("'forlik")
+        || value.contains("simuler forlik")
+        || value.contains("forlikssimulering")
+        || value.contains("forliksforhandling")
+    {
+        "settlement_simulation"
+    } else if value.contains("forlik") {
+        "settlement"
+    } else if value.contains("'utkast") || value.contains("utkast") || value.contains("prosesskriv") {
+        "draft"
+    } else if value.contains("'kvalitet") || value.contains("kvalitet") || value.contains("kontroller") {
+        "quality"
+    } else if value.contains("'endelig") || value.contains("endelig kontroll") {
+        "final_control"
+    } else if value.contains("'masker") || value.contains("masker") || value.contains("sladd") {
+        "redaction"
+    } else if value.contains("'bates") || value.contains("bates") || value.contains("nummerering") {
+        "bates"
+    } else if value.contains("ranger") || value.contains("viktigste dokument") {
+        "document_ranking"
+    } else if value.contains("strategi") {
+        "strategy"
+    } else if value.contains("hovedspor") || value.contains("hva handler saken") {
+        "case_understanding"
+    } else {
+        "free_chat"
+    }
+}
+
+fn provider_readiness(
+    coverage: f64,
+    pending_ocr_pages: i64,
+    deviation_count: usize,
+    source_count: usize,
+) -> &'static str {
+    if source_count == 0 {
+        "no_sources"
+    } else if coverage >= 95.0 && pending_ocr_pages == 0 && deviation_count == 0 && source_count >= 2 {
+        "draft_ready"
+    } else if coverage >= 50.0 && source_count >= 2 {
+        "preliminary_ready"
+    } else {
+        "has_sources"
+    }
+}
+
+fn retrieval_strategy_for_mode(mode: &str) -> &'static str {
+    match mode {
+        "case_understanding" => "Bred henting av sentrale kilder, gjentatte aktører, datoer og temaer.",
+        "chronology" => "Prioriter kilder med datoer, hendelser, varsel, betalinger og aktørhandlinger.",
+        "evidence" => "Prioriter kildeutdrag som uttrykker faktum, handling, dokumentasjon eller avtalevilkår.",
+        "crosslink" => "Se etter gjentatte navn, datoer, beløp, dokumenttyper og transaksjonsord.",
+        "contradictions" => "Sammenlign kilder med overlappende aktører, datoer, beløp og forklaringer.",
+        "counterarguments" => "Se etter hull, forbehold, svake bevis og kilder som kan tolkes mot saken.",
+        "legal_sources" => "Finn rettslige temaer og faktiske nøkkelspørsmål som kan styre research.",
+        "risk" => "Kombiner bevisstyrke, mangler, mulige motargumenter, frister og rettslige temaer.",
+        "deadlines" => "Hent datoer, varsel, vedtak, oppsigelse, reklamasjon og prosesshandlinger.",
+        "draft" => "Velg kildeklare fakta, åpne kontrollpunkter og mulig disposisjon.",
+        "quality" => "Sjekk kildedekning, dokumenthenvisninger, formuleringer, motargumenter og frister.",
+        "final_control" => "Kontroller dokumentdekning, kilder, uavklarte faktum, rettskilder, frister og risiko.",
+        "redaction" => "Se etter personopplysninger, klientnavn, tredjeparter og taushetsbelagt informasjon.",
+        "document_ranking" => "Prioriter dokumenter med flest relevante kildeutdrag og sterkest treff.",
+        "strategy" => "Kombiner hovedspor, bevis, motargumenter, risiko og mangler.",
+        "settlement" => "Bruk risiko, bevisstyrke, uklare punkter og motargumenter som forliksgrunnlag.",
+        "bates" => "Bruk dokumentliste, kildeutdrag og sideintervaller til referansestruktur.",
+        "litigation_preparation" => "Kombiner kronologi, bevis, anførsler, motargumenter, frister og åpne prosessuelle kontrollpunkter.",
+        "trial_hearing" => "Bruk kildeklare fakta, kronologi, bevis, anførsler, motargumenter og åpne risikopunkter.",
+        "judge_panel" => "Finn faktum, rettslig grunnlag, bevis, motstrid, frister og kildehull retten kan presse på.",
+        "opposing_counsel" => "Se etter alternative forklaringer, svake bevis, prosessinnsigelser, frister og uklare krav.",
+        "cross_examination" => "Bruk kronologi, motstrid, bevis, aktører, dokumentdatoer og svakheter i forklaring.",
+        "direct_examination" => "Bruk kronologi, dokumentkoblinger, egne bevis og åpne forklaringspunkter.",
+        "closing_argument_test" => "Kombiner kildeklare fakta, anførsler, rettskildebehov, motargumenter og svak bevisdekning.",
+        "judgment_simulation" => "Bruk bare kildeklare hovedfakta, kontrollerte motargumenter, rettskildebehov og åpne risikopunkter.",
+        "settlement_simulation" => "Bruk bevisstyrke, prosessrisiko, kostnadspress, uavklarte faktum og motpartens presspunkter.",
+        "roleplay" => "Velg rolle ut fra brukerens språk og bruk relevante kilder, hull og risikopunkter.",
+        "final_litigation_quality_check" => "Kontroller kildegrunnlag, dokumenthenvisninger, rettskilder, frister, bevisrisiko og manuelle stoppere.",
+        _ => "Velg lokale kildeutdrag som matcher spørsmålet, og bruk forrige turn som kontekst.",
+    }
+}
+
+fn suggested_actions_for_mode(turn_id: &str, mode: &str) -> Vec<Value> {
+    let actions = match mode {
+        "litigation_preparation" => vec![
+            (
+                "Simuler dommerens spørsmål",
+                "judge_panel",
+                "Simuler dommerens kritiske spørsmål basert på saken.",
+                "has_sources",
+            ),
+            (
+                "Angrip saken som motpart",
+                "opposing_counsel",
+                "Vær motpartens advokat og angrip saken.",
+                "has_sources",
+            ),
+            (
+                "Lag kryssforhør",
+                "cross_examination",
+                "Lag kryssforhør med formål, kildegrunnlag og risiko.",
+                "has_sources",
+            ),
+            (
+                "Test prosedyren",
+                "closing_argument_test",
+                "Test prosedyren og finn svake punkter.",
+                "preliminary_ready",
+            ),
+        ],
+        "judge_panel"
+        | "opposing_counsel"
+        | "cross_examination"
+        | "direct_examination"
+        | "closing_argument_test"
+        | "settlement_simulation"
+        | "roleplay" => vec![
+            (
+                "Simuler dommerens spørsmål",
+                "judge_panel",
+                "Simuler dommerens kritiske spørsmål.",
+                "has_sources",
+            ),
+            (
+                "Angrip saken som motpart",
+                "opposing_counsel",
+                "Simuler motpartens beste angrep.",
+                "has_sources",
+            ),
+            (
+                "Lag kryssforhør",
+                "cross_examination",
+                "Lag kryssforhør med kildegrunnlag og risiko.",
+                "has_sources",
+            ),
+            (
+                "Test prosedyren",
+                "closing_argument_test",
+                "Test prosedyren mot svake punkter.",
+                "preliminary_ready",
+            ),
+        ],
+        "trial_hearing" | "judgment_simulation" | "final_litigation_quality_check" => vec![
+            (
+                "Finn hva som kan endre utfallet",
+                "risk",
+                "Finn punkter som kan endre simulert resultat.",
+                "preliminary_ready",
+            ),
+            (
+                "Kjør motpartens angrep",
+                "opposing_counsel",
+                "Angrip grunnlaget som motpart.",
+                "has_sources",
+            ),
+            (
+                "Kjør prosesskontroll",
+                "final_litigation_quality_check",
+                "Kjør endelig prosesskontroll.",
+                "draft_ready",
+            ),
+            (
+                "Vurder forlik",
+                "settlement_simulation",
+                "Vurder forliksspor etter simuleringen.",
+                "preliminary_ready",
+            ),
+        ],
+        "case_understanding" => vec![
+            (
+                "Hvem hadde faktisk kontroll over selskapene?",
+                "crosslink",
+                "Undersøk hvem som faktisk hadde kontroll over selskapene.",
+                "has_sources",
+            ),
+            (
+                "Hvilke transaksjoner går igjen i flere dokumenter?",
+                "crosslink",
+                "Finn transaksjoner som går igjen i flere dokumenter.",
+                "has_sources",
+            ),
+            (
+                "Stemmer tidslinjen med forklaringene?",
+                "chronology",
+                "Sammenlign tidslinjen med forklaringene i kildene.",
+                "has_sources",
+            ),
+            (
+                "Finnes det motstrid mellom forklaring og dokumentasjon?",
+                "contradictions",
+                "Finn motstrid mellom forklaring og dokumentasjon.",
+                "preliminary_ready",
+            ),
+        ],
+        "chronology" => vec![
+            (
+                "Vis bare sikre hendelser",
+                "chronology",
+                "Vis bare sikre hendelser i kronologien.",
+                "has_sources",
+            ),
+            (
+                "Vis usikre eller udaterte hendelser",
+                "chronology",
+                "Vis usikre eller udaterte hendelser i kronologien.",
+                "has_sources",
+            ),
+            (
+                "Koble kronologi til bevis",
+                "evidence",
+                "Koble kronologien til bevis og kildeutdrag.",
+                "has_sources",
+            ),
+            (
+                "Finn hull i tidslinjen",
+                "deadlines",
+                "Finn hull, uklare datoer og frister i tidslinjen.",
+                "has_sources",
+            ),
+        ],
+        "evidence" => vec![
+            (
+                "Koble bevis til mulige anførsler",
+                "claims",
+                "Koble bevisene til mulige faktiske og rettslige anførsler.",
+                "preliminary_ready",
+            ),
+            (
+                "Finn bevis som svekker saken",
+                "counterarguments",
+                "Finn bevis og hull som kan svekke saken.",
+                "preliminary_ready",
+            ),
+            (
+                "Ranger viktigste dokumenter",
+                "document_ranking",
+                "Ranger dokumentene etter bevismessig betydning.",
+                "has_sources",
+            ),
+            (
+                "Vurder risiko",
+                "risk",
+                "Vurder risiko knyttet til bevisbildet.",
+                "preliminary_ready",
+            ),
+        ],
+        _ => vec![
+            (
+                "Finn hovedspor i saken",
+                "case_understanding",
+                "Finn hovedspor i saken basert på kildene.",
+                "has_sources",
+            ),
+            (
+                "Lag kronologi",
+                "chronology",
+                "Lag en foreløpig kronologi basert på kildene.",
+                "has_sources",
+            ),
+            (
+                "Finn bevis",
+                "evidence",
+                "Lag bevisliste og koble bevis til faktum.",
+                "has_sources",
+            ),
+            (
+                "Vurder risiko",
+                "risk",
+                "Vurder bevis-, rettslig og prosessuell risiko.",
+                "preliminary_ready",
+            ),
+        ],
+    };
+
+    actions
+        .into_iter()
+        .enumerate()
+        .map(|(index, (label, intent, query_template, required_readiness))| {
+            json!({
+                "id": format!("{}-suggestion-{}", turn_id, index + 1),
+                "index": index + 1,
+                "label": label,
+                "intent": intent,
+                "queryTemplate": query_template,
+                "requiredReadiness": required_readiness,
+                "createdFromTurnId": turn_id
+            })
+        })
+        .collect()
+}
+
+/*
+    } else if value.contains("motstrid") || value.contains("motsier") || value.contains("avvik") {
+        "find_contradictions"
+    } else if value.contains("mønster") || value.contains("går igjen") || value.contains("transaksjon") {
+        "find_patterns"
+    } else if value.contains("ranger") || value.contains("viktigste dokument") {
+        "rank_documents"
+    } else if value.contains("mangler") || value.contains("hull") || value.contains("innhente") {
+        "identify_missing_information"
+    } else if value.contains("utkast") || value.contains("kontrollert grunnlag") {
+        "prepare_controlled_draft_basis"
+    } else if value.contains("hovedspor") {
+        "find_main_tracks"
+    } else {
+        "free_question"
+    }
+}
+
+fn retrieval_strategy_for_mode(mode: &str) -> &'static str {
+    match mode {
+        "find_main_tracks" => "Bred henting av sentrale kilder, gjentatte aktører, datoer og temaer.",
+        "build_chronology" => "Prioriter kilder med datoer, hendelser, varsel, betalinger og aktørhandlinger.",
+        "find_contradictions" => {
+            "Sammenlign kilder med overlappende aktører, datoer, beløp og forklaringer."
+        }
+        "find_patterns" => "Se etter gjentatte navn, datoer, beløp, dokumenttyper og transaksjonsord.",
+        "rank_documents" => {
+            "Prioriter dokumenter med flest relevante kildeutdrag og sterkest treff mot spørsmålet."
+        }
+        "identify_missing_information" => {
+            "Sammenhold funn med hull i datoer, aktører, beløp, dokumentdekning og OCR-status."
+        }
+        "prepare_controlled_draft_basis" => {
+            "Velg kildeklare fakta og skill dem fra vurderinger og åpne spørsmål."
+        }
+        _ => "Velg lokale kildeutdrag som matcher spørsmålet, og bruk forrige turn som kontekst.",
+    }
+}
+
+fn suggested_actions_for_mode(turn_id: &str, mode: &str) -> Vec<Value> {
+    let actions = match mode {
+        "find_main_tracks" => vec![
+            (
+                "Hvem hadde faktisk kontroll over selskapene?",
+                "find_patterns",
+                "Undersøk hvem som faktisk hadde kontroll over selskapene.",
+                "citation_ready",
+            ),
+            (
+                "Hvilke transaksjoner går igjen i flere dokumenter?",
+                "find_patterns",
+                "Finn transaksjoner som går igjen i flere dokumenter.",
+                "citation_ready",
+            ),
+            (
+                "Stemmer tidslinjen med forklaringene?",
+                "build_chronology",
+                "Sammenlign tidslinjen med forklaringene i kildene.",
+                "citation_ready",
+            ),
+            (
+                "Finnes det motstrid mellom forklaring og dokumentasjon?",
+                "find_contradictions",
+                "Finn motstrid mellom forklaring og dokumentasjon.",
+                "citation_ready",
+            ),
+        ],
+        "build_chronology" => vec![
+            (
+                "Hvilke datoer må kontrolleres manuelt?",
+                "identify_missing_information",
+                "Finn datoer i kronologien som må kontrolleres manuelt.",
+                "citation_ready",
+            ),
+            (
+                "Finn hendelser som motsier hverandre",
+                "find_contradictions",
+                "Finn hendelser i tidslinjen som kan motsi hverandre.",
+                "citation_ready",
+            ),
+            (
+                "Ranger dokumentene som er viktigst for tidslinjen",
+                "rank_documents",
+                "Ranger dokumentene etter betydning for tidslinjen.",
+                "sources_available",
+            ),
+            (
+                "Lag kontrollert utkastgrunnlag fra tidslinjen",
+                "prepare_controlled_draft_basis",
+                "Lag et kontrollert utkastgrunnlag fra tidslinjen.",
+                "citation_ready",
+            ),
+        ],
+        _ => vec![
+            (
+                "Finn hovedspor i saken",
+                "find_main_tracks",
+                "Finn hovedspor i saken basert på kildene.",
+                "sources_available",
+            ),
+            (
+                "Lag kronologi av dette",
+                "build_chronology",
+                "Lag en foreløpig kronologi basert på kildene.",
+                "citation_ready",
+            ),
+            (
+                "Finn motstrid",
+                "find_contradictions",
+                "Finn mulig motstrid mellom forklaringer og dokumentasjon.",
+                "citation_ready",
+            ),
+            (
+                "Hva mangler vi?",
+                "identify_missing_information",
+                "Identifiser manglende informasjon og usikre punkter.",
+                "sources_available",
+            ),
+        ],
+    };
+
+    actions
+        .into_iter()
+        .enumerate()
+        .map(|(index, (label, intent, query_template, required_readiness))| {
+            json!({
+                "id": format!("{}-suggestion-{}", turn_id, index + 1),
+                "index": index + 1,
+                "label": label,
+                "intent": intent,
+                "queryTemplate": query_template,
+                "requiredReadiness": required_readiness,
+                "createdFromTurnId": turn_id
+            })
+        })
+        .collect()
+}
+
+*/
 fn select_relevant_sources(
     question: &str,
     sources: &[SourceObjectSummary],

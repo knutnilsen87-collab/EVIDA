@@ -9,6 +9,7 @@ export type ViewKey =
   | "arguments"
   | "contradictions"
   | "risk"
+  | "litigation"
   | "draft"
   | "control"
   | "export";
@@ -23,6 +24,20 @@ export interface CaseSummary {
   source_coverage_percent: number;
   risk_level: "low" | "medium" | "high" | "unknown";
   updated_at: string;
+}
+
+export type ReadinessVerdictStatus =
+  | "not_ready"
+  | "needs_control"
+  | "preliminary_ready"
+  | "draft_ready";
+
+export interface CaseReadinessVerdict {
+  status: ReadinessVerdictStatus;
+  label: string;
+  description: string;
+  detail: string;
+  nextStep: string;
 }
 
 export interface MaintenanceReport {
