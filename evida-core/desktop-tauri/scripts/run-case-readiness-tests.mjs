@@ -14,7 +14,7 @@ const transpiled = ts.transpileModule(source, {
 });
 
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(transpiled.outputText).toString("base64")}`;
-const { calculateSourceCoveragePercent, getCaseReadiness } = await import(moduleUrl);
+const { calculateSourceCoveragePercent, getCaseReadiness, getDocumentProcessingState } = await import(moduleUrl);
 
 const baseInput = {
   hasDocuments: true,
@@ -83,4 +83,16 @@ assert.equal(
   "dbEncryptionVerified=false -> test-data warning present"
 );
 
-console.log(`caseReadiness tests passed (${cases.length + 6} assertions).`);
+const processingCases = [
+  ["failed status -> failed", { pageCount: 1, analyzedPageCount: 0, sourceCount: 0, pendingTextRecognitionPages: 0, ocrStatus: "failed" }, "failed"],
+  ["pending text recognition -> waiting worker", { pageCount: 10, analyzedPageCount: 1, sourceCount: 0, pendingTextRecognitionPages: 9, ocrStatus: "partial_needs_ocr" }, "waiting_for_background_worker"],
+  ["active extraction -> creating sources", { pageCount: 10, analyzedPageCount: 5, sourceCount: 0, pendingTextRecognitionPages: 0, ocrStatus: "running", hasActiveProcessing: true }, "creating_sources"],
+  ["sources with pending pages -> completed partial", { pageCount: 10, analyzedPageCount: 5, sourceCount: 5, pendingTextRecognitionPages: 5, ocrStatus: "partial_needs_ocr" }, "completed_partial"],
+  ["full source document -> completed", { pageCount: 10, analyzedPageCount: 10, sourceCount: 10, pendingTextRecognitionPages: 0, ocrStatus: "text_extracted" }, "completed"]
+];
+
+for (const [name, input, expected] of processingCases) {
+  assert.equal(getDocumentProcessingState(input), expected, name);
+}
+
+console.log(`caseReadiness tests passed (${cases.length + 6 + processingCases.length} assertions).`);

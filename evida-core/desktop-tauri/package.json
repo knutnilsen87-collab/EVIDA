@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
-    "test": "node scripts/run-case-readiness-tests.mjs",
+    "test": "node scripts/run-case-readiness-tests.mjs && node scripts/run-adaptive-saksrom-tests.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

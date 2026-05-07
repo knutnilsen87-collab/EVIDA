@@ -80,6 +80,48 @@ export interface CaseCoverageSummary {
   hasActiveProcessing: boolean;
 }
 
+export interface DocumentProcessingInput {
+  pageCount: number;
+  analyzedPageCount: number;
+  sourceCount: number;
+  pendingTextRecognitionPages: number;
+  ocrStatus: string;
+  hasActiveProcessing?: boolean;
+}
+
+export function getDocumentProcessingState(input: DocumentProcessingInput): DocumentProcessingState {
+  if (["failed", "empty", "unsupported_file_type"].includes(input.ocrStatus)) {
+    return "failed";
+  }
+
+  if (input.hasActiveProcessing) {
+    if (input.sourceCount > 0) {
+      return "checking_coverage";
+    }
+    if (input.analyzedPageCount > 0) {
+      return "creating_sources";
+    }
+    return "running";
+  }
+
+  if (input.sourceCount > 0) {
+    if (input.pendingTextRecognitionPages > 0 || input.analyzedPageCount < input.pageCount) {
+      return "completed_partial";
+    }
+    return "completed";
+  }
+
+  if (input.pendingTextRecognitionPages > 0 || ["needs_ocr", "partial_needs_ocr"].includes(input.ocrStatus)) {
+    return "waiting_for_background_worker";
+  }
+
+  if (input.analyzedPageCount > 0) {
+    return "checking_coverage";
+  }
+
+  return "queued";
+}
+
 export function calculateSourceCoveragePercent(input: {
   totalPages: number;
   pagesWithSources: number;

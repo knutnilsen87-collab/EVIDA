@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import type { CaseAiMessageDto, CaseSummary, DocumentSummary, SourceObjectSummary } from "../types";
 import { askCaseAi, listCaseAiMessages, recordCaseAiExchange } from "../lib/api";
 import type { ReadinessResult } from "../features/readiness/caseReadiness";
+import {
+  createDefaultSuggestedActions,
+  resolveSuggestedActionReply
+} from "../features/adaptiveSaksrom/suggestedActions";
+import type { SuggestedAction } from "../features/adaptiveSaksrom/suggestedActions";
 
 interface CaseRoomViewProps {
   selectedCase?: CaseSummary;
@@ -33,6 +38,7 @@ interface CaseAnswer {
   uncertainty: string;
   missing: string;
   nextStep: string;
+  suggestedActions?: SuggestedAction[];
 }
 
 function firstSentence(value: string) {
@@ -148,6 +154,7 @@ export function CaseRoomView({
   const [answers, setAnswers] = useState<Array<{ question: string; result: CaseAnswer }>>([]);
   const [isAsking, setIsAsking] = useState(false);
   const [providerNotice, setProviderNotice] = useState("");
+  const [latestSuggestedActions, setLatestSuggestedActions] = useState<SuggestedAction[]>([]);
   const hasSources = sources.length > 0;
   const hasDocuments = documents.length > 0;
   const isBlocked = readiness.verdict === "not_ready";
@@ -194,16 +201,32 @@ export function CaseRoomView({
   useEffect(() => {
     if (!selectedCase?.id) {
       setAnswers([]);
+      setLatestSuggestedActions([]);
       return;
     }
     listCaseAiMessages(selectedCase.id)
-      .then((messages) => setAnswers(messages.map(parseStoredAnswer).filter(Boolean) as Array<{ question: string; result: CaseAnswer }>))
-      .catch(() => setAnswers([]));
+      .then((messages) => {
+        const parsed = messages.map(parseStoredAnswer).filter(Boolean) as Array<{ question: string; result: CaseAnswer }>;
+        setAnswers(parsed);
+        setLatestSuggestedActions(parsed[0]?.result.suggestedActions || []);
+      })
+      .catch(() => {
+        setAnswers([]);
+        setLatestSuggestedActions([]);
+      });
   }, [selectedCase?.id]);
 
   async function askCase() {
-    const cleanQuestion = question.trim();
-    if (!cleanQuestion || !selectedCase?.id || !canAsk) {
+    await submitCaseQuestion(question);
+  }
+
+  async function submitCaseQuestion(rawQuestion: string, selectedAction?: SuggestedAction) {
+    const cleanQuestion = rawQuestion.trim();
+    const resolvedAction = selectedAction || resolveSuggestedActionReply(cleanQuestion, latestSuggestedActions);
+    const displayQuestion = resolvedAction?.label || cleanQuestion;
+    const retrievalQuestion = resolvedAction?.queryTemplate || cleanQuestion;
+
+    if (!displayQuestion || !selectedCase?.id || !canAsk) {
       return;
     }
     setIsAsking(true);
@@ -211,7 +234,7 @@ export function CaseRoomView({
     try {
       const providerMessage = await askCaseAi({
         caseId: selectedCase.id,
-        question: cleanQuestion,
+        question: retrievalQuestion,
         coverage,
         pendingOcrPages,
         deviations,
@@ -219,7 +242,16 @@ export function CaseRoomView({
       });
       const providerAnswer = parseStoredAnswer(providerMessage);
       if (providerAnswer) {
-        setAnswers((current) => [providerAnswer, ...current].slice(0, 20));
+        const nextSuggestedActions = createDefaultSuggestedActions(providerMessage.id);
+        const answerWithActions = {
+          question: displayQuestion,
+          result: {
+            ...providerAnswer.result,
+            suggestedActions: nextSuggestedActions
+          }
+        };
+        setAnswers((current) => [answerWithActions, ...current].slice(0, 20));
+        setLatestSuggestedActions(nextSuggestedActions);
         setQuestion("");
         return;
       }
@@ -230,9 +262,14 @@ export function CaseRoomView({
       setIsAsking(false);
     }
 
-    const result = buildAnswer(cleanQuestion, sources, coverage, deviations, pendingOcrPages, nextActionTitle);
+    const localTurnId = `local-${Date.now()}`;
+    const nextSuggestedActions = createDefaultSuggestedActions(localTurnId);
+    const result = {
+      ...buildAnswer(retrievalQuestion, sources, coverage, deviations, pendingOcrPages, nextActionTitle),
+      suggestedActions: nextSuggestedActions
+    };
     const answerJson = JSON.stringify({
-      question: cleanQuestion,
+      question: displayQuestion,
       result,
       model_id: "safe-local-source-mode",
       prompt_version: "case_room_safe_local_v1",
@@ -240,7 +277,7 @@ export function CaseRoomView({
     });
     const persisted = await recordCaseAiExchange({
       caseId: selectedCase.id,
-      question: cleanQuestion,
+      question: displayQuestion,
       answerJson,
       sourceIds: result.sourceIds,
       modelId: "safe-local-source-mode",
@@ -248,7 +285,8 @@ export function CaseRoomView({
       sourceIndexVersion: `sources-${sources.length}`
     });
     const stored = parseStoredAnswer(persisted);
-    setAnswers((current) => [stored || { question: cleanQuestion, result }, ...current].slice(0, 20));
+    setLatestSuggestedActions(nextSuggestedActions);
+    setAnswers((current) => [stored || { question: displayQuestion, result }, ...current].slice(0, 20));
     setQuestion("");
   }
 
@@ -352,6 +390,24 @@ export function CaseRoomView({
                       <p className="muted">Mangler kilde.</p>
                     )}
                   </details>
+                  {entry.result.suggestedActions?.length ? (
+                    <div className="case-suggested-actions">
+                      <strong>Mulige spor å undersøke videre</strong>
+                      <div className="case-suggested-actions__grid">
+                        {entry.result.suggestedActions.map((action) => (
+                          <button
+                            key={action.id}
+                            type="button"
+                            className="button-ghost"
+                            onClick={() => void submitCaseQuestion(action.label, action)}
+                          >
+                            {action.index}. {action.label}
+                          </button>
+                        ))}
+                      </div>
+                      <span>Du kan også spørre fritt.</span>
+                    </div>
+                  ) : null}
                 </div>
               </article>
             ))

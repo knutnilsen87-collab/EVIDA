@@ -55,7 +55,8 @@ import type {
 import {
   DOCUMENT_PROCESSING_LABELS,
   calculateSourceCoveragePercent,
-  getCaseReadiness
+  getCaseReadiness,
+  getDocumentProcessingState
 } from "./features/readiness/caseReadiness";
 import type { CaseCoverageSummary } from "./features/readiness/caseReadiness";
 
@@ -171,33 +172,33 @@ function importProcessingLabel(status: ImportQueueStatus) {
 }
 
 function documentReadiness(document: DocumentSummary) {
-  if (document.source_count > 0) {
+  const processingState = getDocumentProcessingState({
+    pageCount: document.page_count,
+    analyzedPageCount: document.analyzed_page_count || 0,
+    sourceCount: document.source_count,
+    pendingTextRecognitionPages: document.pending_ocr_page_count || 0,
+    ocrStatus: document.ocr_status,
+    hasActiveProcessing: document.ocr_status === "running"
+  });
+
+  if (processingState === "completed" || processingState === "completed_partial") {
     return {
       status: "ready" as const,
-      label: "Klar for Saksrom",
+      label: processingState === "completed" ? "Klar for Saksrom" : "Delvis klar",
       detail: `${countLabel(document.page_count, "side", "sider")} · ${countLabel(document.source_count, "kildeutdrag", "kildeutdrag")}`
     };
   }
-  if (["needs_ocr", "partial_needs_ocr", "failed", "empty", "unsupported_file_type"].includes(document.ocr_status)) {
-    if (["failed", "empty", "unsupported_file_type"].includes(document.ocr_status)) {
-      return {
-        status: "failed" as const,
-        label: "Kunne ikke behandles automatisk",
-        detail: "Dokumentet kunne ikke gjøres klart for Saksrom"
-      };
-    }
+  if (processingState === "failed") {
     return {
-      status: "processing" as const,
-      label: "Venter på automatisk teksthenting",
-      detail:
-        document.pending_ocr_page_count > 0
-          ? `${countLabel(document.pending_ocr_page_count, "side", "sider")} venter på automatisk teksthenting`
-          : "Dokumentet venter på dokumentmotor"
+      status: "failed" as const,
+      label: DOCUMENT_PROCESSING_LABELS.failed,
+      detail: "Dokumentet kunne ikke gjøres klart for Saksrom"
     };
   }
+
   return {
     status: "processing" as const,
-    label: "Behandles",
+    label: DOCUMENT_PROCESSING_LABELS[processingState],
     detail: document.analyzed_page_count > 0 ? `${document.analyzed_page_count} sider analysert` : "Venter på automatisk behandling"
   };
 }

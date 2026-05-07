@@ -1693,6 +1693,31 @@ textarea {
   -webkit-box-orient: vertical;
 }
 
+.case-suggested-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #e3ded3;
+}
+
+.case-suggested-actions__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.case-suggested-actions__grid button {
+  justify-content: flex-start;
+  min-height: 44px;
+  text-align: left;
+}
+
+.case-suggested-actions span {
+  color: #5f574d;
+  font-size: 13px;
+}
+
 .case-chat-composer {
   position: sticky;
   bottom: 0;
@@ -2063,8 +2088,13 @@ textarea {
 .app-shell[data-theme="dark"] .case-source-card span,
 .app-shell[data-theme="dark"] .case-empty-chat,
 .app-shell[data-theme="dark"] .case-answer-meta,
+.app-shell[data-theme="dark"] .case-suggested-actions span,
 .app-shell[data-theme="dark"] .case-source-pill span {
   color: #bdb6aa;
+}
+
+.app-shell[data-theme="dark"] .case-suggested-actions {
+  border-top-color: #49443c;
 }
 
 .app-shell[data-theme="dark"] .case-chat-composer {
