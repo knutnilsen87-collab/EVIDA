@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CaseAiMessageDto, CaseSummary, DocumentSummary, SourceObjectSummary } from "../types";
 import { askCaseAi, listCaseAiMessages, recordCaseAiExchange } from "../lib/api";
+import type { ReadinessResult } from "../features/readiness/caseReadiness";
 
 interface CaseRoomViewProps {
   selectedCase?: CaseSummary;
@@ -10,6 +11,7 @@ interface CaseRoomViewProps {
   pendingOcrPages: number;
   coverage: number;
   deviations: string[];
+  readiness: ReadinessResult;
   nextActionTitle: string;
   onOpenSource: (sourceId: string) => void;
   onOpenControl: () => void;
@@ -61,15 +63,15 @@ function buildAnswer(
 ): CaseAnswer {
   if (sources.length === 0) {
     return {
-      answer: "Sikker lokalmodus fant ingen sporbare kildeutdrag å svare fra ennå.",
+      answer: "Sikker lokalmodus fant ingen sporbare kilder å svare fra ennå.",
       sourceIds: [],
       validatedSources: [],
       answerStrength: {
         level: "Lav",
-        reason: "Svaret bygger på 0 kildeutdrag."
+        reason: "Svaret bygger på 0 kilder."
       },
       uncertainty: "Høy. Saken mangler kildegrunnlag.",
-      missing: "Importer dokumenter, kjør OCR eller oppdater kildeutdrag.",
+      missing: "Importer dokumenter eller oppdater kildene.",
       nextStep: "Kontroller dokumentgrunnlag."
     };
   }
@@ -84,7 +86,7 @@ function buildAnswer(
   const answerSentences = selected.map((source) => firstSentence(source.text_excerpt));
 
   return {
-    answer: `Sikker lokalmodus finner foreløpig dette i sakens kildeutdrag: ${answerSentences.join(" ")}`,
+    answer: `Sikker lokalmodus finner foreløpig dette i sakens sporbare kilder: ${answerSentences.join(" ")}`,
     sourceIds: selected.map((source) => source.id),
     validatedSources: selected.map((source) => ({
       sourceId: source.id,
@@ -94,11 +96,11 @@ function buildAnswer(
     })),
     answerStrength: {
       level: selected.length >= 4 && coverage >= 80 && pendingOcrPages === 0 ? "Høy" : selected.length >= 2 ? "Middels" : "Lav",
-      reason: `Svaret bygger på ${selected.length} lokale kildeutdrag. Ekstern AI er av.`
+      reason: `Svaret bygger på ${selected.length} lokale kilder. Ekstern AI er av.`
     },
     uncertainty:
       coverage < 80 || pendingOcrPages > 0
-        ? "Middels til høy. Dokumentdekning eller OCR er ikke komplett."
+        ? "Middels til høy. Dokumentdekning eller tekst fra skannede sider er ikke komplett."
         : "Middels. Svaret er kildebasert, men må vurderes faglig.",
     missing: deviations.length > 0 ? deviations.join(" ") : "Juridisk vurdering, full kontekst og manuell godkjenning.",
     nextStep: nextActionTitle
@@ -137,6 +139,7 @@ export function CaseRoomView({
   pendingOcrPages,
   coverage,
   deviations,
+  readiness,
   nextActionTitle,
   onOpenSource,
   onOpenControl
@@ -147,31 +150,45 @@ export function CaseRoomView({
   const [providerNotice, setProviderNotice] = useState("");
   const hasSources = sources.length > 0;
   const hasDocuments = documents.length > 0;
+  const isBlocked = readiness.verdict === "not_ready";
+  const isPreliminaryOnly = readiness.verdict === "requires_control";
   const totalPages = documents.reduce((sum, document) => sum + document.page_count, 0);
   const processedDocuments = documents.filter((document) => document.source_count > 0 || document.analyzed_page_count > 0);
-  const canAsk = Boolean(selectedCase?.id && hasDocuments);
+  const canAsk = Boolean(selectedCase?.id && hasDocuments && hasSources && !isBlocked);
   const isIncomplete = !hasSources || coverage < 95 || pendingOcrPages > 0 || deviations.length > 0;
-  const summary = hasDocuments
-    ? "Jeg har gått gjennom dokumentene som er ferdig behandlet og laget en foreløpig saksoversikt."
-    : "Importer dokumenter først. Saksrom blir samtaleflaten for oppsummering og spørsmål når saken har dokumentgrunnlag.";
+  const summary = isBlocked
+    ? "Saken klargjøres"
+    : hasDocuments
+      ? isPreliminaryOnly
+        ? "Foreløpig saksforståelse"
+        : "Foreløpig analyse — kontroller mot kildene"
+      : "Importer dokumenter først. Saksrom blir samtaleflaten for oppsummering og spørsmål når saken har dokumentgrunnlag.";
   const summaryLines = hasDocuments
-    ? [
-        `Dokumentgrunnlag: ${documents.length} dokumenter, ${totalPages} PDF-sider og ${processedDocuments.length} dokumenter ferdig behandlet.`,
-        hasSources
-          ? `Sporbare kilder: ${sources.length} kildeutdrag er klare for spørsmål og kontroll.`
-          : "Sporbare kilder: mangler foreløpig. Svar merkes derfor som usikre eller uten kilde.",
-        pendingOcrPages > 0
-          ? `Åpne punkter: ${pendingOcrPages} sider trenger OCR eller tekstkontroll.`
-          : "Åpne punkter: ingen OCR-ventende sider registrert i denne visningen.",
-        "Arbeidsmåte: spør saken, og hvert svar viser kilder, usikkerhet, mangler og neste steg."
-      ]
+    ? isBlocked
+      ? [
+          "Evida lager sporbare kilder automatisk.",
+          "Du trenger ikke gjøre noe nå.",
+          "Saksrom-oppsummeringen vises når dokumentgrunnlaget er klart."
+        ]
+      : [
+          `Dokumentgrunnlag: ${documents.length} dokumenter, ${totalPages} sider og ${processedDocuments.length} dokumenter ferdig behandlet.`,
+          isPreliminaryOnly
+            ? "Denne vurderingen bygger bare på de sidene som er ferdig behandlet."
+            : "AI-forslag må fortsatt kontrolleres og godkjennes av bruker.",
+          hasSources
+            ? `Sporbare kilder: ${sources.length} kilder er klare for spørsmål og kontroll.`
+            : "Sporbare kilder: mangler foreløpig. Svar merkes derfor som usikre eller uten kilde.",
+          pendingOcrPages > 0
+            ? `Åpne punkter: ${pendingOcrPages} sider venter på tekst fra skannede sider.`
+            : "Åpne punkter: ingen ventende sider registrert i denne visningen.",
+          "Arbeidsmåte: spør saken, og hvert svar viser kilder, usikkerhet, mangler og neste steg."
+        ]
     : [];
-  const suggestedQuestions = [
-    "Hva handler saken om?",
-    "Hva er dokumentert?",
-    "Hva mangler?",
-    "Hva bør kontrolleres først?"
-  ];
+  const suggestedQuestions = isBlocked
+    ? []
+    : isPreliminaryOnly
+      ? ["Hva er ferdig behandlet?", "Hva mangler?", "Hva bør kontrolleres først?"]
+      : ["Hva er dokumentert?", "Hva mangler?", "Hva bør kontrolleres først?"];
   const visibleAnswers = [...answers].reverse();
 
   useEffect(() => {
@@ -255,9 +272,16 @@ export function CaseRoomView({
                 ))}
               </ul>
             ) : null}
-            {isIncomplete ? (
+            {isBlocked ? (
+              <div className="case-soft-warning" role="alert">
+                <span>Saken klargjøres. Evida lager sporbare kilder automatisk.</span>
+                <button type="button" className="button-secondary" onClick={onOpenControl}>
+                  Se behandlingsstatus
+                </button>
+              </div>
+            ) : isIncomplete ? (
               <div className="case-soft-warning">
-                <span>Dokumentgrunnlaget er ikke komplett. Svar kan være ufullstendige.</span>
+                <span>{isPreliminaryOnly ? "Foreløpig — lav eller ufullstendig dekning." : "Dokumentgrunnlaget er ikke komplett. Svar kan være ufullstendige."}</span>
                 <button type="button" className="button-secondary" onClick={onOpenControl}>
                   Se kontrollgrunnlag
                 </button>
@@ -269,15 +293,21 @@ export function CaseRoomView({
         <div className="case-chat-messages">
           {visibleAnswers.length === 0 ? (
             <div className="case-empty-chat">
-              <h3>Spør saken</h3>
-              <p>Still spørsmål om dokumentene. Svar viser kilder, usikkerhet og hva som mangler.</p>
-              <div className="suggested-question-list suggested-question-list--centered">
-                {suggestedQuestions.map((suggestion) => (
-                  <button key={suggestion} type="button" className="button-ghost" onClick={() => setQuestion(suggestion)}>
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
+              <h3>{isBlocked ? "Saken klargjøres" : "Spør saken"}</h3>
+              <p>
+                {isBlocked
+                  ? "Evida lager sporbare kilder automatisk. Saksrom åpnes når dokumentgrunnlaget er klart."
+                  : "Still spørsmål om dokumentene. Svar viser kilder, usikkerhet og hva som mangler."}
+              </p>
+              {suggestedQuestions.length > 0 ? (
+                <div className="suggested-question-list suggested-question-list--centered">
+                  {suggestedQuestions.map((suggestion) => (
+                    <button key={suggestion} type="button" className="button-ghost" onClick={() => setQuestion(suggestion)}>
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : (
             visibleAnswers.map((entry, index) => (
@@ -346,9 +376,10 @@ export function CaseRoomView({
               void askCase();
             }
           }}
-          placeholder="Still et spørsmål om saken"
+          placeholder={isBlocked ? "Saksrom åpnes når dokumentgrunnlaget er klart" : "Spør fritt, velg et spor, eller skriv 1–4"}
           rows={1}
           disabled={!canAsk || isAsking}
+          aria-disabled={!canAsk || isAsking}
         />
         <button type="submit" className="button-primary" disabled={!question.trim() || !selectedCase?.id || !canAsk || isAsking}>
           {isAsking ? "Svarer ..." : "Send"}

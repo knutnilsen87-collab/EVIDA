@@ -1621,7 +1621,7 @@ mod tests {
         let message = record_case_ai_exchange(
             &conn,
             &case.id,
-            "Hva handler saken om?",
+            "Hva bør kontrolleres først?",
             &answer,
             std::slice::from_ref(&source.id),
             Some("local-source-fallback"),

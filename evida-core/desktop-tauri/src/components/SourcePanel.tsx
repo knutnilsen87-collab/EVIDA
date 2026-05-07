@@ -36,9 +36,9 @@ export function SourcePanel({
         <span>Evaluation build · lokal behandling</span>
       </div>
       <div className="source-checklist">
-        <div>Dokumentdekning: <strong>{coverage}%</strong></div>
-        <div>OCR-status: <strong>{ocrStatus}</strong></div>
-        <div>Kildeutdrag: <strong>{sourceCount}</strong></div>
+        <div>Dekning: <strong>{coverage} % av sidene kan brukes som kilde</strong></div>
+        <div>Tekststatus: <strong>{ocrStatus}</strong></div>
+        <div>Sporbare kilder: <strong>{sourceCount}</strong></div>
         <div>Avvik: <strong>{deviations.length}</strong></div>
       </div>
       {deviations.length > 0 ? (

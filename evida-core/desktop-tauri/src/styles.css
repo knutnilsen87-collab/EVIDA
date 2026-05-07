@@ -372,6 +372,28 @@ p {
   border-radius: 12px;
   background: #faf9f6;
   color: #312d28;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.drop-zone:hover,
+.drop-zone:focus-visible {
+  border-color: #202533;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(32, 37, 51, 0.08);
+  outline: none;
+}
+
+.drop-zone--disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.drop-zone--disabled:hover,
+.drop-zone--disabled:focus-visible {
+  border-color: #b9b1a2;
+  background: #faf9f6;
+  box-shadow: none;
 }
 
 .drop-zone span {
@@ -568,6 +590,27 @@ code {
   color: #745414;
   background: #fff7df;
   border: 1px solid #ead28b;
+}
+
+.attention-documents {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.attention-document {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  color: #312d28;
+  background: #ffffff;
+  border: 1px solid #e3ded3;
+  border-radius: 10px;
+}
+
+.attention-document span {
+  color: #5f574d;
+  font-size: 13px;
 }
 
 .error-notice {
@@ -1207,6 +1250,34 @@ textarea {
 .processing-stats strong {
   color: #202533;
   font-size: 20px;
+}
+
+.document-readiness-panel {
+  border-left: 5px solid #a85624;
+}
+
+.document-readiness-panel--critical {
+  border-color: #b42318;
+  background: #fff8f6;
+}
+
+.document-readiness-panel--warning {
+  border-color: #b7791f;
+  background: #fffaf0;
+}
+
+.document-readiness-panel--success {
+  border-color: #2f6f49;
+  background: #f6fbf7;
+}
+
+.document-readiness-panel--compact {
+  margin-bottom: 12px;
+}
+
+.readiness-gate {
+  border-left: 5px solid #b42318;
+  background: #fff8f6;
 }
 
 .processing-list {
@@ -1915,13 +1986,18 @@ textarea {
 
 .app-shell[data-theme="dark"] .empty-state,
 .app-shell[data-theme="dark"] .empty-action,
-.app-shell[data-theme="dark"] .drop-zone,
-.app-shell[data-theme="dark"] .source-empty,
-.app-shell[data-theme="dark"] .blocked-hint {
-  color: #d8d2c7;
-  background: #1f1e1c;
-  border-color: #575044;
-}
+  .app-shell[data-theme="dark"] .drop-zone,
+  .app-shell[data-theme="dark"] .attention-document,
+  .app-shell[data-theme="dark"] .source-empty,
+  .app-shell[data-theme="dark"] .blocked-hint {
+    color: #d8d2c7;
+    background: #1f1e1c;
+    border-color: #575044;
+  }
+
+  .app-shell[data-theme="dark"] .attention-document span {
+    color: #bdb6aa;
+  }
 
 .app-shell[data-theme="dark"] .import-panel--active {
   background: #242219;

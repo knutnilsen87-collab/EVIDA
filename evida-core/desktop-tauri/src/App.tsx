@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent, MouseEvent } from "react";
+import type { DragEvent, KeyboardEvent, MouseEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Download, FolderOpen, Moon, RotateCcw, Sun, Trash2 } from "lucide-react";
 import {
@@ -52,6 +52,12 @@ import type {
   RiskRow,
   TimelineItem
 } from "./components/workrooms/types";
+import {
+  DOCUMENT_PROCESSING_LABELS,
+  calculateSourceCoveragePercent,
+  getCaseReadiness
+} from "./features/readiness/caseReadiness";
+import type { CaseCoverageSummary } from "./features/readiness/caseReadiness";
 
 const viewTitles: Record<ViewKey, string> = {
   overview: "Saksoversikt",
@@ -72,6 +78,7 @@ const AI_TRUST_STORAGE_KEY = "evida-ai-trust-seen";
 const EVAL_SESSION_STORAGE_KEY = "evida-eval-session";
 const EVAL_LOGIN_EMAIL = "eval@evida.local";
 const EVAL_LOGIN_PASSWORD = "eval-2026";
+const AUTOMATIC_TEXT_RECOGNITION_AVAILABLE = false;
 
 type ThemeMode = "light" | "dark";
 type OnboardingStage = "intro" | "login" | "start" | "import" | "caseRoom";
@@ -124,21 +131,42 @@ function fileNameFromPath(path: string) {
 function importStatusLabel(status: ImportQueueStatus) {
   switch (status) {
     case "selected":
-      return "Valgt";
+      return "Venter på automatisk behandling";
     case "validating":
-      return "Sjekker fil";
+      return "Sjekker dokumentet";
     case "hashing":
-      return "Beregner hash";
+      return "Sikrer dokumentreferanse";
     case "extracting":
       return "Leser tekst";
     case "chunking":
-      return "Lager kildegrunnlag";
+      return "Lager sporbare kilder";
     case "ready":
       return "Klar";
     case "needs_attention":
-      return "Krever oppmerksomhet";
+      return "Venter på dokumentmotor";
     case "failed":
-      return "Feilet";
+      return "Kunne ikke behandles automatisk";
+  }
+}
+
+function importProcessingLabel(status: ImportQueueStatus) {
+  switch (status) {
+    case "selected":
+      return DOCUMENT_PROCESSING_LABELS.queued;
+    case "validating":
+      return DOCUMENT_PROCESSING_LABELS.running;
+    case "hashing":
+      return DOCUMENT_PROCESSING_LABELS.running;
+    case "extracting":
+      return DOCUMENT_PROCESSING_LABELS.extracting_text;
+    case "chunking":
+      return DOCUMENT_PROCESSING_LABELS.creating_sources;
+    case "ready":
+      return DOCUMENT_PROCESSING_LABELS.completed;
+    case "needs_attention":
+      return DOCUMENT_PROCESSING_LABELS.waiting_for_background_worker;
+    case "failed":
+      return DOCUMENT_PROCESSING_LABELS.failed;
   }
 }
 
@@ -151,19 +179,26 @@ function documentReadiness(document: DocumentSummary) {
     };
   }
   if (["needs_ocr", "partial_needs_ocr", "failed", "empty", "unsupported_file_type"].includes(document.ocr_status)) {
+    if (["failed", "empty", "unsupported_file_type"].includes(document.ocr_status)) {
+      return {
+        status: "failed" as const,
+        label: "Kunne ikke behandles automatisk",
+        detail: "Dokumentet kunne ikke gjøres klart for Saksrom"
+      };
+    }
     return {
-      status: "needs_attention" as const,
-      label: "Krever oppmerksomhet",
+      status: "processing" as const,
+      label: "Venter på automatisk teksthenting",
       detail:
         document.pending_ocr_page_count > 0
-          ? `${countLabel(document.pending_ocr_page_count, "side", "sider")} trenger OCR eller tekstkontroll`
-          : "Ingen lesbare kildeutdrag funnet"
+          ? `${countLabel(document.pending_ocr_page_count, "side", "sider")} venter på automatisk teksthenting`
+          : "Dokumentet venter på dokumentmotor"
     };
   }
   return {
     status: "processing" as const,
     label: "Behandles",
-    detail: document.analyzed_page_count > 0 ? `${document.analyzed_page_count} sider analysert` : "Venter på behandling"
+    detail: document.analyzed_page_count > 0 ? `${document.analyzed_page_count} sider analysert` : "Venter på automatisk behandling"
   };
 }
 
@@ -215,6 +250,8 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<CaseSummary | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [activeSource, setActiveSource] = useState<SourceObjectSummary | undefined>();
+  const [attentionDetailsOpen, setAttentionDetailsOpen] = useState(false);
+  const [technicalDetailsOpen, setTechnicalDetailsOpen] = useState(false);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
   const [evidenceRows, setEvidenceRows] = useState<EvidenceRow[]>([]);
   const [argumentRows, setArgumentRows] = useState<ArgumentRow[]>([]);
@@ -331,14 +368,81 @@ export default function App() {
   const analyzedPages = documents.reduce((sum, document) => sum + (document.analyzed_page_count || 0), 0);
   const pendingOcrPages = documents.reduce((sum, document) => sum + (document.pending_ocr_page_count || 0), 0);
   const totalPages = documents.reduce((sum, document) => sum + document.page_count, 0);
+  const pagesWithSources = useMemo(() => {
+    const coveredPages = new Set<string>();
+    for (const source of sources) {
+      const pageStart = Math.max(1, source.page_start || 1);
+      const pageEnd = Math.max(pageStart, source.page_end || pageStart);
+      for (let page = pageStart; page <= pageEnd; page += 1) {
+        coveredPages.add(`${source.document_id}:${page}`);
+      }
+    }
+    return coveredPages.size;
+  }, [sources]);
+  const sourceCoveragePercent = calculateSourceCoveragePercent({
+    totalPages,
+    pagesWithSources
+  });
+  const pagesMissingSources = totalPages > 0 ? Math.max(0, totalPages - pagesWithSources) : 0;
   const processedDocuments = documents.filter(
     (document) => document.source_count > 0 || document.analyzed_page_count > 0
   );
   const documentsRequiringAttention = documents.filter((document) =>
-    ["needs_ocr", "partial_needs_ocr", "failed", "empty", "unsupported_file_type"].includes(document.ocr_status)
+    ["failed", "empty", "unsupported_file_type"].includes(document.ocr_status)
   );
+  const failedDocuments = documents.filter((document) =>
+    ["failed", "empty", "unsupported_file_type"].includes(document.ocr_status)
+  );
+  const importFailures = importQueue.filter((item) => item.status === "failed").length;
+  const hasActiveProcessing =
+    isImporting ||
+    importQueue.some((item) => ["selected", "validating", "hashing", "extracting", "chunking"].includes(item.status)) ||
+    documents.some((document) => document.ocr_status === "running");
+  const activeImportItem = importQueue.find((item) =>
+    ["selected", "validating", "hashing", "extracting", "chunking"].includes(item.status)
+  );
+  const caseCoverage: CaseCoverageSummary = {
+    totalDocuments: documents.length,
+    processedDocuments: processedDocuments.length,
+    totalPages,
+    processedPages: analyzedPages,
+    pagesWithText: analyzedPages,
+    pagesWithSources,
+    pagesMissingSources,
+    failedDocuments: failedDocuments.length,
+    documentsRequiringAttention: documentsRequiringAttention.length,
+    sourceCoveragePercent,
+    currentlyProcessingLabel: hasActiveProcessing
+      ? activeImportItem
+        ? importProcessingLabel(activeImportItem.status)
+        : DOCUMENT_PROCESSING_LABELS.recognizing_text
+      : undefined,
+    hasActiveProcessing
+  };
+  const caseReadiness = getCaseReadiness({
+    hasDocuments,
+    totalDocuments: documents.length,
+    processedDocuments: processedDocuments.length,
+    totalPages,
+    processedPages: analyzedPages,
+    pagesWithText: analyzedPages,
+    pagesWithSources,
+    pagesMissingSources,
+    sourceCount: sources.length,
+    failedDocuments: failedDocuments.length,
+    documentsRequiringAttention: documentsRequiringAttention.length,
+    importFailures,
+    pendingTextRecognitionPages: pendingOcrPages,
+    hasActiveProcessing,
+    criticalDocumentsFailed: failedDocuments.length > 0,
+    automaticTextRecognitionAvailable: AUTOMATIC_TEXT_RECOGNITION_AVAILABLE,
+    dbEncryptionVerified: dbSecurity?.encrypted_at_rest ?? false
+  });
+  const canUsePreliminaryAnalysis =
+    caseReadiness.verdict === "ready_for_preliminary_analysis" ||
+    caseReadiness.verdict === "ready_for_draft_control";
+  const canUseDraftControl = caseReadiness.verdict === "ready_for_draft_control";
   const isWorkspaceUnlocked = isAuthenticated && onboardingStage === "caseRoom";
-  const hasAnalysis = timelineItems.length > 0 || evidenceRows.length > 0 || riskRows.length > 0;
 
   const totals = useMemo(() => {
     return {
@@ -353,14 +457,14 @@ export default function App() {
     ? Array.from(new Set(documents.map((document) => document.ocr_status))).join(", ")
     : "ikke startet";
 
-  const coveragePercent = selectedCase?.source_coverage_percent || 0;
+  const coveragePercent = sourceCoveragePercent;
   const userCoverageExplanation = hasDocuments
-    ? `${coveragePercent}% av sidene kan brukes som sporbare kildeutdrag. ${
-        coveragePercent < 100
-          ? `${100 - coveragePercent}% m\u00e5 OCR-behandles eller kontrolleres f\u00f8r AI-analyse.`
-          : "Dokumentgrunnlaget er klart for kontrollert analyse."
+    ? `${coveragePercent} % av sidene kan brukes som kilde ennå. ${
+        coveragePercent < 80
+          ? "Evida klargjør dokumentgrunnlaget og lager sporbare kilder automatisk."
+          : "Dokumentgrunnlaget kan brukes til kildebasert arbeid med kontroll mot originalkildene."
       }`
-    : "Importer et dokument for \u00e5 se hva AI trygt kan bruke.";
+    : "Importer dokumenter for å se hva Evida trygt kan bruke.";
 
   const deviations = useMemo(() => {
     const items: string[] = [];
@@ -368,13 +472,17 @@ export default function App() {
       items.push("Dokument finnes, men ingen sporbare kildeutdrag er bygget.");
     }
     if (needsOcr) {
-      items.push("Minst ett dokument trenger OCR eller tekstkontroll.");
+      items.push("Noen sider venter på automatisk teksthenting.");
     }
     if (hasDocuments && analyzedPages < totalPages) {
-      items.push(`${countLabel(totalPages - analyzedPages, "side", "sider")} mangler sporbare kildeutdrag.`);
+      items.push(
+        hasActiveProcessing
+          ? "Evida jobber fortsatt med å hente ut tekst og lage sporbare kilder fra sidene."
+          : "Automatisk teksthenting fra skannede sider er ikke ferdig implementert i denne versjonen."
+      );
     }
     return items;
-  }, [analyzedPages, hasDocuments, hasSources, needsOcr, totalPages]);
+  }, [analyzedPages, hasActiveProcessing, hasDocuments, hasSources, needsOcr, totalPages]);
 
   async function handleCreateCase() {
     const name = caseName.trim() || "Ny sak";
@@ -386,8 +494,8 @@ export default function App() {
   }
 
   const buildChronology = useCallback(async () => {
-    if (!hasSources) {
-      setReindexStatus("Kronologi trenger sporbare kildeutdrag. Importer tekstgrunnlag eller oppdater kildeutdrag f\u00f8rst.");
+    if (!canUsePreliminaryAnalysis) {
+      setReindexStatus(`${caseReadiness.title}. ${caseReadiness.reason}`);
       setActiveView("control");
       return;
     }
@@ -401,11 +509,11 @@ export default function App() {
       uncertainty: item.uncertainty
     })));
     setActiveView("chronology");
-  }, [hasSources, selectedCaseId]);
+  }, [canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, selectedCaseId]);
 
   const buildEvidence = useCallback(async () => {
-    if (!hasSources) {
-      setReindexStatus("Bevismatrise trenger sporbare kildeutdrag. Importer tekstgrunnlag eller oppdater kildeutdrag f\u00f8rst.");
+    if (!canUsePreliminaryAnalysis) {
+      setReindexStatus(`${caseReadiness.title}. ${caseReadiness.reason}`);
       setActiveView("control");
       return;
     }
@@ -419,11 +527,11 @@ export default function App() {
       status: item.status
     })));
     setActiveView("evidence");
-  }, [hasSources, selectedCaseId]);
+  }, [canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, selectedCaseId]);
 
   async function buildArguments() {
-    if (!hasSources) {
-      setReindexStatus("Anf\u00f8rsler trenger et kontrollert grunnlag med sporbare kildeutdrag f\u00f8rst.");
+    if (!canUsePreliminaryAnalysis) {
+      setReindexStatus(`${caseReadiness.title}. ${caseReadiness.reason}`);
       setActiveView("control");
       return;
     }
@@ -440,8 +548,12 @@ export default function App() {
   }
 
   async function buildContradictions() {
-    if (sources.length < 2) {
-      setReindexStatus("Motstridsanalyse trenger minst to sporbare kildeutdrag.");
+    if (!canUsePreliminaryAnalysis || sources.length < 2) {
+      setReindexStatus(
+        !canUsePreliminaryAnalysis
+          ? `${caseReadiness.title}. ${caseReadiness.reason}`
+          : "Motstridsanalyse trenger minst to sporbare kilder."
+      );
       setActiveView("control");
       return;
     }
@@ -459,8 +571,8 @@ export default function App() {
   }
 
   async function buildRisk() {
-    if (!hasSources) {
-      setReindexStatus("Risikovurdering trenger sporbare kildeutdrag.");
+    if (!canUsePreliminaryAnalysis) {
+      setReindexStatus(`${caseReadiness.title}. ${caseReadiness.reason}`);
       setActiveView("control");
       return;
     }
@@ -502,6 +614,30 @@ export default function App() {
         onSecondaryAction: () => setActiveView("control")
       };
     }
+    if (caseReadiness.verdict === "not_ready") {
+      return {
+        step: 3,
+        stepTotal: 6,
+        title: caseReadiness.title,
+        description: caseReadiness.reason,
+        why: "Saksrom og juridiske arbeidsflater låses til nok sider kan spores tilbake til kilder.",
+        actionLabel: caseReadiness.primaryAction,
+        onAction: () => setActiveView("control")
+      };
+    }
+    if (caseReadiness.verdict === "requires_control" && activeView !== "caseRoom") {
+      return {
+        step: 3,
+        stepTotal: 6,
+        title: "Grunnlaget krever kontroll",
+        description: "Foreløpig Saksrom kan åpnes, men juridiske arbeidsflater og utkast er låst.",
+        why: "Dekningen er lav eller ufullstendig. Bruk dette bare til orientering.",
+        actionLabel: "Se hva som mangler",
+        onAction: () => setActiveView("control"),
+        secondaryLabel: coveragePercent >= 50 ? "Åpne foreløpig Saksrom" : undefined,
+        onSecondaryAction: coveragePercent >= 50 ? () => setActiveView("caseRoom") : undefined
+      };
+    }
     if (activeView !== "caseRoom") {
       return {
         step: 3,
@@ -515,12 +651,12 @@ export default function App() {
         onSecondaryAction: () => setActiveView("control")
       };
     }
-    if (!hasSources || needsOcr) {
+    if (!canUsePreliminaryAnalysis) {
       return {
         step: 3,
         stepTotal: 6,
         title: "Sjekk hva AI trygt kan bruke",
-        description: "Se sider, OCR-status og sporbare kildeutdrag f\u00f8r analyse.",
+        description: "Se hvilke sider som kan brukes som kilde før analyse.",
         why: "Vi må vite hvilke sider som kan spores tilbake til originaldokumentet før kronologi eller utkast bygges.",
         actionLabel: "Åpne kontroll",
         onAction: () => setActiveView("control"),
@@ -554,6 +690,19 @@ export default function App() {
         onSecondaryAction: () => setActiveView("chronology")
       };
     }
+    if (!canUseDraftControl) {
+      return {
+        step: 6,
+        stepTotal: 6,
+        title: "Kontroller før utkast",
+        description: "Utkast låses til dokumentgrunnlaget har høy dekning.",
+        why: "Foreløpig analyse kan brukes, men utkast krever strengere kildekontroll.",
+        actionLabel: "Se kontrollgrunnlag",
+        onAction: () => setActiveView("control"),
+        secondaryLabel: "Se bevis",
+        onSecondaryAction: () => setActiveView("evidence")
+      };
+    }
     return {
       step: 6,
       stepTotal: 6,
@@ -568,8 +717,10 @@ export default function App() {
   }, [
     selectedCase,
     hasDocuments,
-    hasSources,
-    needsOcr,
+    caseReadiness,
+    canUseDraftControl,
+    canUsePreliminaryAnalysis,
+    coveragePercent,
     activeView,
     timelineItems.length,
     evidenceRows.length,
@@ -605,7 +756,7 @@ export default function App() {
       };
       setProcessingLog([
         "Validerer filer",
-        "Beregner SHA-256",
+        "Sikrer dokumentreferanse",
         "Registrerer dokumenter i lokal database"
       ]);
       try {
@@ -614,13 +765,13 @@ export default function App() {
           const name = fileNameFromPath(path);
           updateQueueItem(path, { status: "validating", detail: "Sjekker filtype og størrelse" });
           setProcessingLog((current) => [...current, `Sjekker ${name}`]);
-          updateQueueItem(path, { status: "hashing", detail: "Beregner SHA-256" });
-          setProcessingLog((current) => [...current, `Beregner hash for ${name}`]);
-          updateQueueItem(path, { status: "extracting", detail: "Leser tekst, sider og eventuell OCR-status" });
+          updateQueueItem(path, { status: "hashing", detail: "Sikrer dokumentreferanse" });
+          setProcessingLog((current) => [...current, `Sikrer dokumentreferanse for ${name}`]);
+          updateQueueItem(path, { status: "extracting", detail: "Leser tekst og teller sider" });
           const report = await registerDocument(selectedCaseId, path);
           updateQueueItem(path, {
             status: "chunking",
-            detail: "Lager sporbare kildeutdrag",
+            detail: "Lager sporbare kilder",
             pages: report.pages_created,
             sources: report.sources_created
           });
@@ -630,7 +781,7 @@ export default function App() {
             detail:
               report.sources_created > 0
                 ? `${countLabel(report.pages_created, "side", "sider")} og ${countLabel(report.sources_created, "kildeutdrag", "kildeutdrag")} klare`
-                : "Dokumentet er importert, men trenger OCR eller manuell tekstkontroll",
+                : "Venter på automatisk teksthenting fra dokumentmotoren.",
             pages: report.pages_created,
             sources: report.sources_created
           });
@@ -638,6 +789,10 @@ export default function App() {
         setDocumentPath("");
         const pageCount = reports.reduce((sum, report) => sum + report.pages_created, 0);
         const sourceCount = reports.reduce((sum, report) => sum + report.sources_created, 0);
+        const estimatedCoverage = calculateSourceCoveragePercent({
+          totalPages: pageCount,
+          pagesWithSources: sourceCount
+        });
         setLastImport(
           `${countLabel(reports.length, "dokument", "dokumenter")} importert: ${countLabel(
             pageCount,
@@ -645,11 +800,14 @@ export default function App() {
             "sider"
           )}, ${countLabel(sourceCount, "kildeutdrag", "kildeutdrag")}`
         );
-        await runAutomaticAnalysis(selectedCaseId, sourceCount);
+        await runAutomaticAnalysis(selectedCaseId, sourceCount, estimatedCoverage);
         await refresh(selectedCaseId);
-        setProcessingLog((current) => [...current, "Saksrom er klart"]);
+        setProcessingLog((current) => [
+          ...current,
+          estimatedCoverage >= 80 ? "Saksrom kan åpnes for foreløpig analyse" : "Dokumentene må kontrolleres før analyse"
+        ]);
         setOnboardingStage("caseRoom");
-        setActiveView("caseRoom");
+        setActiveView(estimatedCoverage >= 80 ? "caseRoom" : "documents");
       } catch (error) {
         setImportError(`Import feilet: ${String(error)}`);
         setImportQueue((current) =>
@@ -761,6 +919,21 @@ export default function App() {
     setIsDragActive(true);
   }
 
+  function handleDropZoneClick() {
+    if (!selectedCaseId || isImporting) {
+      return;
+    }
+    void handleChooseFiles();
+  }
+
+  function handleDropZoneKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    handleDropZoneClick();
+  }
+
   async function handleSelectCase(caseId: string) {
     await refresh(caseId);
     if (onboardingStage !== "caseRoom") {
@@ -791,13 +964,19 @@ export default function App() {
     await refresh(selectedCaseId);
   }
 
-  async function runAutomaticAnalysis(caseId: string, importedSourceCount: number) {
-    if (importedSourceCount <= 0) {
+  async function runAutomaticAnalysis(caseId: string, importedSourceCount: number, importedCoveragePercent: number) {
+    if (importedSourceCount <= 0 || importedCoveragePercent < 80) {
       setProcessingLog((current) => [
         ...current,
-        "OCR eller manuell tekstkontroll kreves før automatisk analyse"
+        importedSourceCount <= 0
+          ? "Dokumentet er ikke ferdig lest ennå"
+          : "Dekningen er for lav for automatisk analyse"
       ]);
-      setReindexStatus("Dokumentet er importert. Kildegrunnlaget trenger OCR eller manuell kontroll før automatisk analyse.");
+      setReindexStatus(
+        importedSourceCount <= 0
+          ? "Dokumentet er importert, men Evida fant ikke nok lesbar tekst til sporbare kilder."
+          : "Dokumentet er importert, men kildegrunnlaget krever kontroll før automatisk analyse."
+      );
       return;
     }
     setProcessingLog((current) => [
@@ -847,8 +1026,9 @@ export default function App() {
   }
 
   function generateDraft() {
-    if (!hasSources) {
-      setDraftText("Utkast kan lages n\u00e5r saken har sporbare kildeutdrag. Last opp en tekst-PDF/TXT eller kj\u00f8r OCR f\u00f8r juridisk tekst genereres.");
+    if (!canUseDraftControl) {
+      setDraftText(`${caseReadiness.title}. ${caseReadiness.blockedUse}`);
+      setActiveView("control");
       return;
     }
     setDraftText(
@@ -897,10 +1077,10 @@ export default function App() {
     const steps = [
       { label: "Opprett sak", done: Boolean(selectedCase), active: !selectedCase, action: () => setActiveView("overview") },
       { label: "Importer dokument", done: hasDocuments, active: Boolean(selectedCase) && !hasDocuments, action: () => setActiveView("documents") },
-      { label: "Sjekk hva AI trygt kan bruke", done: hasSources && !needsOcr, active: hasDocuments && (!hasSources || needsOcr), action: () => setActiveView("control") },
-      { label: "Bygg kronologi", done: timelineItems.length > 0, active: hasSources && timelineItems.length === 0 && !needsOcr, action: buildChronology },
+      { label: "Sjekk hva Evida trygt kan bruke", done: canUsePreliminaryAnalysis, active: hasDocuments && !canUsePreliminaryAnalysis, action: () => setActiveView("control") },
+      { label: "Bygg kronologi", done: timelineItems.length > 0, active: canUsePreliminaryAnalysis && timelineItems.length === 0, action: buildChronology },
       { label: "Bygg bevismatrise", done: evidenceRows.length > 0, active: timelineItems.length > 0 && evidenceRows.length === 0, action: buildEvidence },
-      { label: "Start saksarbeid", done: evidenceRows.length > 0, active: evidenceRows.length > 0, action: () => setActiveView("draft") }
+      { label: "Start saksarbeid", done: canUseDraftControl, active: canUseDraftControl, action: () => setActiveView("draft") }
     ];
 
     return (
@@ -939,9 +1119,9 @@ export default function App() {
         action: () => setActiveView("documents")
       },
       {
-        label: "Sjekk hva AI trygt kan bruke",
-        done: hasSources && !needsOcr,
-        active: hasDocuments && (!hasSources || needsOcr),
+        label: "Sjekk hva Evida trygt kan bruke",
+        done: canUsePreliminaryAnalysis,
+        active: hasDocuments && !canUsePreliminaryAnalysis,
         reason: "Vi viser hvilke sider som kan spores tilbake til originaldokumentet.",
         actionLabel: "Sjekk grunnlag",
         action: () => setActiveView("control")
@@ -949,7 +1129,7 @@ export default function App() {
       {
         label: "Bygg kronologi",
         done: timelineItems.length > 0,
-        active: hasSources && timelineItems.length === 0 && !needsOcr,
+        active: canUsePreliminaryAnalysis && timelineItems.length === 0,
         reason: "F\u00f8rste nytte er en tidslinje med kildehenvisning.",
         actionLabel: "Bygg kronologi",
         action: buildChronology
@@ -964,9 +1144,9 @@ export default function App() {
       },
       {
         label: "Start saksarbeid",
-        done: evidenceRows.length > 0,
-        active: evidenceRows.length > 0,
-        reason: "Grunnlaget er klart for utkast, risiko og videre kontroll.",
+        done: canUseDraftControl,
+        active: canUseDraftControl,
+        reason: "Utkast åpnes først når dokumentgrunnlaget har høy dekning.",
         actionLabel: "\u00c5pne utkast",
         action: () => setActiveView("draft")
       }
@@ -1007,6 +1187,135 @@ export default function App() {
     );
   }
 
+  function DocumentReadinessPanel({ compact = false }: { compact?: boolean }) {
+    if (!hasDocuments) {
+      return null;
+    }
+
+    const coverageText =
+      caseCoverage.totalPages > 0
+        ? `${caseReadiness.sourceCoveragePercent} % av sidene kan brukes som kilde ennå`
+        : "Dekning beregnes";
+    const pageText =
+      caseCoverage.totalPages > 0
+        ? `${caseCoverage.processedPages} av ${caseCoverage.totalPages} sider kontrollert`
+        : "Beregner antall sider";
+    const recoveryCount = caseCoverage.failedDocuments + importFailures;
+    const showTechnicalDetailsAction =
+      !AUTOMATIC_TEXT_RECOGNITION_AVAILABLE &&
+      pendingOcrPages > 0 &&
+      caseReadiness.sourceCoveragePercent < 50 &&
+      recoveryCount === 0;
+    const primaryLabel =
+      !caseCoverage.hasActiveProcessing && recoveryCount > 0
+        ? attentionDetailsOpen
+          ? "Skjul dokumenter som ikke kunne behandles"
+          : "Se dokumenter som ikke kunne behandles"
+        : caseReadiness.primaryAction;
+    const handlePrimaryAction = () => {
+      if (!caseCoverage.hasActiveProcessing && recoveryCount > 0) {
+        setAttentionDetailsOpen((current) => !current);
+        return;
+      }
+      setActiveView("control");
+    };
+
+    return (
+      <section
+        className={`panel document-readiness-panel document-readiness-panel--${caseReadiness.severity} ${compact ? "document-readiness-panel--compact" : ""}`}
+        aria-live="polite"
+      >
+        <div className="panel-header">
+          <div>
+            <div className="eyebrow">Dokumentene gjøres klare</div>
+            <h2>{caseReadiness.title}</h2>
+            <p>{caseReadiness.reason}</p>
+          </div>
+          <div className="panel-actions">
+            <button className="button-primary" type="button" onClick={handlePrimaryAction}>
+              {primaryLabel}
+            </button>
+            {showTechnicalDetailsAction ? (
+              <button className="button-secondary" type="button" onClick={() => setTechnicalDetailsOpen((current) => !current)}>
+                {technicalDetailsOpen ? "Skjul tekniske detaljer" : "Se tekniske detaljer"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="processing-stats">
+          <span><strong>{caseCoverage.processedDocuments}</strong> av {caseCoverage.totalDocuments} dokumenter behandlet</span>
+          <span><strong>{pageText}</strong></span>
+          <span><strong>{coverageText}</strong></span>
+          <span><strong>{caseCoverage.currentlyProcessingLabel || "Status beregnes"}</strong></span>
+        </div>
+        {caseCoverage.hasActiveProcessing ? (
+          <p className="muted">Dette kan ta litt tid ved store eller skannede dokumenter.</p>
+        ) : caseReadiness.sourceCoveragePercent < 50 ? (
+          <p className="muted">
+            Saksrom-oppsummering blir tilgjengelig når dokumentgrunnlaget er klart.
+          </p>
+        ) : (
+          <p className="muted">Foreløpig — lav eller ufullstendig dekning. Kontroller alle svar mot kildene.</p>
+        )}
+        {recoveryCount > 0 ? (
+          <div className="warning-notice" role="alert">
+            {countLabel(recoveryCount, "dokument", "dokumenter")} kunne ikke behandles automatisk.
+          </div>
+        ) : null}
+        {attentionDetailsOpen && recoveryCount > 0 ? (
+          <div className="attention-documents" role="region" aria-label="Dokumenter som ikke kunne behandles">
+            {documentsRequiringAttention.map((document) => {
+              const readiness = documentReadiness(document);
+              return (
+                <article key={document.id} className="attention-document">
+                  <strong>{document.original_name}</strong>
+                  <span>{readiness.detail}</span>
+                  <span>
+                    {document.analyzed_page_count || 0} av {document.page_count || 0} sider kontrollert
+                  </span>
+                </article>
+              );
+            })}
+            {importFailures > 0 ? (
+              <article className="attention-document">
+                <strong>Importko</strong>
+                <span>{countLabel(importFailures, "import feilet", "importer feilet")}</span>
+                <span>Automatisk behandling feilet. Se tekniske detaljer før du prøver på nytt.</span>
+              </article>
+            ) : null}
+          </div>
+        ) : null}
+        {technicalDetailsOpen ? (
+          <div className="technical-details technical-details--panel">
+            <span>Automatisk teksthenting fra skannede sider er ikke ferdig implementert i denne versjonen.</span>
+            <span>Hvis du tester nå, fungerer tekstbaserte PDF-er best.</span>
+          </div>
+        ) : null}
+        {caseReadiness.testDataWarning ? <div className="warning-notice">{caseReadiness.testDataWarning}</div> : null}
+      </section>
+    );
+  }
+
+  function ReadinessGate({ title }: { title: string }) {
+    return (
+      <>
+        <DocumentReadinessPanel />
+        <section className="panel readiness-gate" role={caseReadiness.severity === "critical" ? "alert" : "status"}>
+          <div className="panel-header">
+            <div>
+              <div className="eyebrow">{caseReadiness.label}</div>
+              <h2>{title}</h2>
+              <p>{caseReadiness.blockedUse}</p>
+            </div>
+            <button className="button-primary" onClick={() => setActiveView("control")}>
+              Se kontrollgrunnlag
+            </button>
+          </div>
+        </section>
+      </>
+    );
+  }
+
   function ProcessingStatus() {
     const readyCount = processedDocuments.length;
     const activeCount = isImporting ? 1 : Math.max(0, documents.length - readyCount - documentsRequiringAttention.length);
@@ -1029,20 +1338,20 @@ export default function App() {
               Saksrom.
             </p>
           </div>
-          {documents.length > 0 ? (
+          {documents.length > 0 && caseReadiness.verdict !== "not_ready" ? (
             <button className="button-primary" onClick={() => {
               setOnboardingStage("caseRoom");
               setActiveView("caseRoom");
             }}>
-              Gå til Saksrom
+              {caseReadiness.verdict === "requires_control" ? "Åpne foreløpig Saksrom" : "Gå til Saksrom"}
             </button>
           ) : null}
         </div>
         <div className="processing-stats">
           <span><strong>{documents.length}</strong> lastet opp</span>
           <span><strong>{readyCount}</strong> ferdig behandlet</span>
-          <span><strong>{activeCount}</strong> analyseres nå</span>
-          <span><strong>{documentsRequiringAttention.length}</strong> krever oppmerksomhet</span>
+          <span><strong>{hasActiveProcessing ? activeCount : 0}</strong> behandles nå</span>
+          <span><strong>{documentsRequiringAttention.length}</strong> kunne ikke behandles automatisk</span>
         </div>
         {documents.length > 0 ? (
           <div className="processing-list">
@@ -1055,7 +1364,7 @@ export default function App() {
                       "kilder"
                     )}`
                   : document.pending_ocr_page_count > 0
-                    ? `Kjører OCR/tekstkontroll · ${countLabel(document.pending_ocr_page_count, "side", "sider")} venter`
+                    ? `Henter tekst fra skannede sider · ${countLabel(document.pending_ocr_page_count, "side", "sider")} venter`
                     : document.analyzed_page_count > 0
                       ? `Leser tekst · ${document.analyzed_page_count} sider analysert`
                       : "Lastet opp · venter på behandling";
@@ -1235,17 +1544,18 @@ export default function App() {
                 <h1>{selectedCase ? selectedCase.name : "Velg eller opprett sak"}</h1>
                 <p>Last opp dokumenter. Evida behandler materialet og sender deg videre til Saksrom.</p>
               </div>
-              {hasDocuments ? (
+              {hasDocuments && caseReadiness.verdict !== "not_ready" ? (
                 <button className="button-secondary" onClick={() => {
                   setOnboardingStage("caseRoom");
                   setActiveView("caseRoom");
                 }}>
-                  Gå til Saksrom mens resten behandles
+                  {caseReadiness.verdict === "requires_control" ? "Åpne foreløpig Saksrom" : "Gå til Saksrom"}
                 </button>
               ) : null}
             </div>
             {!selectedCase ? <CasePanel /> : null}
             <ImportPanel />
+            {hasDocuments && caseReadiness.sourceCoveragePercent < 80 ? <DocumentReadinessPanel /> : null}
             <ProcessingStatus />
           </section>
         ) : null}
@@ -1329,7 +1639,14 @@ export default function App() {
             </button>
           </div>
         ) : null}
-        <div className="drop-zone">
+        <div
+          className={`drop-zone ${!selectedCaseId || isImporting ? "drop-zone--disabled" : ""}`}
+          role="button"
+          tabIndex={!selectedCaseId || isImporting ? -1 : 0}
+          aria-disabled={!selectedCaseId || isImporting}
+          onClick={handleDropZoneClick}
+          onKeyDown={handleDropZoneKeyDown}
+        >
           <strong>{isDragActive ? "Slipp dokumentene her" : "Dra dokumenter hit"}</strong>
           <span>Du kan slippe flere filer samtidig. Bruk Velg filer hvis drag/drop ikke passer.</span>
         </div>
@@ -1360,8 +1677,8 @@ export default function App() {
           <div className="import-status-grid">
             <span>PDF-sider <strong>{totalPages}</strong></span>
             <span>Analyserte sider <strong>{analyzedPages}</strong></span>
-            <span>Kildeutdrag <strong>{sources.length}</strong></span>
-            <span>OCR <strong>{pendingOcrPages > 0 ? `${pendingOcrPages} sider venter` : ocrStatus}</strong></span>
+            <span>Sporbare kilder <strong>{sources.length}</strong></span>
+            <span>Tekststatus <strong>{pendingOcrPages > 0 ? `${pendingOcrPages} sider venter på tekst` : "Ingen ventende sider"}</strong></span>
           </div>
         ) : null}
         {hasDocuments ? <div className="workflow-notice">{userCoverageExplanation}</div> : null}
@@ -1437,11 +1754,15 @@ export default function App() {
     const primaryLabel = !selectedCase
       ? "Opprett sak"
       : hasDocuments
-        ? "Åpne Saksrom"
+        ? caseReadiness.verdict === "not_ready"
+          ? "Vis behandlingsstatus"
+          : caseReadiness.verdict === "requires_control"
+            ? "Åpne foreløpig Saksrom"
+            : "Åpne Saksrom"
         : "Last opp dokumenter";
     const primaryAction = !selectedCase
       ? undefined
-      : () => setActiveView(hasDocuments ? "caseRoom" : "documents");
+      : () => setActiveView(hasDocuments ? (caseReadiness.verdict !== "not_ready" ? "caseRoom" : "control") : "documents");
 
     return (
       <>
@@ -1453,7 +1774,9 @@ export default function App() {
                 {!selectedCase
                   ? "Opprett en sak først. Deretter laster du opp dokumenter og går videre til Saksrom."
                   : hasDocuments
-                    ? "Dokumenter er importert. Neste steg er å åpne Saksrom for oppsummering og spørsmål."
+                    ? caseReadiness.verdict === "not_ready"
+                      ? "Dokumenter er importert, og saken klargjøres automatisk."
+                      : "Dokumenter er importert. Neste steg er kildebasert arbeid med tydelig kontroll."
                     : "Saken er klar. Last opp dokumenter for å starte analyse og saksarbeid."}
               </p>
             </div>
@@ -1501,8 +1824,8 @@ export default function App() {
                 <div>
                   <div className="document-primary">
                     <strong>{document.original_name}</strong>
-                    {document.pending_ocr_page_count > 0 ? <span className="status-chip status-chip--warn">OCR må kjøres</span> : null}
-                    {document.source_count > 0 ? <span className="status-chip status-chip--ok">Kildeutdrag OK</span> : null}
+                    {document.pending_ocr_page_count > 0 ? <span className="status-chip status-chip--warn">Må hente tekst fra skannede sider</span> : null}
+                    {document.source_count > 0 ? <span className="status-chip status-chip--ok">Kan brukes som kilde i Saksrom</span> : null}
                   </div>
                   <button
                     className="button-ghost technical-toggle"
@@ -1521,10 +1844,10 @@ export default function App() {
                 <div className="case-row__meta">
                   <span>{countLabel(document.page_count, "side", "sider")}</span>
                   <span>{document.analyzed_page_count || 0} analysert</span>
-                  <span>{document.pending_ocr_page_count || 0} OCR-venter</span>
-                  <span>{countLabel(document.source_count, "kildeutdrag", "kildeutdrag")}</span>
-                  <span>{document.ocr_status}</span>
-                  <span>{document.source_coverage_percent}% lesbart</span>
+                  <span>{document.pending_ocr_page_count || 0} sider venter på tekst</span>
+                  <span>{countLabel(document.source_count, "kilde", "kilder")}</span>
+                  <span>{documentReadiness(document).label}</span>
+                  <span>{Math.round(document.source_coverage_percent)} % av sidene kan brukes som kilde</span>
                 </div>
               </article>
             ))}
@@ -1532,7 +1855,7 @@ export default function App() {
         )}
         {hasDocuments && !hasSources ? (
           <div className="warning-notice">
-            Dokumentet er registrert, men saken har ingen sporbare kildeutdrag. Det betyr normalt skannet PDF eller PDF uten tekstlag.
+            Dokumentet er registrert, men saken har ingen sporbare kilder ennå. Evida venter på automatisk teksthenting.
           </div>
         ) : null}
         {hasDocuments ? <div className="workflow-notice">{userCoverageExplanation}</div> : null}
@@ -1569,8 +1892,8 @@ export default function App() {
       { label: "Sak valgt", ok: Boolean(selectedCase), detail: selectedCase?.name || "Ingen sak" },
       { label: "PDF-sider", ok: totalPages > 0, detail: countLabel(totalPages, "side", "sider") },
       { label: "Analyserte sider", ok: analyzedPages > 0, detail: `${analyzedPages} av ${totalPages}` },
-      { label: "Kildeutdrag", ok: hasSources, detail: countLabel(sources.length, "kildeutdrag", "kildeutdrag") },
-      { label: "OCR-status", ok: pendingOcrPages === 0 && hasDocuments, detail: pendingOcrPages > 0 ? `${pendingOcrPages} sider venter` : ocrStatus },
+      { label: "Sporbare kilder", ok: hasSources, detail: countLabel(sources.length, "kilde", "kilder") },
+      { label: "Tekststatus", ok: pendingOcrPages === 0 && hasDocuments, detail: pendingOcrPages > 0 ? `${pendingOcrPages} sider venter på tekst` : "Ingen ventende sider" },
       { label: "DB-kryptering", ok: Boolean(dbSecurity?.encrypted_at_rest), detail: dbSecurity?.cipher || "ukjent" },
       { label: "Audit trail", ok: audit.length > 0, detail: countLabel(audit.length, "event", "events") }
     ];
@@ -1581,7 +1904,7 @@ export default function App() {
           <StatusCard label="Saker" value={totals.cases} detail="lokal database" />
           <StatusCard label="Dokumenter" value={totals.documents} detail="registrert" />
           <StatusCard label="Sider" value={totals.pages} detail="registrert" />
-          <StatusCard label="Kildeutdrag" value={totals.sources} detail="sporbare utdrag" tone="warn" />
+          <StatusCard label="Sporbare kilder" value={totals.sources} detail="kan vises tilbake til sider" tone="warn" />
         </section>
         <section className="panel">
           <div className="panel-header">
@@ -1694,26 +2017,34 @@ export default function App() {
           <>
             {cases.length === 0 ? <CasePanel /> : null}
             <ImportPanel />
+            {hasDocuments && caseReadiness.sourceCoveragePercent < 80 ? <DocumentReadinessPanel /> : null}
             <DocumentList />
             <CaseList />
           </>
         );
       case "caseRoom":
         return (
-          <CaseRoomView
-            selectedCase={selectedCase}
-            documents={documents}
-            sources={sources}
-            sourcesById={sourceById}
-            pendingOcrPages={pendingOcrPages}
-            coverage={coveragePercent}
-            deviations={deviations}
-            nextActionTitle={nextAction.title}
-            onOpenSource={openSource}
-            onOpenControl={() => setActiveView("control")}
-          />
+          <>
+            {caseReadiness.sourceCoveragePercent < 80 ? <DocumentReadinessPanel compact /> : null}
+            <CaseRoomView
+              selectedCase={selectedCase}
+              documents={documents}
+              sources={sources}
+              sourcesById={sourceById}
+              pendingOcrPages={pendingOcrPages}
+              coverage={coveragePercent}
+              deviations={deviations}
+              readiness={caseReadiness}
+              nextActionTitle={nextAction.title}
+              onOpenSource={openSource}
+              onOpenControl={() => setActiveView("control")}
+            />
+          </>
         );
       case "chronology":
+        if (!canUsePreliminaryAnalysis) {
+          return <ReadinessGate title="Kronologi er låst til dokumentgrunnlaget er klart." />;
+        }
         return (
           <>
             <AiTrustContract />
@@ -1726,6 +2057,9 @@ export default function App() {
           </>
         );
       case "evidence":
+        if (!canUsePreliminaryAnalysis) {
+          return <ReadinessGate title="Bevismatrise er låst til dokumentgrunnlaget er klart." />;
+        }
         return (
           <>
             <AiTrustContract />
@@ -1738,6 +2072,9 @@ export default function App() {
           </>
         );
       case "arguments":
+        if (!canUsePreliminaryAnalysis) {
+          return <ReadinessGate title="Anførsler er låst til dokumentgrunnlaget er klart." />;
+        }
         return (
           <>
             <AiTrustContract />
@@ -1750,6 +2087,9 @@ export default function App() {
           </>
         );
       case "contradictions":
+        if (!canUsePreliminaryAnalysis) {
+          return <ReadinessGate title="Motstrid er låst til dokumentgrunnlaget er klart." />;
+        }
         return (
           <>
             <AiTrustContract />
@@ -1762,6 +2102,9 @@ export default function App() {
           </>
         );
       case "risk":
+        if (!canUsePreliminaryAnalysis) {
+          return <ReadinessGate title="Risiko er låst til dokumentgrunnlaget er klart." />;
+        }
         return (
           <>
             <AiTrustContract />
@@ -1771,8 +2114,14 @@ export default function App() {
       case "control":
         return <ControlView />;
       case "draft":
+        if (!canUseDraftControl) {
+          return <ReadinessGate title="Utkast er låst til dokumentgrunnlaget er klart for utkastkontroll." />;
+        }
         return <DraftView />;
       case "export":
+        if (!canUseDraftControl) {
+          return <ReadinessGate title="Eksport er låst til dokumentgrunnlaget er klart for utkastkontroll." />;
+        }
         return <ExportView />;
     }
   }
@@ -1793,8 +2142,7 @@ export default function App() {
           activeView={activeView}
           onNavigate={setActiveView}
           hasDocuments={hasDocuments}
-          hasSources={hasSources}
-          hasAnalysis={hasAnalysis}
+          readinessVerdict={caseReadiness.verdict}
         />
       ) : null}
       <main className={`workspace ${!showNavigation ? "workspace--guided" : ""} ${showNavigation && isCaseRoomView ? "workspace--chat" : ""}`}>
@@ -1842,8 +2190,8 @@ export default function App() {
       {showNavigation && activeView === "control" ? (
         <SourcePanel
           selectedCase={selectedCase}
-          coverage={selectedCase?.source_coverage_percent || 0}
-          ocrStatus={ocrStatus}
+          coverage={caseReadiness.sourceCoveragePercent}
+          ocrStatus={pendingOcrPages > 0 ? `${pendingOcrPages} sider venter på tekst` : "Ingen ventende sider"}
           sourceCount={sources.length}
           deviations={deviations}
           nextAction={nextAction}
