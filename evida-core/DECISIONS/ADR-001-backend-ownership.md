@@ -2,6 +2,10 @@
 
 Status: accepted
 
+Canonical ADR: `../../DECISIONS/ADR-001-backend-ownership.md`
+
+This copy is retained for local `evida-core` context. Root-level ADRs are authoritative for production-boundary decisions.
+
 ## Decision
 
 Spring Boot (`services/saksrom-api`) is the authoritative enterprise control plane for Evida.

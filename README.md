@@ -2,6 +2,22 @@
 
 Evida is a desktop-first, local legal workspace for document import, source-bound case overview and Saksrom dialogue.
 
+Status: pre-alpha technical scaffold. Evida is not production-ready and is not approved for real client data.
+
+## Production boundary
+
+Canonical architecture and security documents:
+
+```text
+ARCHITECTURE.md
+SECURITY.md
+DECISIONS\
+```
+
+Backend ownership is defined in `DECISIONS\ADR-001-backend-ownership.md`.
+
+Spring Boot (`evida-core\services\saksrom-api`) is the authoritative enterprise/control-plane backend. The FastAPI starter under `evida-core\backend-api` is deprecated for enterprise/control-plane use and must not own tenants, users, roles, permissions, license policy, audit policy, provider policy or production API authorization.
+
 ## Start the app
 
 Double-click:
@@ -45,6 +61,9 @@ Evida installer.msi
 |-- Start Evida.bat              # only user-facing start file
 |-- Evida Release\               # local release output, ignored by git
 |-- Evida_Prod_Grade_Spec.md     # prod-grade requirements and checklist
+|-- ARCHITECTURE.md              # canonical architecture boundary
+|-- SECURITY.md                  # security and data-use boundary
+|-- DECISIONS\                   # canonical ADRs
 |-- assets\brand\                # logo, icon and intro video
 |-- docs\                        # planning and phase documentation
 |-- archives\                    # old zip/intake packs, ignored by git
@@ -92,4 +111,13 @@ Evida Release\release-manifest.json
 docs\PILOT_EVALUATION_PLAN.md
 docs\ACCEPTANCE_SMOKE_TEST.md
 docs\RELEASE_CHECKLIST.md
+docs\IMPLEMENTATION_PLAN.md
+```
+
+## Boundary verification
+
+Check the production-boundary documentation contract:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ops\Verify-ProductionBoundary.ps1
 ```

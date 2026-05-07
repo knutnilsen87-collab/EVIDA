@@ -1,6 +1,16 @@
-# Backend API â€” Evida
+# Backend API - deprecated FastAPI starter
 
-FastAPI starter for enterprise control plane.
+Status: deprecated for enterprise/control-plane use.
+
+Spring Boot (`../services/saksrom-api`) is the authoritative enterprise control plane. This FastAPI starter must not be used for tenant, policy, license, user, audit or provider-routing decisions.
+
+Python remains allowed only as a local AI/document processing worker or prototype adapter until this folder is removed or moved to a legacy area.
+
+See the canonical root ADR:
+
+```text
+../../DECISIONS/ADR-001-backend-ownership.md
+```
 
 ## Run
 
@@ -14,10 +24,3 @@ uvicorn app.main:app --reload
 ## Data boundary
 
 Do not add endpoints that store case document content unless a separate privacy/security design is approved.
-# Deprecated backend starter
-
-Status: deprecated for enterprise/control-plane use.
-
-Spring Boot (`../services/saksrom-api`) is the authoritative enterprise control plane. This FastAPI starter must not be used for tenant, policy, license, user, audit or provider-routing decisions.
-
-Python remains allowed only as a local AI/document processing worker or prototype adapter until this folder is removed or moved to a legacy area.
