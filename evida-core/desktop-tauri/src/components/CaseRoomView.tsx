@@ -6,7 +6,15 @@ import {
   createDefaultSuggestedActions,
   resolveSuggestedActionReply
 } from "../features/adaptiveSaksrom/suggestedActions";
-import type { SuggestedAction } from "../features/adaptiveSaksrom/suggestedActions";
+import type { CollaborationMode, SuggestedAction } from "../features/adaptiveSaksrom/suggestedActions";
+import {
+  COLLABORATION_MODE_LABELS,
+  createEmptyCaseConversationMemory,
+  inferCollaborationModeFromText,
+  readCaseConversationMemory,
+  updateCaseConversationMemory
+} from "../features/adaptiveSaksrom/conversationMemory";
+import { SAKSROM_WORK_STATES } from "../features/adaptiveSaksrom/workStates";
 
 interface CaseRoomViewProps {
   selectedCase?: CaseSummary;
@@ -137,6 +145,14 @@ function parseStoredAnswer(message: CaseAiMessageDto): { question: string; resul
   }
 }
 
+function getConversationStorage() {
+  try {
+    return typeof window === "undefined" ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 export function CaseRoomView({
   selectedCase,
   documents,
@@ -153,8 +169,10 @@ export function CaseRoomView({
   const [question, setQuestion] = useState("");
   const [answers, setAnswers] = useState<Array<{ question: string; result: CaseAnswer }>>([]);
   const [isAsking, setIsAsking] = useState(false);
+  const [workStateIndex, setWorkStateIndex] = useState(0);
   const [providerNotice, setProviderNotice] = useState("");
   const [latestSuggestedActions, setLatestSuggestedActions] = useState<SuggestedAction[]>([]);
+  const [activeCollaborationMode, setActiveCollaborationMode] = useState<CollaborationMode>("free_question");
   const hasSources = sources.length > 0;
   const hasDocuments = documents.length > 0;
   const isBlocked = readiness.verdict === "not_ready";
@@ -202,19 +220,37 @@ export function CaseRoomView({
     if (!selectedCase?.id) {
       setAnswers([]);
       setLatestSuggestedActions([]);
+      setActiveCollaborationMode("free_question");
       return;
     }
+    const storage = getConversationStorage();
+    const memory = storage ? readCaseConversationMemory(storage, selectedCase.id) : createEmptyCaseConversationMemory(selectedCase.id);
+    setLatestSuggestedActions(memory.suggestedActions);
+    setActiveCollaborationMode(memory.activeCollaborationMode);
     listCaseAiMessages(selectedCase.id)
       .then((messages) => {
         const parsed = messages.map(parseStoredAnswer).filter(Boolean) as Array<{ question: string; result: CaseAnswer }>;
         setAnswers(parsed);
-        setLatestSuggestedActions(parsed[0]?.result.suggestedActions || []);
+        setLatestSuggestedActions(memory.suggestedActions.length > 0 ? memory.suggestedActions : parsed[0]?.result.suggestedActions || []);
       })
       .catch(() => {
         setAnswers([]);
-        setLatestSuggestedActions([]);
+        setLatestSuggestedActions(memory.suggestedActions);
       });
   }, [selectedCase?.id]);
+
+  useEffect(() => {
+    if (!isAsking) {
+      setWorkStateIndex(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setWorkStateIndex((current) => Math.min(current + 1, SAKSROM_WORK_STATES.length - 1));
+    }, 700);
+
+    return () => window.clearInterval(timer);
+  }, [isAsking]);
 
   async function askCase() {
     await submitCaseQuestion(question);
@@ -225,10 +261,12 @@ export function CaseRoomView({
     const resolvedAction = selectedAction || resolveSuggestedActionReply(cleanQuestion, latestSuggestedActions);
     const displayQuestion = resolvedAction?.label || cleanQuestion;
     const retrievalQuestion = resolvedAction?.queryTemplate || cleanQuestion;
+    const activeMode = resolvedAction?.intent || inferCollaborationModeFromText(cleanQuestion);
 
     if (!displayQuestion || !selectedCase?.id || !canAsk) {
       return;
     }
+    setActiveCollaborationMode(activeMode);
     setIsAsking(true);
     setProviderNotice("");
     try {
@@ -252,6 +290,7 @@ export function CaseRoomView({
         };
         setAnswers((current) => [answerWithActions, ...current].slice(0, 20));
         setLatestSuggestedActions(nextSuggestedActions);
+        persistConversationTurn(answerWithActions.result, nextSuggestedActions, activeMode, resolvedAction);
         setQuestion("");
         return;
       }
@@ -287,7 +326,34 @@ export function CaseRoomView({
     const stored = parseStoredAnswer(persisted);
     setLatestSuggestedActions(nextSuggestedActions);
     setAnswers((current) => [stored || { question: displayQuestion, result }, ...current].slice(0, 20));
+    persistConversationTurn(result, nextSuggestedActions, activeMode, resolvedAction);
     setQuestion("");
+  }
+
+  function persistConversationTurn(
+    result: CaseAnswer,
+    suggestedActions: SuggestedAction[],
+    activeMode: CollaborationMode,
+    selectedAction?: SuggestedAction
+  ) {
+    const storage = getConversationStorage();
+    if (!storage || !selectedCase?.id) {
+      return;
+    }
+
+    updateCaseConversationMemory(storage, selectedCase.id, {
+      previousAssistantAnswer: result.answer,
+      suggestedActions,
+      selectedAction,
+      activeCollaborationMode: activeMode,
+      retrievalSnapshot: {
+        sourceIds: result.sourceIds,
+        sourceCoveragePercent: coverage,
+        pendingTextRecognitionPages: pendingOcrPages,
+        sourceIndexVersion: `sources-${sources.length}`
+      },
+      sourcesUsed: result.sourceIds
+    });
   }
 
   return (
@@ -300,6 +366,7 @@ export function CaseRoomView({
             <div className="mode-line">
               <span className="local-pill">Sikker lokalmodus</span>
               <span>Ekstern AI er av. Svar bygger kun på lokale kilder i saken.</span>
+              <span className="case-mode-chip">Arbeidsmodus: {COLLABORATION_MODE_LABELS[activeCollaborationMode]}</span>
             </div>
             <h3>Oppsummering</h3>
             <p>{summary}</p>
@@ -413,6 +480,15 @@ export function CaseRoomView({
             ))
           )}
           {providerNotice ? <div className="case-provider-notice">{providerNotice}</div> : null}
+          {isAsking ? (
+            <div className="case-work-states" role="status" aria-live="polite" aria-label="Evida arbeider">
+              {SAKSROM_WORK_STATES.map((state, index) => (
+                <span key={state} className={index <= workStateIndex ? "is-active" : undefined}>
+                  {state}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
