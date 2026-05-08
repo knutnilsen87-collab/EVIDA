@@ -1693,6 +1693,125 @@ textarea {
   color: #5f574d;
 }
 
+.case-live-progress {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.case-live-progress__track {
+  position: relative;
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid #d8d3c7;
+  border-radius: 999px;
+  background: #f0eee8;
+}
+
+.case-live-progress__bar {
+  height: 100%;
+  min-width: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #202533, #4b5563, #202533);
+  background-size: 180% 100%;
+  transition: width 500ms ease;
+  animation: intake-progress-shimmer 1.2s linear infinite;
+}
+
+.case-intake-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.case-intake-steps span {
+  border: 1px solid #e1ddd4;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #5f574d;
+  background: #faf9f6;
+  font-size: 13px;
+}
+
+.case-intake-steps span.is-active {
+  color: #12375f;
+  border-color: #a8c8f0;
+  background: #e8f2ff;
+  font-weight: 800;
+  animation: intake-step-pulse 1.2s ease-in-out infinite;
+}
+
+.case-import-file-list {
+  display: grid;
+  gap: 8px;
+}
+
+.case-import-file {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #e7e2d8;
+  border-radius: 12px;
+  background: #faf9f6;
+}
+
+.case-import-file > div {
+  display: grid;
+  gap: 2px;
+}
+
+.case-import-file span {
+  color: #5f574d;
+  font-size: 13px;
+}
+
+.case-import-file__pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #d4b85f;
+  box-shadow: 0 0 0 0 rgba(212, 184, 95, 0.42);
+  animation: intake-dot-pulse 1.15s ease-out infinite;
+}
+
+.case-import-file--ready .case-import-file__pulse {
+  background: #2f6f3e;
+  animation: none;
+}
+
+.case-import-file--failed .case-import-file__pulse {
+  background: #9a2525;
+  animation: none;
+}
+
+@keyframes intake-progress-shimmer {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 180% 0;
+  }
+}
+
+@keyframes intake-step-pulse {
+  50% {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(29, 78, 216, 0.12);
+  }
+}
+
+@keyframes intake-dot-pulse {
+  70% {
+    box-shadow: 0 0 0 8px rgba(212, 184, 95, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(212, 184, 95, 0);
+  }
+}
+
 .case-naming-card label {
   display: grid;
   gap: 6px;
@@ -2571,6 +2690,24 @@ textarea {
 .app-shell[data-theme="dark"] .case-intake-grid {
   background: #242321;
   border-color: #3b3935;
+}
+
+.app-shell[data-theme="dark"] .case-live-progress__track,
+.app-shell[data-theme="dark"] .case-intake-steps span,
+.app-shell[data-theme="dark"] .case-import-file {
+  background: #242321;
+  border-color: #3b3935;
+}
+
+.app-shell[data-theme="dark"] .case-live-progress__bar {
+  background: linear-gradient(90deg, #d4b85f, #f2dd8c, #d4b85f);
+  background-size: 180% 100%;
+}
+
+.app-shell[data-theme="dark"] .case-intake-steps span.is-active {
+  color: #151515;
+  border-color: #d4b85f;
+  background: #d4b85f;
 }
 
 .app-shell[data-theme="dark"] .topic-chip {

@@ -287,6 +287,46 @@ function intakeStepLabel(item: CaseRoomImportItem | undefined) {
   }
 }
 
+function importLiveProgressPercent(item: CaseRoomImportItem | undefined, nowMs: number) {
+  if (!item) {
+    return 0;
+  }
+  if (item.status === "ready" || item.status === "needs_attention" || item.status === "failed") {
+    return 100;
+  }
+
+  const elapsed = item.startedAt ? nowMs - item.startedAt : 0;
+  const pulse = Math.min(18, Math.floor(elapsed / 1800));
+  switch (item.status) {
+    case "selected":
+      return Math.min(14, 6 + pulse);
+    case "validating":
+      return Math.min(28, 16 + pulse);
+    case "hashing":
+      return Math.min(42, 30 + pulse);
+    case "extracting":
+      return Math.min(78, 45 + pulse);
+    case "chunking":
+      return Math.min(94, 80 + Math.floor(elapsed / 1200));
+    default:
+      return 0;
+  }
+}
+
+function activeIntakeWorkState(nowMs: number) {
+  const states = [
+    "Leser fil",
+    "Teller sider",
+    "Henter tekst",
+    "Finner kildepunkter",
+    "Bygger saksgrunnlag"
+  ];
+  return {
+    states,
+    activeIndex: Math.floor(nowMs / 1400) % states.length
+  };
+}
+
 function buildAnswer(
   question: string,
   sources: SourceObjectSummary[],
@@ -438,6 +478,8 @@ export function CaseRoomView({
   const importSources = importQueue.reduce((sum, item) => sum + (item.sources || 0), 0);
   const intakeCoverage = totalPages > 0 ? Math.round((sources.length > 0 ? coverage : importSources > 0 && importPages > 0 ? Math.min(100, (importSources / importPages) * 100) : 0)) : coverage;
   const showIntakeCard = importQueue.length > 0 || isImporting;
+  const liveImportProgress = importLiveProgressPercent(activeImportItem || importQueue[0], importNow);
+  const intakeWorkState = activeIntakeWorkState(importNow);
   const isCaseSummaryReady =
     hasDocuments &&
     hasSources &&
@@ -980,6 +1022,19 @@ export function CaseRoomView({
                   ? "Evida leser dokumentene og lager sporbare kilder automatisk."
                   : `Evida har mottatt ${importQueue.length} dokumenter og behandler dem automatisk. Du trenger ikke gjøre noe.`}
               </p>
+              <div className="case-live-progress" aria-label={`Dokumentbehandling ${liveImportProgress} prosent`}>
+                <div className="case-live-progress__track">
+                  <div className="case-live-progress__bar" style={{ width: `${liveImportProgress}%` }} />
+                </div>
+                <strong>{liveImportProgress}%</strong>
+              </div>
+              <div className="case-intake-steps" aria-live="polite">
+                {intakeWorkState.states.map((state, index) => (
+                  <span key={state} className={index === intakeWorkState.activeIndex && isImporting ? "is-active" : undefined}>
+                    {state}
+                  </span>
+                ))}
+              </div>
               <div className="case-intake-grid">
                 <span>Dokumenter</span>
                 <strong>{readyImportItems.length}/{importQueue.length || documents.length}</strong>
@@ -992,6 +1047,19 @@ export function CaseRoomView({
                 <span>Estimert tid</span>
                 <strong>{importEta(activeImportItem, importNow)}</strong>
               </div>
+              {importQueue.length > 0 ? (
+                <div className="case-import-file-list">
+                  {importQueue.map((item) => (
+                    <div key={item.path} className={`case-import-file case-import-file--${item.status}`}>
+                      <span className="case-import-file__pulse" aria-hidden="true" />
+                      <div>
+                        <strong>{item.name}</strong>
+                        <span>{item.detail}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {isImporting ? <p className="muted">Store eller skannede dokumenter kan ta litt tid.</p> : null}
             </article>
           ) : null}
