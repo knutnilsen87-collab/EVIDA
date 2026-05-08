@@ -6,8 +6,7 @@ type UnlockLevel = "base" | "documents" | "analysis" | "simulation" | "draft";
 const items: Array<{ key: ViewKey; label: string; unlock: UnlockLevel }> = [
   { key: "overview", label: "Saksoversikt", unlock: "base" },
   { key: "documents", label: "Dokumenter", unlock: "base" },
-  { key: "caseRoom", label: "Saksrom", unlock: "documents" },
-  { key: "control", label: "Kontrollgrunnlag", unlock: "documents" },
+  { key: "caseRoom", label: "Saksrom", unlock: "base" },
   { key: "chronology", label: "Kronologi", unlock: "analysis" },
   { key: "evidence", label: "Bevismatrise", unlock: "analysis" },
   { key: "arguments", label: "Anførsler", unlock: "analysis" },
@@ -62,6 +61,10 @@ function lockedReason(unlock: UnlockLevel) {
 }
 
 export function Sidebar({ activeView, onNavigate, hasDocuments, readinessVerdict }: SidebarProps) {
+  const visibleItems = hasDocuments
+    ? items
+    : items.filter((item) => item.key === "caseRoom" || item.key === "documents");
+
   return (
     <nav className="sidebar" aria-label="Hovednavigasjon">
       <div className="brand">
@@ -72,7 +75,7 @@ export function Sidebar({ activeView, onNavigate, hasDocuments, readinessVerdict
         </div>
       </div>
       <ul>
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const unlocked = isUnlocked(item.unlock, hasDocuments, readinessVerdict);
           return (
             <li key={item.key} title={unlocked ? item.label : lockedReason(item.unlock)}>

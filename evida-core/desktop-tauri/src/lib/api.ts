@@ -146,6 +146,37 @@ export async function createCase(name: string, jurisdiction = "NO"): Promise<Cas
   }
 }
 
+export async function renameCase(caseId: string, name: string): Promise<CaseSummary> {
+  try {
+    return await callTauri<CaseSummary>("rename_case", { caseId, name });
+  } catch {
+    const cleanedName = name.trim();
+    if (!cleanedName) {
+      throw new Error("Saksnavn kan ikke være tomt.");
+    }
+    const store = readStore();
+    let updated: CaseSummary | undefined;
+    store.cases = store.cases.map((item) => {
+      if (item.id !== caseId) {
+        return item;
+      }
+      updated = { ...item, name: cleanedName, updated_at: now() };
+      return updated;
+    });
+    appendAudit(store, {
+      case_id: caseId,
+      action: "CASE_RENAMED",
+      target_type: "case",
+      target_id: caseId
+    });
+    writeStore(store);
+    if (!updated) {
+      throw new Error("Fant ikke saken som skulle navngis.");
+    }
+    return updated;
+  }
+}
+
 export async function listCases(): Promise<CaseSummary[]> {
   try {
     return await callTauri<CaseSummary[]>("list_cases");

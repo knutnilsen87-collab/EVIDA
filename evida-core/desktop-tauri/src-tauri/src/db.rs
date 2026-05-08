@@ -332,7 +332,72 @@ pub fn create_case(conn: &Connection, name: &str, jurisdiction: &str) -> Result<
         None,
     )?;
 
+    write_case_project_metadata(&id, name, None)?;
+
     get_case(conn, &id)
+}
+
+pub fn rename_case(conn: &Connection, case_id: &str, name: &str) -> Result<CaseSummary> {
+    let cleaned_name = name.trim();
+    anyhow::ensure!(!cleaned_name.is_empty(), "Saksnavn kan ikke være tomt.");
+    let now = Utc::now().to_rfc3339();
+
+    conn.execute(
+        "UPDATE cases SET name = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+        params![cleaned_name, now, case_id],
+    )?;
+
+    crate::audit::append_audit_event(
+        conn,
+        Some(case_id),
+        "local-user",
+        "CASE_RENAMED",
+        "case",
+        case_id,
+        "PASS",
+        Some(&serde_json::json!({ "user_defined_name": true }).to_string()),
+    )?;
+
+    write_case_project_metadata(case_id, cleaned_name, Some(cleaned_name))?;
+
+    get_case(conn, case_id)
+}
+
+fn case_project_dir(case_id: &str) -> Result<PathBuf> {
+    Ok(default_data_dir()?.join("cases").join(format!("case_{}", case_id)))
+}
+
+fn write_case_project_metadata(case_id: &str, display_name: &str, user_defined_name: Option<&str>) -> Result<()> {
+    let dir = case_project_dir(case_id)?;
+    for subdir in ["documents", "sources", "exports", "audit", "reports", "cache"] {
+        std::fs::create_dir_all(dir.join(subdir))?;
+    }
+    let now = Utc::now().to_rfc3339();
+    let metadata = serde_json::json!({
+        "caseId": case_id,
+        "displayName": display_name,
+        "userDefinedName": user_defined_name,
+        "suggestedName": null,
+        "caseNumber": null,
+        "suggestedCaseNumber": null,
+        "caseType": null,
+        "parties": [],
+        "opponents": [],
+        "tags": [],
+        "status": "preparing",
+        "readiness": "not_ready",
+        "documentCount": 0,
+        "pageCount": 0,
+        "sourceCoveragePercent": 0,
+        "createdAt": now,
+        "updatedAt": now,
+        "lastOpenedAt": now
+    });
+    std::fs::write(
+        dir.join("case.json"),
+        serde_json::to_string_pretty(&metadata)?,
+    )?;
+    Ok(())
 }
 
 pub fn get_case(conn: &Connection, case_id: &str) -> Result<CaseSummary> {

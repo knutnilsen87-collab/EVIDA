@@ -24,6 +24,7 @@ import {
   openLocalDataFolder,
   reindexCaseDocuments,
   registerDocument,
+  renameCase,
   resetTestData,
   softDeleteCase
 } from "./lib/api";
@@ -111,6 +112,8 @@ interface ImportQueueItem {
   detail: string;
   pages?: number;
   sources?: number;
+  startedAt?: number;
+  statusUpdatedAt?: number;
 }
 
 function countLabel(count: number, singular: string, plural: string) {
@@ -147,6 +150,64 @@ function fileNameFromPath(path: string) {
   return path.split(/[\\/]/).pop() || path;
 }
 
+function nextUiTick() {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+function importProgressPercent(status: ImportQueueStatus) {
+  switch (status) {
+    case "selected":
+      return 5;
+    case "validating":
+      return 15;
+    case "hashing":
+      return 30;
+    case "extracting":
+      return 65;
+    case "chunking":
+      return 85;
+    case "ready":
+      return 100;
+    case "needs_attention":
+    case "failed":
+      return 100;
+  }
+}
+
+function formatDuration(ms: number) {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) {
+    return `${seconds} sek`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest > 0 ? `${minutes} min ${rest} sek` : `${minutes} min`;
+}
+
+function importEta(item: ImportQueueItem, nowMs: number) {
+  if (["ready", "needs_attention", "failed"].includes(item.status)) {
+    return item.startedAt ? `Brukte ${formatDuration(nowMs - item.startedAt)}` : "";
+  }
+
+  const elapsed = item.startedAt ? nowMs - item.startedAt : 0;
+  if (item.status === "selected" || item.status === "validating" || item.status === "hashing") {
+    return elapsed > 2000 ? "Omtrent under 1 min igjen" : "Starter straks";
+  }
+  if (item.status === "extracting") {
+    if (elapsed < 30_000) {
+      return "Omtrent 1-3 min igjen";
+    }
+    if (elapsed < 120_000) {
+      return "Omtrent 1-2 min igjen";
+    }
+    return "Tar litt tid med stort dokument";
+  }
+  if (item.status === "chunking") {
+    return "Omtrent under 1 min igjen";
+  }
+  return "";
+}
+
 function importStatusLabel(status: ImportQueueStatus) {
   switch (status) {
     case "selected":
@@ -166,6 +227,10 @@ function importStatusLabel(status: ImportQueueStatus) {
     case "failed":
       return "Kunne ikke behandles automatisk";
   }
+}
+
+function temporaryCaseTitle(date = new Date()) {
+  return `Ny sak – ${date.toISOString().slice(0, 10)}`;
 }
 
 function importProcessingLabel(status: ImportQueueStatus) {
@@ -222,13 +287,8 @@ function documentReadiness(document: DocumentSummary) {
 }
 
 export default function App() {
-  const [activeView, setActiveView] = useState<ViewKey>("overview");
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    return window.localStorage.getItem(EVAL_SESSION_STORAGE_KEY) === "true";
-  });
+  const [activeView, setActiveView] = useState<ViewKey>("caseRoom");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>(() => {
     if (typeof window === "undefined") {
       return "intro";
@@ -258,6 +318,7 @@ export default function App() {
   const [documentPath, setDocumentPath] = useState("");
   const [lastImport, setLastImport] = useState("");
   const [importQueue, setImportQueue] = useState<ImportQueueItem[]>([]);
+  const [importNow, setImportNow] = useState(() => Date.now());
   const [processingLog, setProcessingLog] = useState<string[]>([]);
   const [importError, setImportError] = useState("");
   const [showAdvancedImport, setShowAdvancedImport] = useState(false);
@@ -298,8 +359,9 @@ export default function App() {
     getDocumentEngineStatus().then(setDocumentEngineStatus).catch(() => setDocumentEngineStatus(null));
     const nextCases = await listCases();
     setCases(nextCases);
-    const activeCaseId =
-      nextCases.find((item) => item.id === preferredCaseId)?.id || nextCases[0]?.id || "";
+    const activeCaseId = preferredCaseId
+      ? nextCases.find((item) => item.id === preferredCaseId)?.id || ""
+      : "";
     setSelectedCaseId(activeCaseId);
 
     if (activeCaseId) {
@@ -593,8 +655,8 @@ export default function App() {
       panelCaseNameInputRef.current.value = "";
     }
     await refresh(created.id);
-    setOnboardingStage("import");
-    setActiveView("documents");
+    setOnboardingStage("caseRoom");
+    setActiveView("caseRoom");
   }
 
   const buildChronology = useCallback(async () => {
@@ -913,27 +975,30 @@ export default function App() {
   const importDocuments = useCallback(
     async (paths: string[]) => {
       const cleanPaths = paths.map((path) => path.trim()).filter(Boolean);
-      if (!selectedCaseId) {
-        setImportError("Velg eller opprett en sak før du importerer dokumenter.");
-        return;
-      }
       if (cleanPaths.length === 0) {
         return;
       }
 
       setImportError("");
       setIsImporting(true);
+      setOnboardingStage("caseRoom");
+      setActiveView("caseRoom");
+      const importStartedAt = Date.now();
+      setImportNow(importStartedAt);
       setImportQueue(
         cleanPaths.map((path) => ({
           path,
           name: fileNameFromPath(path),
           status: "selected",
-          detail: "Klar til import"
+          detail: "Klar til import",
+          startedAt: importStartedAt,
+          statusUpdatedAt: importStartedAt
         }))
       );
       const updateQueueItem = (path: string, patch: Partial<ImportQueueItem>) => {
+        const timestamp = Date.now();
         setImportQueue((current) =>
-          current.map((item) => (item.path === path ? { ...item, ...patch } : item))
+          current.map((item) => (item.path === path ? { ...item, ...patch, statusUpdatedAt: timestamp } : item))
         );
       };
       setProcessingLog([
@@ -942,6 +1007,15 @@ export default function App() {
         "Registrerer dokumenter i lokal database"
       ]);
       try {
+        let activeCaseId = selectedCaseId;
+        if (!activeCaseId) {
+          const created = await createCase(temporaryCaseTitle(), "NO");
+          activeCaseId = created.id;
+          setSelectedCaseId(created.id);
+          setCases((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+          setProcessingLog((current) => [...current, "Opprettet midlertidig saksprosjekt automatisk"]);
+        }
+
         const reports = [];
         for (const path of cleanPaths) {
           const name = fileNameFromPath(path);
@@ -950,7 +1024,8 @@ export default function App() {
           updateQueueItem(path, { status: "hashing", detail: "Sikrer dokumentreferanse" });
           setProcessingLog((current) => [...current, `Sikrer dokumentreferanse for ${name}`]);
           updateQueueItem(path, { status: "extracting", detail: "Leser tekst og teller sider" });
-          const report = await registerDocument(selectedCaseId, path);
+          await nextUiTick();
+          const report = await registerDocument(activeCaseId, path);
           updateQueueItem(path, {
             status: "chunking",
             detail: "Lager sporbare kilder",
@@ -982,14 +1057,22 @@ export default function App() {
             "sider"
           )}, ${countLabel(sourceCount, "kildeutdrag", "kildeutdrag")}`
         );
-        await runAutomaticAnalysis(selectedCaseId, sourceCount, estimatedCoverage);
-        await refresh(selectedCaseId);
+        await refresh(activeCaseId);
         setProcessingLog((current) => [
           ...current,
-          estimatedCoverage >= 80 ? "Saksrom kan åpnes for foreløpig analyse" : "Dokumentene må kontrolleres før analyse"
+          estimatedCoverage >= 80
+            ? "Saksrom kan åpnes. Foreløpig analyse fortsetter i bakgrunnen."
+            : "Dokumentene må kontrolleres før analyse"
         ]);
         setOnboardingStage("caseRoom");
-        setActiveView(estimatedCoverage >= 80 ? "caseRoom" : "documents");
+        setActiveView("caseRoom");
+        if (estimatedCoverage >= 80 && sourceCount > 0) {
+          void runAutomaticAnalysis(activeCaseId, sourceCount, estimatedCoverage)
+            .then(() => refresh(activeCaseId))
+            .catch((error) => {
+              setReindexStatus(`Automatisk analyse stoppet: ${String(error)}`);
+            });
+        }
       } catch (error) {
         setImportError(`Import feilet: ${String(error)}`);
         setImportQueue((current) =>
@@ -1044,6 +1127,15 @@ export default function App() {
     };
   }, [importDocuments]);
 
+  useEffect(() => {
+    if (!isImporting) {
+      return;
+    }
+
+    const timer = window.setInterval(() => setImportNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isImporting]);
+
   async function handleChooseFiles() {
     const paths = await chooseDocumentPaths();
     if (paths.length === 0 && !hasDesktopRuntime()) {
@@ -1061,17 +1153,21 @@ export default function App() {
     }
     setLoginError("");
     setIsAuthenticated(true);
-    setOnboardingStage("start");
+    setOnboardingStage("caseRoom");
+    setActiveView("caseRoom");
   }
 
   function handleIntroComplete() {
-    setOnboardingStage(isAuthenticated ? "start" : "login");
+    setOnboardingStage(isAuthenticated ? "caseRoom" : "login");
+    if (isAuthenticated) {
+      setActiveView("caseRoom");
+    }
   }
 
   function handleLogout() {
     setIsAuthenticated(false);
     setOnboardingStage("login");
-    setActiveView("overview");
+    setActiveView("caseRoom");
   }
 
   function handleBrowserFileSelection(files: FileList | null) {
@@ -1102,7 +1198,7 @@ export default function App() {
   }
 
   function handleDropZoneClick() {
-    if (!selectedCaseId || isImporting) {
+    if (isImporting) {
       return;
     }
     void handleChooseFiles();
@@ -1119,10 +1215,17 @@ export default function App() {
   async function handleSelectCase(caseId: string) {
     await refresh(caseId);
     if (onboardingStage !== "caseRoom") {
-      const selectedDocuments = await listDocuments(caseId);
-      setOnboardingStage(selectedDocuments.length > 0 ? "caseRoom" : "import");
-      setActiveView(selectedDocuments.length > 0 ? "caseRoom" : "documents");
+      setOnboardingStage("caseRoom");
+      setActiveView("caseRoom");
     }
+  }
+
+  async function handleRenameCase(nextName: string) {
+    if (!selectedCaseId) {
+      return;
+    }
+    await renameCase(selectedCaseId, nextName);
+    await refresh(selectedCaseId);
   }
 
   async function handleReindex() {
@@ -1806,7 +1909,7 @@ export default function App() {
               </option>
             ))}
           </select>
-          <button className="button-primary" disabled={!selectedCaseId || isImporting} onClick={handleChooseFiles}>
+          <button className="button-primary" disabled={isImporting} onClick={handleChooseFiles}>
             Velg filer
           </button>
           <input
@@ -1830,7 +1933,7 @@ export default function App() {
             />
             <button
               className="button-primary"
-              disabled={!selectedCaseId || !documentPath.trim() || isImporting}
+              disabled={!documentPath.trim() || isImporting}
               onClick={() => void importDocuments([documentPath])}
             >
               Registrer dokument
@@ -1838,10 +1941,10 @@ export default function App() {
           </div>
         ) : null}
         <div
-          className={`drop-zone ${!selectedCaseId || isImporting ? "drop-zone--disabled" : ""}`}
+          className={`drop-zone ${isImporting ? "drop-zone--disabled" : ""}`}
           role="button"
-          tabIndex={!selectedCaseId || isImporting ? -1 : 0}
-          aria-disabled={!selectedCaseId || isImporting}
+          tabIndex={isImporting ? -1 : 0}
+          aria-disabled={isImporting}
           onClick={handleDropZoneClick}
           onKeyDown={handleDropZoneKeyDown}
         >
@@ -1852,23 +1955,39 @@ export default function App() {
           <div className="import-queue" aria-live="polite">
             <div className="import-queue__header">
               <strong>Importkø</strong>
-              <span>{importQueue.filter((item) => item.status === "ready").length} av {importQueue.length} klare</span>
+              <span>
+                {importQueue.filter((item) => item.status === "ready").length} av {importQueue.length} klare
+                {isImporting ? " · ETA oppdateres fortløpende" : ""}
+              </span>
             </div>
-            {importQueue.map((item) => (
-              <article key={item.path} className={`import-queue-row import-queue-row--${item.status}`}>
-                <div>
-                  <strong>{item.name}</strong>
-                  <span>{item.detail}</span>
-                </div>
-                <div className="import-queue-row__meta">
-                  {typeof item.pages === "number" ? <span>{countLabel(item.pages, "side", "sider")}</span> : null}
-                  {typeof item.sources === "number" ? <span>{countLabel(item.sources, "kildeutdrag", "kildeutdrag")}</span> : null}
-                  <span className={item.status === "ready" ? "status-chip status-chip--ok" : item.status === "failed" || item.status === "needs_attention" ? "status-chip status-chip--warn" : "status-chip"}>
-                    {importStatusLabel(item.status)}
-                  </span>
-                </div>
-              </article>
-            ))}
+            {importQueue.map((item) => {
+              const progress = importProgressPercent(item.status);
+              const eta = importEta(item, importNow);
+              return (
+                <article key={item.path} className={`import-queue-row import-queue-row--${item.status}`}>
+                  <div>
+                    <strong>{item.name}</strong>
+                    <span>{item.detail}</span>
+                    <div className="import-progress" aria-label={`Importstatus ${progress} prosent`}>
+                      <span style={{ width: `${progress}%` }} />
+                    </div>
+                    <span className="import-eta">
+                      {eta}
+                      {item.startedAt && !["ready", "needs_attention", "failed"].includes(item.status)
+                        ? ` · gått ${formatDuration(importNow - item.startedAt)}`
+                        : ""}
+                    </span>
+                  </div>
+                  <div className="import-queue-row__meta">
+                    {typeof item.pages === "number" ? <span>{countLabel(item.pages, "side", "sider")}</span> : null}
+                    {typeof item.sources === "number" ? <span>{countLabel(item.sources, "kildeutdrag", "kildeutdrag")}</span> : null}
+                    <span className={item.status === "ready" ? "status-chip status-chip--ok" : item.status === "failed" || item.status === "needs_attention" ? "status-chip status-chip--warn" : "status-chip"}>
+                      {importStatusLabel(item.status)}
+                    </span>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         ) : null}
         {hasDocuments ? (
@@ -1880,7 +1999,6 @@ export default function App() {
           </div>
         ) : null}
         {hasDocuments ? <div className="workflow-notice">{userCoverageExplanation}</div> : null}
-        {!selectedCaseId ? <div className="blocked-hint">Import er låst til du har valgt eller opprettet en sak.</div> : null}
         {isImporting ? <div className="notice">Importerer dokumenter ...</div> : null}
         {importError ? <div className="error-notice">{importError}</div> : null}
         {lastImport ? <div className="notice">{lastImport}</div> : null}
@@ -2018,7 +2136,7 @@ export default function App() {
           {hasDocuments ? (
             <div className="panel-actions">
               <button className="button-secondary" onClick={handleReindex}>Oppdater kildeutdrag fra dokumentene</button>
-              <button className="button-primary" onClick={() => setActiveView("control")}>Gå til kontroll</button>
+              <button className="button-secondary" onClick={() => setActiveView("control")}>Kontrollstatus</button>
             </div>
           ) : null}
         </div>
@@ -2265,12 +2383,14 @@ export default function App() {
       case "caseRoom":
         return (
           <>
-            {caseReadiness.sourceCoveragePercent < 80 ? <DocumentReadinessPanel compact /> : null}
             <CaseRoomView
               selectedCase={selectedCase}
               documents={documents}
               sources={sources}
               sourcesById={sourceById}
+              importQueue={importQueue}
+              isImporting={isImporting}
+              importNow={importNow}
               pendingOcrPages={pendingOcrPages}
               coverage={coveragePercent}
               deviations={deviations}
@@ -2280,6 +2400,9 @@ export default function App() {
               onOpenControl={() => setActiveView("control")}
               onOpenSimulation={() => setActiveView("litigationSimulation")}
               onRunCommand={executeLegalCommandInput}
+              onChooseDocuments={handleChooseFiles}
+              onImportPaths={(paths) => void importDocuments(paths)}
+              onSaveCaseName={handleRenameCase}
             />
           </>
         );

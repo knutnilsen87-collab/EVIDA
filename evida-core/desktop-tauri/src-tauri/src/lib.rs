@@ -12,6 +12,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_app_status,
             commands::create_case,
+            commands::rename_case,
             commands::list_cases,
             commands::soft_delete_case,
             commands::register_document,
