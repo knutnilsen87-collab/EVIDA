@@ -117,6 +117,13 @@ function countLabel(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function coverageLabel(percent: number, pagesWithSources: number) {
+  if (percent === 0 && pagesWithSources > 0) {
+    return "<1 %";
+  }
+  return `${percent} %`;
+}
+
 function firstSentence(value: string) {
   const sentence = value.split(/[.!?]\s/)[0] || value;
   return sentence.length > 150 ? `${sentence.slice(0, 147)}...` : sentence;
@@ -281,6 +288,7 @@ export default function App() {
     return window.localStorage.getItem(AI_TRUST_STORAGE_KEY) === "true";
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoRepairAttemptedRef = useRef<Set<string>>(new Set());
 
   async function refresh(preferredCaseId = selectedCaseId) {
     setStatus(await getAppStatus());
@@ -485,6 +493,36 @@ export default function App() {
     caseReadiness.verdict === "ready_for_draft_control";
   const canUseDraftControl = caseReadiness.verdict === "ready_for_draft_control";
   const isWorkspaceUnlocked = isAuthenticated && onboardingStage === "caseRoom";
+
+  const legacyCoverageRepairNeeded =
+    Boolean(selectedCaseId) &&
+    totalPages > 1 &&
+    (coverageAudit?.source_count ?? sources.length) > 0 &&
+    pagesWithSources <= 1 &&
+    pagesMissingSources > 0 &&
+    !hasActiveProcessing;
+
+  useEffect(() => {
+    if (!selectedCaseId || !legacyCoverageRepairNeeded) {
+      return;
+    }
+    if (autoRepairAttemptedRef.current.has(selectedCaseId)) {
+      return;
+    }
+
+    autoRepairAttemptedRef.current.add(selectedCaseId);
+    setReindexStatus("Evida oppdaterer kildegrunnlaget automatisk for denne saken ...");
+    reindexCaseDocuments(selectedCaseId)
+      .then((report) => {
+        setReindexStatus(
+          `Kildegrunnlaget er oppdatert: ${report.sources_created} kildeutdrag fordelt p\u00e5 ${report.pages_created} sider.`
+        );
+        return refresh(selectedCaseId);
+      })
+      .catch((error) => {
+        setReindexStatus(`Automatisk oppdatering stoppet: ${String(error)}`);
+      });
+  }, [legacyCoverageRepairNeeded, selectedCaseId]);
 
   useEffect(() => {
     if (!selectedCaseId || !hasActiveProcessing) {
@@ -1326,7 +1364,7 @@ export default function App() {
 
     const coverageText =
       caseCoverage.totalPages > 0
-        ? `${caseReadiness.sourceCoveragePercent} % av sidene kan brukes som kilde ennå`
+        ? `${coverageLabel(caseReadiness.sourceCoveragePercent, caseCoverage.pagesWithSources)} av sidene kan brukes som kilde ennå`
         : "Dekning beregnes";
     const pageText =
       caseCoverage.totalPages > 0

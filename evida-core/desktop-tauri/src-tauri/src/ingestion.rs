@@ -242,8 +242,17 @@ fn extract_pdf(path: &Path) -> Result<DocumentExtraction> {
     let mut page_count = count_pdf_pages(&content);
     let mut pages = Vec::new();
     let mut warnings = Vec::new();
-    let extracted_text = pdf_extract::extract_text(path).unwrap_or_default();
-    let extracted_pages = split_pdf_text_pages(&extracted_text);
+    let extracted_pages = pdf_extract::extract_text_by_pages(path)
+        .map(|pages| {
+            pages
+                .into_iter()
+                .map(|page| page.split_whitespace().collect::<Vec<_>>().join(" "))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|_| {
+            let extracted_text = pdf_extract::extract_text(path).unwrap_or_default();
+            split_pdf_text_pages(&extracted_text)
+        });
 
     if !extracted_pages.is_empty() {
         if page_count == 0 {
@@ -251,8 +260,22 @@ fn extract_pdf(path: &Path) -> Result<DocumentExtraction> {
         }
 
         let mut chunks = Vec::new();
-        for (index, text) in extracted_pages.iter().enumerate() {
-            let page_number = (index + 1) as i64;
+        let mut pages_without_text = 0;
+        for page_number in 1..=page_count {
+            let text = extracted_pages
+                .get((page_number - 1) as usize)
+                .map(|page| page.trim())
+                .unwrap_or("");
+            if text.is_empty() {
+                pages_without_text += 1;
+                pages.push(ExtractedPage {
+                    page_number,
+                    text_status: "needs_ocr".to_string(),
+                    sha256: None,
+                });
+                continue;
+            }
+
             pages.push(ExtractedPage {
                 page_number,
                 text_status: "extracted".to_string(),
@@ -261,11 +284,8 @@ fn extract_pdf(path: &Path) -> Result<DocumentExtraction> {
             chunks.extend(split_text_into_chunks(text, page_number));
         }
 
-        if page_count > pages.len() as i64 {
-            warnings.push(format!(
-                "{}_pages_need_ocr_or_have_no_text_layer",
-                page_count - pages.len() as i64
-            ));
+        if pages_without_text > 0 {
+            warnings.push(format!("{}_pages_need_ocr_or_have_no_text_layer", pages_without_text));
         }
 
         return Ok(DocumentExtraction {
