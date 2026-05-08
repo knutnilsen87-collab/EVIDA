@@ -1,7 +1,7 @@
 import type { ViewKey } from "../types";
 import type { CaseReadinessVerdict } from "../features/readiness/caseReadiness";
 
-type UnlockLevel = "base" | "documents" | "analysis" | "draft";
+type UnlockLevel = "base" | "documents" | "analysis" | "simulation" | "draft";
 
 const items: Array<{ key: ViewKey; label: string; unlock: UnlockLevel }> = [
   { key: "overview", label: "Saksoversikt", unlock: "base" },
@@ -13,6 +13,7 @@ const items: Array<{ key: ViewKey; label: string; unlock: UnlockLevel }> = [
   { key: "arguments", label: "Anførsler", unlock: "analysis" },
   { key: "contradictions", label: "Motstrid", unlock: "analysis" },
   { key: "risk", label: "Risiko", unlock: "analysis" },
+  { key: "litigationSimulation", label: "Rettssimulering", unlock: "simulation" },
   { key: "draft", label: "Utkast", unlock: "draft" },
   { key: "export", label: "Eksport", unlock: "draft" }
 ];
@@ -31,6 +32,13 @@ function isUnlocked(unlock: UnlockLevel, hasDocuments: boolean, readinessVerdict
   if (unlock === "analysis") {
     return readinessVerdict === "ready_for_preliminary_analysis" || readinessVerdict === "ready_for_draft_control";
   }
+  if (unlock === "simulation") {
+    return (
+      readinessVerdict === "requires_control" ||
+      readinessVerdict === "ready_for_preliminary_analysis" ||
+      readinessVerdict === "ready_for_draft_control"
+    );
+  }
   if (unlock === "draft") {
     return readinessVerdict === "ready_for_draft_control";
   }
@@ -43,6 +51,9 @@ function lockedReason(unlock: UnlockLevel) {
   }
   if (unlock === "analysis") {
     return "Åpnes når dokumentgrunnlaget er klart for foreløpig analyse.";
+  }
+  if (unlock === "simulation") {
+    return "Åpnes som egen treningsflate når saken har kildegrunnlag.";
   }
   if (unlock === "draft") {
     return "Åpnes når dokumentgrunnlaget er klart for utkastkontroll.";

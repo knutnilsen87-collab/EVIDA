@@ -15,6 +15,12 @@ import {
   updateCaseConversationMemory
 } from "../features/adaptiveSaksrom/conversationMemory";
 import { SAKSROM_WORK_STATES } from "../features/adaptiveSaksrom/workStates";
+import {
+  DEFAULT_WORKSTYLE_PREFERENCES,
+  readWorkstylePreferences,
+  writeWorkstylePreferences
+} from "../features/adaptiveSaksrom/workstyle";
+import type { WorkstylePreferences } from "../features/adaptiveSaksrom/workstyle";
 
 interface CaseRoomViewProps {
   selectedCase?: CaseSummary;
@@ -28,6 +34,8 @@ interface CaseRoomViewProps {
   nextActionTitle: string;
   onOpenSource: (sourceId: string) => void;
   onOpenControl: () => void;
+  onOpenSimulation: () => void;
+  onRunCommand: (input: string) => Promise<string>;
 }
 
 interface CaseAnswer {
@@ -164,7 +172,9 @@ export function CaseRoomView({
   readiness,
   nextActionTitle,
   onOpenSource,
-  onOpenControl
+  onOpenControl,
+  onOpenSimulation,
+  onRunCommand
 }: CaseRoomViewProps) {
   const [question, setQuestion] = useState("");
   const [answers, setAnswers] = useState<Array<{ question: string; result: CaseAnswer }>>([]);
@@ -173,6 +183,7 @@ export function CaseRoomView({
   const [providerNotice, setProviderNotice] = useState("");
   const [latestSuggestedActions, setLatestSuggestedActions] = useState<SuggestedAction[]>([]);
   const [activeCollaborationMode, setActiveCollaborationMode] = useState<CollaborationMode>("free_question");
+  const [workstyle, setWorkstyle] = useState<WorkstylePreferences>(DEFAULT_WORKSTYLE_PREFERENCES);
   const hasSources = sources.length > 0;
   const hasDocuments = documents.length > 0;
   const isBlocked = readiness.verdict === "not_ready";
@@ -215,6 +226,13 @@ export function CaseRoomView({
       ? ["Hva er ferdig behandlet?", "Hva mangler?", "Hva bør kontrolleres først?"]
       : ["Hva er dokumentert?", "Hva mangler?", "Hva bør kontrolleres først?"];
   const visibleAnswers = [...answers].reverse();
+
+  useEffect(() => {
+    const storage = getConversationStorage();
+    if (storage) {
+      setWorkstyle(readWorkstylePreferences(storage));
+    }
+  }, []);
 
   useEffect(() => {
     if (!selectedCase?.id) {
@@ -269,6 +287,58 @@ export function CaseRoomView({
     setActiveCollaborationMode(activeMode);
     setIsAsking(true);
     setProviderNotice("");
+    if (cleanQuestion.startsWith("'")) {
+      try {
+        const commandTurnId = `command-${Date.now()}`;
+        const nextSuggestedActions = createDefaultSuggestedActions(commandTurnId);
+        const selectedSources = sources.slice(0, 3);
+        const commandAnswer = await onRunCommand(cleanQuestion);
+        const result: CaseAnswer = {
+          answer: commandAnswer,
+          sourceIds: selectedSources.map((source) => source.id),
+          validatedSources: selectedSources.map((source) => ({
+            sourceId: source.id,
+            documentId: source.document_id,
+            pageNumber: source.page_start,
+            validationStatus: "LOCAL"
+          })),
+          answerStrength: {
+            level: selectedSources.length > 0 ? "Middels" : "Lav",
+            reason: "Kommandoen er kjørt lokalt og bundet til tilgjengelige kilder der det finnes kilder."
+          },
+          uncertainty: "Middels. Kontroller resultatet mot kildene før bruk.",
+          missing: "Manuell juridisk vurdering og endelig kildekontroll.",
+          nextStep: nextActionTitle,
+          suggestedActions: nextSuggestedActions
+        };
+        const answerJson = JSON.stringify({
+          question: displayQuestion,
+          result,
+          model_id: "safe-local-command-mode",
+          prompt_version: "case_room_command_v1",
+          source_index_version: `sources-${sources.length}`
+        });
+        const persisted = await recordCaseAiExchange({
+          caseId: selectedCase.id,
+          question: displayQuestion,
+          answerJson,
+          sourceIds: result.sourceIds,
+          modelId: "safe-local-command-mode",
+          promptVersion: "case_room_command_v1",
+          sourceIndexVersion: `sources-${sources.length}`
+        });
+        const stored = parseStoredAnswer(persisted);
+        setLatestSuggestedActions(nextSuggestedActions);
+        setAnswers((current) => [stored || { question: displayQuestion, result }, ...current].slice(0, 20));
+        persistConversationTurn(result, nextSuggestedActions, activeMode, resolvedAction);
+        setQuestion("");
+      } catch (error) {
+        setProviderNotice(`Kommandoen kunne ikke kjøres: ${String(error)}`);
+      } finally {
+        setIsAsking(false);
+      }
+      return;
+    }
     try {
       const providerMessage = await askCaseAi({
         caseId: selectedCase.id,
@@ -356,6 +426,18 @@ export function CaseRoomView({
     });
   }
 
+  function updateWorkstyle(patch: Partial<WorkstylePreferences>) {
+    const storage = getConversationStorage();
+    const next = {
+      ...workstyle,
+      ...patch
+    };
+    setWorkstyle(next);
+    if (storage) {
+      writeWorkstylePreferences(storage, next);
+    }
+  }
+
   return (
     <section className="case-chat-shell">
       <div className="case-chat-scroll">
@@ -370,6 +452,71 @@ export function CaseRoomView({
             </div>
             <h3>Oppsummering</h3>
             <p>{summary}</p>
+            <details className="workstyle-settings">
+              <summary>Tilpass Saksrom til måten jeg jobber på</summary>
+              <div className="workstyle-grid">
+                <label>
+                  Svarlengde
+                  <select
+                    value={workstyle.answerLength}
+                    onChange={(event) => updateWorkstyle({ answerLength: event.target.value as WorkstylePreferences["answerLength"] })}
+                  >
+                    <option value="short">Korte svar</option>
+                    <option value="balanced">Balanserte svar</option>
+                    <option value="detailed">Detaljerte svar</option>
+                  </select>
+                </label>
+                <label>
+                  Rekkefølge
+                  <select
+                    value={workstyle.citationPlacement}
+                    onChange={(event) =>
+                      updateWorkstyle({ citationPlacement: event.target.value as WorkstylePreferences["citationPlacement"] })
+                    }
+                  >
+                    <option value="assessment_first">Vurdering først</option>
+                    <option value="sources_first">Kilder først</option>
+                  </select>
+                </label>
+                <label>
+                  Arbeidsmodus
+                  <select
+                    value={workstyle.preferredCollaborationMode}
+                    onChange={(event) =>
+                      updateWorkstyle({ preferredCollaborationMode: event.target.value as WorkstylePreferences["preferredCollaborationMode"] })
+                    }
+                  >
+                    {Object.entries(COLLABORATION_MODE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={workstyle.showNextSuggestions}
+                    onChange={(event) => updateWorkstyle({ showNextSuggestions: event.target.checked })}
+                  />
+                  Vis alltid neste spor
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={workstyle.showDetailedWorkStates}
+                    onChange={(event) => updateWorkstyle({ showDetailedWorkStates: event.target.checked })}
+                  />
+                  Vis arbeidstrinn mens Evida svarer
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={workstyle.adaptationEnabled}
+                    onChange={(event) => updateWorkstyle({ adaptationEnabled: event.target.checked })}
+                  />
+                  Tilpass lokalt
+                </label>
+              </div>
+            </details>
             {summaryLines.length > 0 ? (
               <ul className="case-summary-list">
                 {summaryLines.map((line) => (
@@ -457,7 +604,7 @@ export function CaseRoomView({
                       <p className="muted">Mangler kilde.</p>
                     )}
                   </details>
-                  {entry.result.suggestedActions?.length ? (
+                  {entry.result.suggestedActions?.length && workstyle.showNextSuggestions ? (
                     <div className="case-suggested-actions">
                       <strong>Mulige spor å undersøke videre</strong>
                       <div className="case-suggested-actions__grid">
@@ -472,6 +619,9 @@ export function CaseRoomView({
                           </button>
                         ))}
                       </div>
+                      <button type="button" className="button-secondary" onClick={onOpenSimulation}>
+                        Test i Rettssimulering
+                      </button>
                       <span>Du kan også spørre fritt.</span>
                     </div>
                   ) : null}
@@ -480,7 +630,7 @@ export function CaseRoomView({
             ))
           )}
           {providerNotice ? <div className="case-provider-notice">{providerNotice}</div> : null}
-          {isAsking ? (
+          {isAsking && workstyle.showDetailedWorkStates ? (
             <div className="case-work-states" role="status" aria-live="polite" aria-label="Evida arbeider">
               {SAKSROM_WORK_STATES.map((state, index) => (
                 <span key={state} className={index <= workStateIndex ? "is-active" : undefined}>

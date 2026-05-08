@@ -65,6 +65,52 @@ pub struct ReindexReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentCoverageAudit {
+    pub document_id: String,
+    pub original_name: String,
+    pub page_count: i64,
+    pub processed_pages: i64,
+    pub pages_with_sources: i64,
+    pub pages_missing_sources: i64,
+    pub pending_text_recognition_pages: i64,
+    pub source_count: i64,
+    pub source_coverage_percent: f64,
+    pub ocr_status: String,
+    pub status: String,
+    pub missing_page_ranges: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaseCoverageAudit {
+    pub case_id: String,
+    pub total_documents: i64,
+    pub processed_documents: i64,
+    pub total_pages: i64,
+    pub processed_pages: i64,
+    pub pages_with_sources: i64,
+    pub pages_missing_sources: i64,
+    pub source_count: i64,
+    pub failed_documents: i64,
+    pub documents_requiring_attention: i64,
+    pub pending_text_recognition_pages: i64,
+    pub source_coverage_percent: f64,
+    pub has_active_processing: bool,
+    pub documents: Vec<DocumentCoverageAudit>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentEngineStatus {
+    pub local_engine_available: bool,
+    pub embedded_text_extraction_available: bool,
+    pub image_text_recognition_available: bool,
+    pub pdf_page_renderer_available: bool,
+    pub automatic_text_recognition_available: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
     pub id: String,
     pub case_id: Option<String>,

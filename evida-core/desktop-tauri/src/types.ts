@@ -9,6 +9,7 @@ export type ViewKey =
   | "arguments"
   | "contradictions"
   | "risk"
+  | "litigationSimulation"
   | "draft"
   | "control"
   | "export";
@@ -97,6 +98,49 @@ export interface ReindexReport {
   sources_created: number;
   pages_created: number;
   chunks_created: number;
+  warnings: string[];
+}
+
+export interface DocumentCoverageAudit {
+  document_id: string;
+  original_name: string;
+  page_count: number;
+  processed_pages: number;
+  pages_with_sources: number;
+  pages_missing_sources: number;
+  pending_text_recognition_pages: number;
+  source_count: number;
+  source_coverage_percent: number;
+  ocr_status: string;
+  status: string;
+  missing_page_ranges: string[];
+  warnings: string[];
+}
+
+export interface CaseCoverageAudit {
+  case_id: string;
+  total_documents: number;
+  processed_documents: number;
+  total_pages: number;
+  processed_pages: number;
+  pages_with_sources: number;
+  pages_missing_sources: number;
+  source_count: number;
+  failed_documents: number;
+  documents_requiring_attention: number;
+  pending_text_recognition_pages: number;
+  source_coverage_percent: number;
+  has_active_processing: boolean;
+  documents: DocumentCoverageAudit[];
+  warnings: string[];
+}
+
+export interface DocumentEngineStatus {
+  local_engine_available: boolean;
+  embedded_text_extraction_available: boolean;
+  image_text_recognition_available: boolean;
+  pdf_page_renderer_available: boolean;
+  automatic_text_recognition_available: boolean;
   warnings: string[];
 }
 

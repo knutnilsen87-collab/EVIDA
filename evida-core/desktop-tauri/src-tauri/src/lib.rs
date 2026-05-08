@@ -17,6 +17,8 @@ pub fn run() {
             commands::register_document,
             commands::choose_document_paths,
             commands::reindex_case_documents,
+            commands::get_case_coverage_audit,
+            commands::get_document_engine_status,
             commands::list_documents,
             commands::list_audit_events,
             commands::verify_audit_chain,

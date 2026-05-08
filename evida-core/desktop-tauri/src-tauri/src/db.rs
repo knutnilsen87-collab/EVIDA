@@ -1,13 +1,14 @@
 use crate::domain::{
-    ArgumentItem, AuditEvent, CaseAiMessage, CaseAiMessageSource, CaseSummary,
-    ChronologyEvent, ContradictionItem, DatabaseSecurityStatus, DocumentIngestionReport,
-    DocumentSummary, EvidenceItem, MaintenanceReport, ReindexReport, RiskItem,
-    SourceObjectSummary, WorkItems,
+    ArgumentItem, AuditEvent, CaseAiMessage, CaseAiMessageSource, CaseCoverageAudit,
+    CaseSummary, ChronologyEvent, ContradictionItem, DatabaseSecurityStatus,
+    DocumentCoverageAudit, DocumentIngestionReport, DocumentSummary, EvidenceItem,
+    MaintenanceReport, ReindexReport, RiskItem, SourceObjectSummary, WorkItems,
 };
 use crate::ingestion::DocumentExtraction;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -783,6 +784,188 @@ fn update_case_source_coverage(conn: &Connection, case_id: &str, now: &str) -> R
     Ok(())
 }
 
+pub fn get_case_coverage_audit(conn: &Connection, case_id: &str) -> Result<CaseCoverageAudit> {
+    let documents = list_documents(conn, case_id)?;
+    let mut document_audits = Vec::new();
+    let mut total_pages = 0;
+    let mut processed_pages = 0;
+    let mut pages_with_sources = 0;
+    let mut pages_missing_sources = 0;
+    let mut source_count = 0;
+    let mut failed_documents = 0;
+    let mut documents_requiring_attention = 0;
+    let mut pending_text_recognition_pages = 0;
+    let mut warnings = Vec::new();
+
+    for document in &documents {
+        let coverage = document_coverage_audit(conn, document)?;
+        total_pages += coverage.page_count;
+        processed_pages += coverage.processed_pages;
+        pages_with_sources += coverage.pages_with_sources;
+        pages_missing_sources += coverage.pages_missing_sources;
+        source_count += coverage.source_count;
+        pending_text_recognition_pages += coverage.pending_text_recognition_pages;
+        if coverage.status == "failed" {
+            failed_documents += 1;
+        }
+        if coverage.status == "failed" || coverage.status == "needs_user_action" {
+            documents_requiring_attention += 1;
+        }
+        warnings.extend(coverage.warnings.clone());
+        document_audits.push(coverage);
+    }
+
+    let processed_documents = document_audits
+        .iter()
+        .filter(|document| document.processed_pages > 0 || document.source_count > 0)
+        .count() as i64;
+    let source_coverage_percent = if total_pages <= 0 {
+        0.0
+    } else {
+        ((pages_with_sources as f64 / total_pages as f64) * 100.0).round().clamp(0.0, 100.0)
+    };
+    let has_active_processing = document_audits
+        .iter()
+        .any(|document| document.status == "queued" || document.status == "running");
+
+    Ok(CaseCoverageAudit {
+        case_id: case_id.to_string(),
+        total_documents: documents.len() as i64,
+        processed_documents,
+        total_pages,
+        processed_pages,
+        pages_with_sources,
+        pages_missing_sources,
+        source_count,
+        failed_documents,
+        documents_requiring_attention,
+        pending_text_recognition_pages,
+        source_coverage_percent,
+        has_active_processing,
+        documents: document_audits,
+        warnings,
+    })
+}
+
+fn document_coverage_audit(conn: &Connection, document: &DocumentSummary) -> Result<DocumentCoverageAudit> {
+    let page_count = document.page_count.max(0);
+    let mut covered_pages = HashSet::new();
+    let mut source_stmt = conn.prepare(
+        "SELECT page_start, page_end FROM source_objects WHERE document_id = ?1",
+    )?;
+    let source_ranges = source_stmt.query_map(params![document.id.as_str()], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    for range in source_ranges {
+        let (start, end) = range?;
+        let safe_start = start.max(1);
+        let safe_end = end.max(safe_start).min(page_count.max(safe_start));
+        for page in safe_start..=safe_end {
+            covered_pages.insert(page);
+        }
+    }
+
+    let processed_pages = conn.query_row(
+        "SELECT COUNT(DISTINCT page_number) FROM pages WHERE document_id = ?1 AND text_status != 'needs_ocr'",
+        params![document.id.as_str()],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let source_count = conn.query_row(
+        "SELECT COUNT(*) FROM source_objects WHERE document_id = ?1",
+        params![document.id.as_str()],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let pending_text_recognition_pages = conn.query_row(
+        "SELECT COUNT(*) FROM pages WHERE document_id = ?1 AND text_status = 'needs_ocr'",
+        params![document.id.as_str()],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let pages_with_sources = covered_pages.len() as i64;
+    let pages_missing_sources = if page_count > 0 {
+        (page_count - pages_with_sources).max(0)
+    } else {
+        0
+    };
+    let source_coverage_percent = if page_count <= 0 {
+        0.0
+    } else {
+        ((pages_with_sources as f64 / page_count as f64) * 100.0).round().clamp(0.0, 100.0)
+    };
+    let missing_page_ranges = missing_page_ranges(page_count, &covered_pages, 12);
+    let status = if ["failed", "empty", "unsupported_file_type"].contains(&document.ocr_status.as_str()) {
+        "failed"
+    } else if document.ocr_status == "running" {
+        "running"
+    } else if pages_missing_sources == 0 && page_count > 0 {
+        "ready"
+    } else if pages_with_sources > 0 {
+        "partially_ready"
+    } else if pending_text_recognition_pages > 0 {
+        "queued"
+    } else {
+        "needs_user_action"
+    }
+    .to_string();
+
+    let mut warnings = Vec::new();
+    if pending_text_recognition_pages > 0 {
+        warnings.push(format!(
+            "{} sider venter på teksthenting i {}.",
+            pending_text_recognition_pages, document.original_name
+        ));
+    }
+    if pages_missing_sources > 0 {
+        warnings.push(format!(
+            "{} sider mangler sporbare kilder i {}.",
+            pages_missing_sources, document.original_name
+        ));
+    }
+
+    Ok(DocumentCoverageAudit {
+        document_id: document.id.clone(),
+        original_name: document.original_name.clone(),
+        page_count,
+        processed_pages,
+        pages_with_sources,
+        pages_missing_sources,
+        pending_text_recognition_pages,
+        source_count,
+        source_coverage_percent,
+        ocr_status: document.ocr_status.clone(),
+        status,
+        missing_page_ranges,
+        warnings,
+    })
+}
+
+fn missing_page_ranges(page_count: i64, covered_pages: &HashSet<i64>, max_ranges: usize) -> Vec<String> {
+    let mut ranges = Vec::new();
+    let mut cursor = 1;
+    while cursor <= page_count && ranges.len() < max_ranges {
+        if covered_pages.contains(&cursor) {
+            cursor += 1;
+            continue;
+        }
+
+        let start = cursor;
+        while cursor <= page_count && !covered_pages.contains(&cursor) {
+            cursor += 1;
+        }
+        let end = cursor - 1;
+        if start == end {
+            ranges.push(start.to_string());
+        } else {
+            ranges.push(format!("{}-{}", start, end));
+        }
+    }
+
+    if cursor <= page_count {
+        ranges.push("flere".to_string());
+    }
+
+    ranges
+}
+
 fn truncate_excerpt(value: &str) -> String {
     let max_chars = 500;
     value.chars().take(max_chars).collect()
@@ -1516,6 +1699,69 @@ mod tests {
         assert!(reindex.sources_created > 0);
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn coverage_audit_counts_pages_without_source_list_limit() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        apply_schema(&conn).expect("apply schema");
+        let case = create_case(&conn, "Dekningssak", "NO").expect("create case");
+        let extraction = crate::ingestion::DocumentExtraction {
+            mime_type: Some("application/pdf".to_string()),
+            page_count: 3,
+            ocr_status: "partial_needs_ocr".to_string(),
+            pages: vec![
+                crate::ingestion::ExtractedPage {
+                    page_number: 1,
+                    text_status: "extracted".to_string(),
+                    sha256: Some(crate::hash::sha256_text("side 1")),
+                },
+                crate::ingestion::ExtractedPage {
+                    page_number: 2,
+                    text_status: "needs_ocr".to_string(),
+                    sha256: None,
+                },
+                crate::ingestion::ExtractedPage {
+                    page_number: 3,
+                    text_status: "extracted".to_string(),
+                    sha256: Some(crate::hash::sha256_text("side 3")),
+                },
+            ],
+            chunks: vec![
+                crate::ingestion::TextChunk {
+                    page_start: 1,
+                    page_end: 1,
+                    text: "Dokumentert tekst på side 1".to_string(),
+                    sha256: crate::hash::sha256_text("Dokumentert tekst på side 1"),
+                },
+                crate::ingestion::TextChunk {
+                    page_start: 3,
+                    page_end: 3,
+                    text: "Dokumentert tekst på side 3".to_string(),
+                    sha256: crate::hash::sha256_text("Dokumentert tekst på side 3"),
+                },
+            ],
+            warnings: vec!["test_missing_page".to_string()],
+        };
+
+        insert_document(
+            &conn,
+            &case.id,
+            "dekning.pdf",
+            "F:\\test\\dekning.pdf",
+            "sha",
+            &extraction,
+        )
+        .expect("insert document");
+
+        let audit = get_case_coverage_audit(&conn, &case.id).expect("coverage audit");
+        assert_eq!(audit.total_pages, 3);
+        assert_eq!(audit.pages_with_sources, 2);
+        assert_eq!(audit.pages_missing_sources, 1);
+        assert_eq!(audit.source_count, 2);
+        assert_eq!(audit.pending_text_recognition_pages, 1);
+        assert_eq!(audit.source_coverage_percent, 67.0);
+        assert_eq!(audit.documents[0].missing_page_ranges, vec!["2"]);
     }
 
     #[test]

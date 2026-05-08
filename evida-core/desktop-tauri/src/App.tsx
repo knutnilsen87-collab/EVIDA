@@ -12,7 +12,9 @@ import {
   exportDiagnostics,
   findContradictions as findContradictionsApi,
   getAppStatus,
+  getCaseCoverageAudit,
   getDatabaseSecurityStatus,
+  getDocumentEngineStatus,
   hasDesktopRuntime,
   listAuditEvents,
   listCases,
@@ -27,8 +29,10 @@ import {
 } from "./lib/api";
 import type {
   AuditEvent,
+  CaseCoverageAudit,
   CaseSummary,
   DatabaseSecurityStatus,
+  DocumentEngineStatus,
   DocumentSummary,
   SourceObjectSummary,
   ViewKey
@@ -43,6 +47,7 @@ import { ArgumentsView } from "./components/workrooms/ArgumentsView";
 import { ChronologyView } from "./components/workrooms/ChronologyView";
 import { ContradictionsView } from "./components/workrooms/ContradictionsView";
 import { EvidenceView } from "./components/workrooms/EvidenceView";
+import { LitigationSimulationView } from "./components/workrooms/LitigationSimulationView";
 import { RiskView } from "./components/workrooms/RiskView";
 import { sourceTitle } from "./components/workrooms/SourceButtonList";
 import type {
@@ -59,6 +64,12 @@ import {
   getDocumentProcessingState
 } from "./features/readiness/caseReadiness";
 import type { CaseCoverageSummary } from "./features/readiness/caseReadiness";
+import {
+  LEGAL_COMMANDS,
+  gateLegalCommand,
+  resolveLegalCommand
+} from "./features/legalCommands/legalCommands";
+import type { LegalCommand } from "./features/legalCommands/legalCommands";
 
 const viewTitles: Record<ViewKey, string> = {
   overview: "Saksoversikt",
@@ -69,6 +80,7 @@ const viewTitles: Record<ViewKey, string> = {
   arguments: "Anførsler",
   contradictions: "Motstrid",
   risk: "Risiko",
+  litigationSimulation: "Rettssimulering",
   draft: "Utkast",
   control: "Kontrollgrunnlag",
   export: "Eksport"
@@ -79,7 +91,6 @@ const AI_TRUST_STORAGE_KEY = "evida-ai-trust-seen";
 const EVAL_SESSION_STORAGE_KEY = "evida-eval-session";
 const EVAL_LOGIN_EMAIL = "eval@evida.local";
 const EVAL_LOGIN_PASSWORD = "eval-2026";
-const AUTOMATIC_TEXT_RECOGNITION_AVAILABLE = false;
 
 type ThemeMode = "light" | "dark";
 type OnboardingStage = "intro" | "login" | "start" | "import" | "caseRoom";
@@ -229,9 +240,11 @@ export default function App() {
   });
   const [status, setStatus] = useState("Starter ...");
   const [dbSecurity, setDbSecurity] = useState<DatabaseSecurityStatus | null>(null);
+  const [documentEngineStatus, setDocumentEngineStatus] = useState<DocumentEngineStatus | null>(null);
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [sources, setSources] = useState<SourceObjectSummary[]>([]);
+  const [coverageAudit, setCoverageAudit] = useState<CaseCoverageAudit | null>(null);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState<string>("");
   const [caseName, setCaseName] = useState("Ny prosessak");
@@ -251,6 +264,9 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<CaseSummary | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [activeSource, setActiveSource] = useState<SourceObjectSummary | undefined>();
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandInput, setCommandInput] = useState("");
+  const [commandStatus, setCommandStatus] = useState("");
   const [attentionDetailsOpen, setAttentionDetailsOpen] = useState(false);
   const [technicalDetailsOpen, setTechnicalDetailsOpen] = useState(false);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
@@ -269,6 +285,7 @@ export default function App() {
   async function refresh(preferredCaseId = selectedCaseId) {
     setStatus(await getAppStatus());
     getDatabaseSecurityStatus().then(setDbSecurity).catch(() => setDbSecurity(null));
+    getDocumentEngineStatus().then(setDocumentEngineStatus).catch(() => setDocumentEngineStatus(null));
     const nextCases = await listCases();
     setCases(nextCases);
     const activeCaseId =
@@ -276,15 +293,17 @@ export default function App() {
     setSelectedCaseId(activeCaseId);
 
     if (activeCaseId) {
-      const [nextDocuments, nextSources, nextAudit, nextWorkItems] = await Promise.all([
+      const [nextDocuments, nextSources, nextAudit, nextWorkItems, nextCoverageAudit] = await Promise.all([
         listDocuments(activeCaseId),
         listSourceObjects(activeCaseId),
         listAuditEvents(activeCaseId),
-        listWorkItems(activeCaseId)
+        listWorkItems(activeCaseId),
+        getCaseCoverageAudit(activeCaseId)
       ]);
       setDocuments(nextDocuments);
       setSources(nextSources);
       setAudit(nextAudit);
+      setCoverageAudit(nextCoverageAudit);
       setTimelineItems(nextWorkItems.chronology.map((item) => ({
         id: item.id,
         date: item.date_text,
@@ -330,6 +349,7 @@ export default function App() {
       setDocuments([]);
       setSources([]);
       setAudit([]);
+      setCoverageAudit(null);
       const empty = emptyWorkState();
       setTimelineItems(empty.chronology);
       setEvidenceRows(empty.evidence);
@@ -359,17 +379,35 @@ export default function App() {
     window.localStorage.setItem(AI_TRUST_STORAGE_KEY, trustContractHidden ? "true" : "false");
   }, [trustContractHidden]);
 
+  useEffect(() => {
+    function handleCommandShortcut(event: globalThis.KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandPaletteOpen((current) => !current);
+      }
+    }
+
+    window.addEventListener("keydown", handleCommandShortcut);
+    return () => window.removeEventListener("keydown", handleCommandShortcut);
+  }, []);
+
   const selectedCase = cases.find((item) => item.id === selectedCaseId);
   const hasDocuments = documents.length > 0;
   const hasSources = sources.length > 0;
+  const automaticTextRecognitionAvailable =
+    documentEngineStatus?.automatic_text_recognition_available ?? false;
   const sourceById = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources]);
   const needsOcr = documents.some((document) =>
     ["needs_ocr", "partial_needs_ocr", "failed"].includes(document.ocr_status)
   );
-  const analyzedPages = documents.reduce((sum, document) => sum + (document.analyzed_page_count || 0), 0);
-  const pendingOcrPages = documents.reduce((sum, document) => sum + (document.pending_ocr_page_count || 0), 0);
-  const totalPages = documents.reduce((sum, document) => sum + document.page_count, 0);
-  const pagesWithSources = useMemo(() => {
+  const auditedTotalPages = coverageAudit?.total_pages;
+  const auditedProcessedPages = coverageAudit?.processed_pages;
+  const auditedPendingTextRecognitionPages = coverageAudit?.pending_text_recognition_pages;
+  const analyzedPages = auditedProcessedPages ?? documents.reduce((sum, document) => sum + (document.analyzed_page_count || 0), 0);
+  const pendingOcrPages =
+    auditedPendingTextRecognitionPages ?? documents.reduce((sum, document) => sum + (document.pending_ocr_page_count || 0), 0);
+  const totalPages = auditedTotalPages ?? documents.reduce((sum, document) => sum + document.page_count, 0);
+  const visiblePagesWithSources = useMemo(() => {
     const coveredPages = new Set<string>();
     for (const source of sources) {
       const pageStart = Math.max(1, source.page_start || 1);
@@ -380,11 +418,13 @@ export default function App() {
     }
     return coveredPages.size;
   }, [sources]);
+  const pagesWithSources = coverageAudit?.pages_with_sources ?? visiblePagesWithSources;
   const sourceCoveragePercent = calculateSourceCoveragePercent({
     totalPages,
     pagesWithSources
   });
-  const pagesMissingSources = totalPages > 0 ? Math.max(0, totalPages - pagesWithSources) : 0;
+  const pagesMissingSources =
+    coverageAudit?.pages_missing_sources ?? (totalPages > 0 ? Math.max(0, totalPages - pagesWithSources) : 0);
   const processedDocuments = documents.filter(
     (document) => document.source_count > 0 || document.analyzed_page_count > 0
   );
@@ -397,6 +437,7 @@ export default function App() {
   const importFailures = importQueue.filter((item) => item.status === "failed").length;
   const hasActiveProcessing =
     isImporting ||
+    Boolean(coverageAudit?.has_active_processing) ||
     importQueue.some((item) => ["selected", "validating", "hashing", "extracting", "chunking"].includes(item.status)) ||
     documents.some((document) => document.ocr_status === "running");
   const activeImportItem = importQueue.find((item) =>
@@ -404,14 +445,14 @@ export default function App() {
   );
   const caseCoverage: CaseCoverageSummary = {
     totalDocuments: documents.length,
-    processedDocuments: processedDocuments.length,
+    processedDocuments: coverageAudit?.processed_documents ?? processedDocuments.length,
     totalPages,
     processedPages: analyzedPages,
     pagesWithText: analyzedPages,
     pagesWithSources,
     pagesMissingSources,
-    failedDocuments: failedDocuments.length,
-    documentsRequiringAttention: documentsRequiringAttention.length,
+    failedDocuments: coverageAudit?.failed_documents ?? failedDocuments.length,
+    documentsRequiringAttention: coverageAudit?.documents_requiring_attention ?? documentsRequiringAttention.length,
     sourceCoveragePercent,
     currentlyProcessingLabel: hasActiveProcessing
       ? activeImportItem
@@ -429,14 +470,14 @@ export default function App() {
     pagesWithText: analyzedPages,
     pagesWithSources,
     pagesMissingSources,
-    sourceCount: sources.length,
-    failedDocuments: failedDocuments.length,
-    documentsRequiringAttention: documentsRequiringAttention.length,
+    sourceCount: coverageAudit?.source_count ?? sources.length,
+    failedDocuments: coverageAudit?.failed_documents ?? failedDocuments.length,
+    documentsRequiringAttention: coverageAudit?.documents_requiring_attention ?? documentsRequiringAttention.length,
     importFailures,
     pendingTextRecognitionPages: pendingOcrPages,
     hasActiveProcessing,
-    criticalDocumentsFailed: failedDocuments.length > 0,
-    automaticTextRecognitionAvailable: AUTOMATIC_TEXT_RECOGNITION_AVAILABLE,
+    criticalDocumentsFailed: (coverageAudit?.failed_documents ?? failedDocuments.length) > 0,
+    automaticTextRecognitionAvailable,
     dbEncryptionVerified: dbSecurity?.encrypted_at_rest ?? false
   });
   const canUsePreliminaryAnalysis =
@@ -444,6 +485,18 @@ export default function App() {
     caseReadiness.verdict === "ready_for_draft_control";
   const canUseDraftControl = caseReadiness.verdict === "ready_for_draft_control";
   const isWorkspaceUnlocked = isAuthenticated && onboardingStage === "caseRoom";
+
+  useEffect(() => {
+    if (!selectedCaseId || !hasActiveProcessing) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void refresh(selectedCaseId);
+    }, 2000);
+
+    return () => window.clearInterval(timer);
+  }, [hasActiveProcessing, selectedCaseId]);
 
   const totals = useMemo(() => {
     return {
@@ -587,6 +640,84 @@ export default function App() {
       recommendedAction: item.recommended_action
     })));
     setActiveView("risk");
+  }
+
+  async function executeLegalCommandInput(input: string): Promise<string> {
+    const resolution = resolveLegalCommand(input);
+    if (!resolution.isCommand) {
+      return "Skriv en kommando som starter med apostrof, for eksempel 'kronologi eller 'bevis.";
+    }
+    if (!resolution.command) {
+      return "Jeg kjenner ikke den kommandoen ennå. Bruk for eksempel 'kronologi, 'bevis, 'risiko, 'kvalitet eller 'rettssimulering.";
+    }
+
+    return executeLegalCommand(resolution.command);
+  }
+
+  async function executeLegalCommand(command: LegalCommand): Promise<string> {
+    const gate = gateLegalCommand(command, caseReadiness.verdict, caseReadiness.sourceCoveragePercent);
+    if (!gate.allowed) {
+      setActiveView("control");
+      return `${command.label} er låst. ${gate.reason} ${caseReadiness.reason}`;
+    }
+
+    switch (command.id) {
+      case "chronology":
+      case "deadlines":
+        await buildChronology();
+        return command.id === "deadlines"
+          ? "Jeg har åpnet kronologi som frist- og datogrunnlag. Kontroller alle datoer mot kildene."
+          : "Kronologi er bygget fra sporbare kilder.";
+      case "evidence":
+        await buildEvidence();
+        return "Bevismatrisen er bygget fra sporbare kilder.";
+      case "arguments":
+        await buildArguments();
+        return "Anførselsgrunnlag er opprettet som kontrollert arbeidsobjekt.";
+      case "crosslink":
+      case "counterarguments":
+        await buildContradictions();
+        return command.id === "counterarguments"
+          ? "Jeg har åpnet motstrid og svake punkter som grunnlag for motargumenter."
+          : "Krysskobling er behandlet som mønster- og motstridskontroll.";
+      case "risk":
+      case "strategy":
+        await buildRisk();
+        return command.id === "strategy"
+          ? "Strategigrunnlag er åpnet som risiko, hovedspor og manglende kontrollpunkter. Dette er ikke en endelig anbefaling."
+          : "Risikovurderingen er kjørt fra kildegrunnlaget.";
+      case "settlement":
+      case "simulation":
+        setActiveView("litigationSimulation");
+        return command.id === "settlement"
+          ? "Forlikssporet er åpnet i Rettssimulering. Bruk det som trening, ikke som forliksråd alene."
+          : "Rettssimulering er åpnet som separat treningsworkspace.";
+      case "precedent":
+        setActiveView("control");
+        return "Presedenskommandoen er registrert, men Evida henter ikke Lovdata eller eksterne rettskilder automatisk. Bruk kontrollgrunnlaget som faktum før separat rettskildesøk.";
+      case "quality":
+        setActiveView("control");
+        return "Kontrollgrunnlag er åpnet med readiness, kildecoverage og avvik.";
+      case "draft":
+        generateDraft();
+        setActiveView("draft");
+        return "Kontrollert utkast er åpnet. AI-forslag må fortsatt kontrolleres og godkjennes.";
+      case "final":
+        setActiveView("control");
+        return "Endelig bruk kan ikke genereres automatisk. Saken er åpnet i kontrollgrunnlag for manuell sluttkontroll.";
+      case "redact":
+        setActiveView("export");
+        return "Maskering er åpnet som manuell eksport- og kontrolloppgave. Automatisk maskering er ikke aktivert.";
+      case "bates":
+        setActiveView("documents");
+        return "Dokumentlisten er åpnet for Bates/bilagsmetadata og kildekontroll.";
+    }
+  }
+
+  async function runCommandPalette() {
+    const response = await executeLegalCommandInput(commandInput);
+    setCommandStatus(response);
+    setCommandInput("");
   }
   const nextAction = useMemo(() => {
     if (!selectedCase) {
@@ -1203,7 +1334,7 @@ export default function App() {
         : "Beregner antall sider";
     const recoveryCount = caseCoverage.failedDocuments + importFailures;
     const showTechnicalDetailsAction =
-      !AUTOMATIC_TEXT_RECOGNITION_AVAILABLE &&
+      !automaticTextRecognitionAvailable &&
       pendingOcrPages > 0 &&
       caseReadiness.sourceCoveragePercent < 50 &&
       recoveryCount === 0;
@@ -1288,7 +1419,14 @@ export default function App() {
         ) : null}
         {technicalDetailsOpen ? (
           <div className="technical-details technical-details--panel">
-            <span>Automatisk teksthenting fra skannede sider er ikke ferdig implementert i denne versjonen.</span>
+            <span>
+              {automaticTextRecognitionAvailable
+                ? "Automatisk teksthenting er tilgjengelig lokalt når dokumentmotoren kan lese filtypen."
+                : "Automatisk teksthenting fra skannede PDF-sider krever lokal tekstgjenkjenning og PDF-siderenderer."}
+            </span>
+            {documentEngineStatus?.warnings.map((warning) => (
+              <span key={warning}>{warning}</span>
+            ))}
             <span>Hvis du tester nå, fungerer tekstbaserte PDF-er best.</span>
           </div>
         ) : null}
@@ -1927,6 +2065,39 @@ export default function App() {
               </article>
             ))}
           </div>
+          {coverageAudit ? (
+            <section className="coverage-audit">
+              <div className="coverage-audit__header">
+                <div>
+                  <h3>Dokumentdekning</h3>
+                  <p>Side- og kildekontroll beregnes fra lokal database, ikke fra begrenset kildevisning i UI.</p>
+                </div>
+                <span className="status-chip">
+                  {coverageAudit.pages_with_sources} av {coverageAudit.total_pages} sider med kilde
+                </span>
+              </div>
+              <div className="coverage-audit__list">
+                {coverageAudit.documents.map((document) => (
+                  <article key={document.document_id} className="coverage-audit-row">
+                    <div>
+                      <strong>{document.original_name}</strong>
+                      <span>
+                        {document.pages_with_sources} av {document.page_count} sider kan brukes som kilde · {Math.round(document.source_coverage_percent)} %
+                      </span>
+                    </div>
+                    <div>
+                      <span className={document.status === "ready" ? "status-chip status-chip--ok" : "status-chip status-chip--warn"}>
+                        {document.status === "ready" ? "Klar" : document.status === "partially_ready" ? "Delvis klar" : "Klargjøres"}
+                      </span>
+                      {document.missing_page_ranges.length > 0 ? (
+                        <small>Mangler sider: {document.missing_page_ranges.join(", ")}</small>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
           {deviations.length > 0 ? (
             <div className="warning-notice">{deviations.join(" ")}</div>
           ) : null}
@@ -2039,6 +2210,8 @@ export default function App() {
               nextActionTitle={nextAction.title}
               onOpenSource={openSource}
               onOpenControl={() => setActiveView("control")}
+              onOpenSimulation={() => setActiveView("litigationSimulation")}
+              onRunCommand={executeLegalCommandInput}
             />
           </>
         );
@@ -2112,6 +2285,17 @@ export default function App() {
             <RiskView rows={riskRows} onAssess={buildRisk} />
           </>
         );
+      case "litigationSimulation":
+        if (caseReadiness.verdict === "not_ready") {
+          return <ReadinessGate title="Rettssimulering er låst til dokumentgrunnlaget er klart." />;
+        }
+        return (
+          <LitigationSimulationView
+            readinessVerdict={caseReadiness.verdict}
+            sources={sources}
+            onOpenSource={openSource}
+          />
+        );
       case "control":
         return <ControlView />;
       case "draft":
@@ -2167,7 +2351,7 @@ export default function App() {
                 {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
                 <span>{theme === "dark" ? "Lys" : "Mørk"}</span>
               </button>
-              <button className="command-button button-secondary" onClick={() => setActiveView("control")}>
+              <button className="command-button button-secondary" onClick={() => setCommandPaletteOpen(true)}>
                 Ctrl + K · Sakspilot
               </button>
             </div>
@@ -2199,6 +2383,49 @@ export default function App() {
         />
       ) : null}
       <SourcePreviewDrawer source={activeSource} onClose={() => setActiveSource(undefined)} />
+      {commandPaletteOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setCommandPaletteOpen(false)}>
+          <div className="modal command-palette" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <h2>Sakspilot</h2>
+            <p>Bruk juridiske kommandoer eller hopp til riktig arbeidsflate. Kommandoer følger readiness-gating.</p>
+            <form
+              className="command-palette__form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runCommandPalette();
+              }}
+            >
+              <input
+                value={commandInput}
+                onChange={(event) => setCommandInput(event.target.value)}
+                placeholder="'kronologi, 'bevis, 'risiko, 'kvalitet ..."
+                autoFocus
+              />
+              <button className="button-primary" disabled={!commandInput.trim()}>Kjør</button>
+            </form>
+            <div className="command-palette__grid">
+              {LEGAL_COMMANDS.map((command) => (
+                <button
+                  key={command.id}
+                  type="button"
+                  className="button-ghost"
+                  onClick={() => {
+                    setCommandInput(command.trigger);
+                    void executeLegalCommand(command).then(setCommandStatus);
+                  }}
+                >
+                  <strong>{command.trigger}</strong>
+                  <span>{command.label}</span>
+                </button>
+              ))}
+            </div>
+            {commandStatus ? <div className="notice">{commandStatus}</div> : null}
+            <div className="modal-actions">
+              <button className="button-secondary" onClick={() => setCommandPaletteOpen(false)}>Lukk</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {deleteTarget ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setDeleteTarget(null)}>
           <div className="modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>

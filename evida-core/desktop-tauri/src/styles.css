@@ -1617,6 +1617,170 @@ textarea {
   font-weight: 750;
 }
 
+.workstyle-settings {
+  margin: 14px 0;
+  border: 1px solid #e4dfd4;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fbfaf7;
+}
+
+.workstyle-settings summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.workstyle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.workstyle-grid label {
+  display: grid;
+  gap: 5px;
+  color: #4f4942;
+  font-size: 13px;
+}
+
+.checkbox-row {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.coverage-audit {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #e4dfd4;
+}
+
+.coverage-audit__header,
+.coverage-audit-row,
+.simulation-card__topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.coverage-audit__header h3,
+.simulation-card h3 {
+  margin: 0;
+}
+
+.coverage-audit__list,
+.simulation-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.coverage-audit-row {
+  padding: 12px;
+  border: 1px solid #e1ddd4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.coverage-audit-row > div {
+  display: grid;
+  gap: 4px;
+}
+
+.coverage-audit-row small {
+  color: #6b5b3d;
+}
+
+.simulation-workspace {
+  display: grid;
+  gap: 16px;
+}
+
+.simulation-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.simulation-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.simulation-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #e1ddd4;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.simulation-card--locked {
+  opacity: 0.74;
+}
+
+.simulation-card dl {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0 0;
+}
+
+.simulation-card dt {
+  font-weight: 800;
+}
+
+.simulation-card dd {
+  margin: 0;
+  color: #4f4942;
+}
+
+.simulation-result {
+  border-top: 1px solid #eee7dc;
+  padding-top: 10px;
+}
+
+.simulation-result summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.simulation-result__body {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.command-palette {
+  max-width: 760px;
+}
+
+.command-palette__form {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.command-palette__form input {
+  flex: 1;
+}
+
+.command-palette__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.command-palette__grid button {
+  display: grid;
+  justify-items: start;
+  text-align: left;
+  gap: 3px;
+  min-height: 54px;
+}
+
 .mode-line {
   display: flex;
   flex-wrap: wrap;
@@ -2155,6 +2319,25 @@ textarea {
   color: #d8eaff;
   background: #17324d;
   border-color: #315d8d;
+}
+
+.app-shell[data-theme="dark"] .workstyle-settings,
+.app-shell[data-theme="dark"] .coverage-audit-row,
+.app-shell[data-theme="dark"] .simulation-card {
+  color: #f0ece4;
+  background: #1c1b19;
+  border-color: #49443c;
+}
+
+.app-shell[data-theme="dark"] .simulation-card dd,
+.app-shell[data-theme="dark"] .workstyle-grid label,
+.app-shell[data-theme="dark"] .coverage-audit-row small {
+  color: #bdb6aa;
+}
+
+.app-shell[data-theme="dark"] .simulation-result,
+.app-shell[data-theme="dark"] .coverage-audit {
+  border-color: #49443c;
 }
 
 .app-shell[data-theme="dark"] .case-chat-composer {

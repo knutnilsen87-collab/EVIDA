@@ -4,6 +4,8 @@ import type {
   CaseSummary,
   DatabaseSecurityStatus,
   DocumentIngestionReport,
+  CaseCoverageAudit,
+  DocumentEngineStatus,
   DocumentSummary,
   MaintenanceReport,
   ReindexReport,
@@ -271,6 +273,87 @@ export async function reindexCaseDocuments(caseId: string): Promise<ReindexRepor
       pages_created: 0,
       chunks_created: 0,
       warnings: ["browser_dev_mode_no_reindex"]
+    };
+  }
+}
+
+export async function getCaseCoverageAudit(caseId: string): Promise<CaseCoverageAudit> {
+  try {
+    return await callTauri<CaseCoverageAudit>("get_case_coverage_audit", { caseId });
+  } catch {
+    const store = readStore();
+    const documents = store.documents.filter((document) => document.case_id === caseId);
+    const sources = store.sources.filter((source) => source.case_id === caseId);
+    const documentAudits = documents.map((document) => {
+      const coveredPages = new Set<number>();
+      sources
+        .filter((source) => source.document_id === document.id)
+        .forEach((source) => {
+          const start = Math.max(1, source.page_start || 1);
+          const end = Math.max(start, source.page_end || start);
+          for (let page = start; page <= end; page += 1) {
+            coveredPages.add(page);
+          }
+        });
+      const pagesWithSources = coveredPages.size;
+      const pageCount = document.page_count || 0;
+      const pagesMissingSources = pageCount > 0 ? Math.max(0, pageCount - pagesWithSources) : 0;
+      return {
+        document_id: document.id,
+        original_name: document.original_name,
+        page_count: pageCount,
+        processed_pages: document.analyzed_page_count || pagesWithSources,
+        pages_with_sources: pagesWithSources,
+        pages_missing_sources: pagesMissingSources,
+        pending_text_recognition_pages: document.pending_ocr_page_count || 0,
+        source_count: document.source_count,
+        source_coverage_percent: pageCount > 0 ? Math.round((pagesWithSources / pageCount) * 100) : 0,
+        ocr_status: document.ocr_status,
+        status: ["failed", "empty", "unsupported_file_type"].includes(document.ocr_status)
+          ? "failed"
+          : pagesMissingSources === 0 && pageCount > 0
+            ? "ready"
+            : pagesWithSources > 0
+              ? "partially_ready"
+              : "queued",
+        missing_page_ranges: pagesMissingSources > 0 ? ["beregnes"] : [],
+        warnings: pagesMissingSources > 0 ? [`${pagesMissingSources} sider mangler sporbare kilder.`] : []
+      };
+    });
+    const totalPages = documentAudits.reduce((sum, item) => sum + item.page_count, 0);
+    const pagesWithSources = documentAudits.reduce((sum, item) => sum + item.pages_with_sources, 0);
+    const failedDocuments = documentAudits.filter((item) => item.status === "failed").length;
+    return {
+      case_id: caseId,
+      total_documents: documentAudits.length,
+      processed_documents: documentAudits.filter((item) => item.processed_pages > 0 || item.source_count > 0).length,
+      total_pages: totalPages,
+      processed_pages: documentAudits.reduce((sum, item) => sum + item.processed_pages, 0),
+      pages_with_sources: pagesWithSources,
+      pages_missing_sources: totalPages > 0 ? Math.max(0, totalPages - pagesWithSources) : 0,
+      source_count: sources.length,
+      failed_documents: failedDocuments,
+      documents_requiring_attention: failedDocuments,
+      pending_text_recognition_pages: documentAudits.reduce((sum, item) => sum + item.pending_text_recognition_pages, 0),
+      source_coverage_percent: totalPages > 0 ? Math.round((pagesWithSources / totalPages) * 100) : 0,
+      has_active_processing: false,
+      documents: documentAudits,
+      warnings: documentAudits.flatMap((item) => item.warnings)
+    };
+  }
+}
+
+export async function getDocumentEngineStatus(): Promise<DocumentEngineStatus> {
+  try {
+    return await callTauri<DocumentEngineStatus>("get_document_engine_status");
+  } catch {
+    return {
+      local_engine_available: false,
+      embedded_text_extraction_available: false,
+      image_text_recognition_available: false,
+      pdf_page_renderer_available: false,
+      automatic_text_recognition_available: false,
+      warnings: ["Dokumentmotorstatus er bare tilgjengelig i desktop-appen."]
     };
   }
 }
