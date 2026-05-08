@@ -288,6 +288,8 @@ export default function App() {
     return window.localStorage.getItem(AI_TRUST_STORAGE_KEY) === "true";
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const startCaseNameInputRef = useRef<HTMLInputElement>(null);
+  const panelCaseNameInputRef = useRef<HTMLInputElement>(null);
   const autoRepairAttemptedRef = useRef<Set<string>>(new Set());
 
   async function refresh(preferredCaseId = selectedCaseId) {
@@ -577,9 +579,19 @@ export default function App() {
   }, [analyzedPages, hasActiveProcessing, hasDocuments, hasSources, needsOcr, totalPages]);
 
   async function handleCreateCase() {
-    const name = caseName.trim() || "Ny sak";
+    const name =
+      startCaseNameInputRef.current?.value.trim() ||
+      panelCaseNameInputRef.current?.value.trim() ||
+      caseName.trim() ||
+      "Ny sak";
     const created = await createCase(name, "NO");
     setCaseName("");
+    if (startCaseNameInputRef.current) {
+      startCaseNameInputRef.current.value = "";
+    }
+    if (panelCaseNameInputRef.current) {
+      panelCaseNameInputRef.current.value = "";
+    }
     await refresh(created.id);
     setOnboardingStage("import");
     setActiveView("documents");
@@ -1697,7 +1709,16 @@ export default function App() {
                 <h2>Opprett ny sak</h2>
                 <p>Start et nytt saksrom og importer dokumenter som kildegrunnlag.</p>
                 <div className="form-row">
-                  <input value={caseName} onChange={(event) => setCaseName(event.target.value)} placeholder="Saksnavn" />
+                  <input
+                    ref={startCaseNameInputRef}
+                    defaultValue={caseName}
+                    placeholder="Saksnavn"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        handleCreateCase();
+                      }
+                    }}
+                  />
                   <button className="button-primary" onClick={handleCreateCase}>Ny sak</button>
                 </div>
               </article>
@@ -1877,7 +1898,16 @@ export default function App() {
           </div>
         </div>
         <div className="form-row">
-          <input value={caseName} onChange={(event) => setCaseName(event.target.value)} placeholder="Saksnavn" />
+          <input
+            ref={panelCaseNameInputRef}
+            defaultValue={caseName}
+            placeholder="Saksnavn"
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                handleCreateCase();
+              }
+            }}
+          />
           <button className="button-primary" onClick={handleCreateCase}>Opprett sak</button>
         </div>
       </section>
