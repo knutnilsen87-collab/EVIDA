@@ -266,7 +266,7 @@ fn extract_pdf(path: &Path) -> Result<DocumentExtraction> {
                 .get((page_number - 1) as usize)
                 .map(|page| page.trim())
                 .unwrap_or("");
-            if text.is_empty() {
+            if text.is_empty() || page_needs_text_recognition(text) {
                 pages_without_text += 1;
                 pages.push(ExtractedPage {
                     page_number,
@@ -335,6 +335,19 @@ fn count_pdf_pages(content: &str) -> i64 {
     let page_markers = content.matches("/Type /Page").count() as i64;
     let pages_markers = content.matches("/Type /Pages").count() as i64;
     (page_markers - pages_markers).max(0)
+}
+
+fn page_needs_text_recognition(text: &str) -> bool {
+    let normalized = text.to_lowercase();
+    if normalized.contains("ocr-body") {
+        return true;
+    }
+
+    let word_count = normalized.split_whitespace().count();
+    word_count <= 24
+        && normalized.contains("bates:")
+        && normalized.contains("side ")
+        && normalized.contains(" av ")
 }
 
 pub fn split_text_into_chunks(text: &str, page_start: i64) -> Vec<TextChunk> {

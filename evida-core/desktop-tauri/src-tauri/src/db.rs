@@ -1025,7 +1025,7 @@ fn document_coverage_audit(conn: &Connection, document: &DocumentSummary) -> Res
     }
 
     let processed_pages = conn.query_row(
-        "SELECT COUNT(DISTINCT page_number) FROM pages WHERE document_id = ?1 AND text_status != 'needs_ocr'",
+        "SELECT COUNT(DISTINCT page_number) FROM pages WHERE document_id = ?1",
         params![document.id.as_str()],
         |row| row.get::<_, i64>(0),
     )?;
@@ -1257,7 +1257,6 @@ pub fn list_source_objects(conn: &Connection, case_id: &str) -> Result<Vec<Sourc
         FROM source_objects
         WHERE case_id = ?1
         ORDER BY created_at DESC
-        LIMIT 500
         "#,
     )?;
 
@@ -2044,5 +2043,115 @@ mod tests {
         assert!(audit.iter().any(|event| event.action == "CASE_AI_SOURCE_VALIDATED"));
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    #[ignore]
+    fn okokrim_10000_bundle_passes_ingestion_gate() {
+        let pdf_path = std::env::var("EVIDA_STRESS_PDF").expect("EVIDA_STRESS_PDF must point to test PDF");
+        let manifest_path = std::env::var("EVIDA_STRESS_MANIFEST").expect("EVIDA_STRESS_MANIFEST must point to truth manifest");
+        let manifest: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&manifest_path).expect("read truth manifest"),
+        )
+        .expect("parse truth manifest");
+        let expected = &manifest["expected"];
+        let expected_pages = expected["registered_pages"].as_i64().expect("registered_pages");
+        let minimum_coverage = expected["minimum_coverage_before_ocr_percent"]
+            .as_f64()
+            .expect("minimum coverage");
+        let expected_ocr_pages = expected["ocr_required_pages"].as_i64().expect("ocr_required_pages");
+
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        apply_schema(&conn).expect("apply schema");
+        let case = create_case(&conn, "OKOKRIM 10000 stress", "NO").expect("create case");
+
+        let path = std::path::Path::new(&pdf_path);
+        let started = std::time::Instant::now();
+        let sha256 = crate::hash::sha256_file(path).expect("hash stress pdf");
+        let extraction = crate::ingestion::extract_document(path).expect("extract stress pdf");
+        println!(
+            "extraction: pages={} chunks={} warnings={:?} elapsed={:?}",
+            extraction.page_count,
+            extraction.chunks.len(),
+            extraction.warnings,
+            started.elapsed()
+        );
+        let report = insert_document(
+            &conn,
+            &case.id,
+            path.file_name().and_then(|value| value.to_str()).unwrap_or("stress.pdf"),
+            &pdf_path,
+            &sha256,
+            &extraction,
+        )
+        .expect("insert stress document");
+        let audit = get_case_coverage_audit(&conn, &case.id).expect("coverage audit");
+        let document = audit.documents.first().expect("document audit");
+        let all_sources = list_source_objects(&conn, &case.id).expect("all sources");
+        let visible_pages = all_sources
+            .iter()
+            .map(|source| source.page_start)
+            .collect::<std::collections::BTreeSet<_>>();
+        let gold_findings = manifest["gold_findings"].as_array().expect("gold findings");
+        let mut text_layer_gold_present = 0;
+        let mut text_layer_gold_visible = 0;
+        let mut ocr_gold_visible_before_ocr = 0;
+        for finding in gold_findings {
+            let page = finding["page"].as_i64().expect("finding page");
+            let requires_ocr = finding["requires_ocr"].as_bool().unwrap_or(false);
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM source_objects WHERE case_id = ?1 AND page_start <= ?2 AND page_end >= ?2",
+                    params![case.id.as_str(), page],
+                    |row| row.get(0),
+                )
+                .expect("gold source lookup");
+            if !requires_ocr && exists > 0 {
+                text_layer_gold_present += 1;
+            }
+            if !requires_ocr && visible_pages.contains(&page) {
+                text_layer_gold_visible += 1;
+            }
+            if requires_ocr && visible_pages.contains(&page) {
+                ocr_gold_visible_before_ocr += 1;
+            }
+            println!(
+                "gold {} page={} requires_ocr={} source_exists={} visible_to_saksrom={}",
+                finding["id"].as_str().unwrap_or("?"),
+                page,
+                requires_ocr,
+                exists > 0,
+                visible_pages.contains(&page)
+            );
+        }
+
+        println!(
+            "coverage: total={} processed={} with_sources={} missing={} pending_text={} coverage={} sources={} visible_gold_text={}",
+            audit.total_pages,
+            audit.processed_pages,
+            audit.pages_with_sources,
+            audit.pages_missing_sources,
+            audit.pending_text_recognition_pages,
+            audit.source_coverage_percent,
+            all_sources.len(),
+            text_layer_gold_visible
+        );
+
+        let expected_text_layer_gold = gold_findings
+            .iter()
+            .filter(|finding| !finding["requires_ocr"].as_bool().unwrap_or(false))
+            .count();
+        assert_eq!(audit.total_pages, expected_pages);
+        assert_eq!(document.page_count, expected_pages);
+        assert_eq!(audit.processed_pages, expected_pages);
+        assert_eq!(audit.pending_text_recognition_pages, expected_ocr_pages);
+        assert!(audit.source_coverage_percent >= minimum_coverage);
+        assert!(audit.source_coverage_percent < 100.0);
+        assert_eq!(audit.failed_documents, 0);
+        assert!(report.sources_created > 0);
+        assert_eq!(all_sources.len() as i64, audit.source_count);
+        assert_eq!(text_layer_gold_present, expected_text_layer_gold);
+        assert_eq!(text_layer_gold_visible, expected_text_layer_gold);
+        assert_eq!(ocr_gold_visible_before_ocr, 0);
     }
 }
