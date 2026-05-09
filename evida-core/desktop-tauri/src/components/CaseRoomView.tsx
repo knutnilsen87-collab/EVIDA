@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import type { CaseAiMessageDto, CaseSummary, DocumentSummary, SourceObjectSummary } from "../types";
 import { askCaseAi, listCaseAiMessages, recordCaseAiExchange } from "../lib/api";
@@ -15,13 +15,23 @@ import {
   readCaseConversationMemory,
   updateCaseConversationMemory
 } from "../features/adaptiveSaksrom/conversationMemory";
-import { SAKSROM_WORK_STATES } from "../features/adaptiveSaksrom/workStates";
 import {
   DEFAULT_WORKSTYLE_PREFERENCES,
   readWorkstylePreferences,
   writeWorkstylePreferences
 } from "../features/adaptiveSaksrom/workstyle";
 import type { WorkstylePreferences } from "../features/adaptiveSaksrom/workstyle";
+import { SAKSROM_WORK_STATES } from "../features/adaptiveSaksrom/workStates";
+import {
+  processingStageLabel,
+  processingStageProgress,
+  processingStepViews
+} from "../types/processing";
+import type { DocumentProcessingStage } from "../types/processing";
+import { calculatePageProgress } from "../lib/processing";
+import { AssistantWorkState } from "./AssistantWorkState";
+
+type LegacyImportStage = "selected" | "validating" | "hashing" | "extracting" | "chunking" | "ready" | "needs_attention";
 
 interface CaseRoomViewProps {
   selectedCase?: CaseSummary;
@@ -48,9 +58,11 @@ interface CaseRoomViewProps {
 interface CaseRoomImportItem {
   path: string;
   name: string;
-  status: "selected" | "validating" | "hashing" | "extracting" | "chunking" | "ready" | "needs_attention" | "failed";
+  status: DocumentProcessingStage | LegacyImportStage;
   detail: string;
   pages?: number;
+  pagesProcessed?: number;
+  pagesTotal?: number;
   sources?: number;
   startedAt?: number;
 }
@@ -72,6 +84,27 @@ interface CaseAnswer {
   missing: string;
   nextStep: string;
   suggestedActions?: SuggestedAction[];
+}
+
+function toProcessingStage(stage: DocumentProcessingStage | LegacyImportStage | undefined): DocumentProcessingStage | undefined {
+  switch (stage) {
+    case "selected":
+      return "queued";
+    case "validating":
+      return "reading_file";
+    case "hashing":
+      return "counting_pages";
+    case "extracting":
+      return "extracting_text";
+    case "chunking":
+      return "finding_source_points";
+    case "ready":
+      return "completed";
+    case "needs_attention":
+      return "failed";
+    default:
+      return stage;
+  }
 }
 
 interface CaseSummarySections {
@@ -240,30 +273,58 @@ function formatDuration(ms: number) {
   return rest > 0 ? `${minutes} min ${rest} sek` : `${minutes} min`;
 }
 
+function liveStageProgress(item: CaseRoomImportItem | undefined, nowMs: number) {
+  const stage = toProcessingStage(item?.status);
+  if (!stage) {
+    return 0;
+  }
+  if (stage === "completed" || stage === "failed") {
+    return 100;
+  }
+
+  const base = processingStageProgress(stage);
+  const elapsed = item?.startedAt ? nowMs - item.startedAt : 0;
+  const stageRanges: Partial<Record<DocumentProcessingStage, number>> = {
+    queued: 9,
+    reading_file: 9,
+    counting_pages: 19,
+    extracting_text: 19,
+    finding_source_points: 14,
+    building_case_basis: 14,
+    checking_coverage: 9
+  };
+  const range = stageRanges[stage] || 0;
+  const heartbeat = Math.min(range, Math.floor(elapsed / 2500));
+  return Math.min(99, base + heartbeat);
+}
+
 function importEta(item: CaseRoomImportItem | undefined, nowMs: number) {
   if (!item) {
     return "Beregnes";
   }
   const elapsed = item.startedAt ? nowMs - item.startedAt : 0;
-  if (["ready", "needs_attention", "failed"].includes(item.status)) {
+  if (["completed", "failed"].includes(item.status)) {
     return item.startedAt ? `Brukte ${formatDuration(elapsed)}` : "Ferdig";
   }
-  if (item.status === "extracting") {
+  if (item.status === "extracting_text") {
     if (elapsed < 30_000) {
-      return "Omtrent 1-3 min igjen";
+      return `Omtrent 1-3 min igjen · gått ${formatDuration(elapsed)}`;
     }
     if (elapsed < 120_000) {
-      return "Omtrent 1-2 min igjen";
+      return `Omtrent 1-2 min igjen · gått ${formatDuration(elapsed)}`;
     }
-    return "Tar litt tid med stort dokument";
+    return `Tar litt tid med stort dokument · gått ${formatDuration(elapsed)}`;
   }
-  if (item.status === "chunking") {
-    return "Omtrent under 1 min igjen";
+  if (item.status === "finding_source_points" || item.status === "building_case_basis" || item.status === "checking_coverage") {
+    return `Omtrent under 1 min igjen · gått ${formatDuration(elapsed)}`;
   }
-  return elapsed > 2000 ? "Omtrent under 1 min igjen" : "Starter straks";
+  return elapsed > 2000 ? `Omtrent under 1 min igjen · gått ${formatDuration(elapsed)}` : "Starter straks";
 }
 
 function intakeStepLabel(item: CaseRoomImportItem | undefined) {
+  return processingStageLabel(toProcessingStage(item?.status));
+
+  /*
   if (!item) {
     return "Venter";
   }
@@ -285,9 +346,14 @@ function intakeStepLabel(item: CaseRoomImportItem | undefined) {
     case "failed":
       return "Feilet";
   }
+  */
 }
 
 function importLiveProgressPercent(item: CaseRoomImportItem | undefined, nowMs: number) {
+  void nowMs;
+  return liveStageProgress(item, nowMs);
+
+  /*
   if (!item) {
     return 0;
   }
@@ -311,9 +377,18 @@ function importLiveProgressPercent(item: CaseRoomImportItem | undefined, nowMs: 
     default:
       return 0;
   }
+  */
 }
 
-function activeIntakeWorkState(nowMs: number) {
+function activeIntakeWorkState(stage: DocumentProcessingStage | LegacyImportStage | undefined) {
+  const stepViews = processingStepViews(toProcessingStage(stage));
+  return {
+    states: stepViews.map((step) => step.label),
+    activeIndex: stepViews.findIndex((step) => step.state === "active" || step.state === "failed"),
+    stepViews
+  };
+
+  /*
   const states = [
     "Leser fil",
     "Teller sider",
@@ -323,8 +398,9 @@ function activeIntakeWorkState(nowMs: number) {
   ];
   return {
     states,
-    activeIndex: Math.floor(nowMs / 1400) % states.length
+    activeIndex: 0
   };
+  */
 }
 
 function buildAnswer(
@@ -461,33 +537,47 @@ export function CaseRoomView({
   const [workStateIndex, setWorkStateIndex] = useState(0);
   const [providerNotice, setProviderNotice] = useState("");
   const [latestSuggestedActions, setLatestSuggestedActions] = useState<SuggestedAction[]>([]);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const [activeCollaborationMode, setActiveCollaborationMode] = useState<CollaborationMode>("free_question");
   const [workstyle, setWorkstyle] = useState<WorkstylePreferences>(DEFAULT_WORKSTYLE_PREFERENCES);
   const hasSources = sources.length > 0;
   const hasDocuments = documents.length > 0;
   const isBlocked = readiness.verdict === "not_ready";
   const isPreliminaryOnly = readiness.verdict === "requires_control";
-  const totalPages = documents.reduce((sum, document) => sum + document.page_count, 0);
+  const documentTotalPages = documents.reduce((sum, document) => sum + document.page_count, 0);
+  const queuedTotalPages = importQueue.reduce((sum, item) => sum + (item.pagesTotal || item.pages || 0), 0);
+  const totalPages = documentTotalPages || queuedTotalPages;
+  const documentProcessedPages = documents.reduce((sum, document) => sum + (document.analyzed_page_count || 0), 0);
+  const queuedProcessedPages = importQueue.reduce((sum, item) => sum + (item.pagesProcessed || 0), 0);
+  const processedPages = documentTotalPages > 0 ? documentProcessedPages : queuedProcessedPages;
+  const pagesWithSources = documentTotalPages > 0 ? Math.round((Math.max(0, Math.min(100, coverage)) / 100) * documentTotalPages) : 0;
+  const pageProgress = calculatePageProgress({
+    totalPages,
+    processedPages,
+    pagesWithSources
+  });
   const processedDocuments = documents.filter((document) => document.source_count > 0 || document.analyzed_page_count > 0);
   const sourceCoverageTooLow = hasDocuments && coverage < 50;
   const canAsk = Boolean(selectedCase?.id && hasDocuments && hasSources && !isBlocked && !sourceCoverageTooLow);
   const isIncomplete = !hasSources || coverage < 95 || pendingOcrPages > 0 || deviations.length > 0;
-  const readyImportItems = importQueue.filter((item) => ["ready", "needs_attention"].includes(item.status));
-  const activeImportItem = importQueue.find((item) => !["ready", "needs_attention", "failed"].includes(item.status));
+  const readyImportItems = importQueue.filter((item) => item.status === "completed");
+  const activeImportItem = importQueue.find((item) => !["completed", "failed"].includes(item.status));
+  const displayImportItem = activeImportItem || importQueue.find((item) => item.status === "failed") || importQueue[importQueue.length - 1];
   const importPages = importQueue.reduce((sum, item) => sum + (item.pages || 0), 0);
-  const importSources = importQueue.reduce((sum, item) => sum + (item.sources || 0), 0);
-  const intakeCoverage = totalPages > 0 ? Math.round((sources.length > 0 ? coverage : importSources > 0 && importPages > 0 ? Math.min(100, (importSources / importPages) * 100) : 0)) : coverage;
+  const intakeCoverage = totalPages > 0 ? pageProgress.sourceCoveragePercent : coverage;
   const showIntakeCard = importQueue.length > 0 || isImporting;
-  const liveImportProgress = importLiveProgressPercent(activeImportItem || importQueue[0], importNow);
-  const intakeWorkState = activeIntakeWorkState(importNow);
+  const liveImportProgress = importLiveProgressPercent(displayImportItem, importNow);
+  const liveImportElapsed = displayImportItem?.startedAt ? formatDuration(importNow - displayImportItem.startedAt) : "";
+  const liveCurrentStep = intakeStepLabel(displayImportItem);
+  const intakeWorkState = activeIntakeWorkState(displayImportItem?.status);
   const isCaseSummaryReady =
     hasDocuments &&
     hasSources &&
     !isBlocked &&
+    coverage >= 80 &&
     (readiness.verdict === "ready_for_draft_control" ||
       readiness.verdict === "ready_for_preliminary_analysis" ||
-      coverage >= 95 ||
-      (pendingOcrPages === 0 && processedDocuments.length > 0));
+      coverage >= 95);
   const shouldShowNamingCard = Boolean(selectedCase?.id && isCaseSummaryReady && isTemporaryCaseTitle(selectedCase.name));
   const caseSummary = buildCaseSummarySections(selectedCase, sources, coverage, pendingOcrPages, deviations);
   const summaryWorkStates = [
@@ -497,18 +587,50 @@ export function CaseRoomView({
     "Ser etter datoer og hendelser",
     "Lager saksoppsummering"
   ];
-  const suggestedQuestions = isBlocked
-    ? []
-    : isPreliminaryOnly
-      ? ["Hva er ferdig behandlet?", "Hva mangler?", "Hva bør kontrolleres først?"]
-      : ["Hva er dokumentert?", "Hva mangler?", "Hva bør kontrolleres først?"];
+  const initialSuggestedActions = useMemo(
+    () => (canAsk ? createDefaultSuggestedActions(`initial-${selectedCase?.id || "case"}`) : []),
+    [canAsk, selectedCase?.id]
+  );
+  const activeSuggestedActions = latestSuggestedActions.length > 0 ? latestSuggestedActions : initialSuggestedActions;
   const visibleAnswers = [...answers].reverse();
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const processingCardRef = useRef<HTMLElement | null>(null);
+  const caseSummaryRef = useRef<HTMLDivElement | null>(null);
+  const namingCardRef = useRef<HTMLElement | null>(null);
+  const assistantWorkRef = useRef<HTMLDivElement | null>(null);
+  const chatInputRef = useRef<HTMLFormElement | null>(null);
+  const activeAnswerRef = useRef<HTMLElement | null>(null);
   const autoFollowAnswerRef = useRef(true);
 
   function scrollToLatestAnswer(behavior: ScrollBehavior = "smooth") {
     chatBottomRef.current?.scrollIntoView({ block: "end", behavior });
+    setShowJumpToBottom(false);
+  }
+
+  function scrollToContextTarget(target: HTMLElement | null, behavior: ScrollBehavior = "smooth") {
+    if (!target) {
+      return;
+    }
+    target.scrollIntoView({
+      behavior,
+      block: "center"
+    });
+  }
+
+  function scrollToActiveAnswer(behavior: ScrollBehavior = "smooth") {
+    scrollToContextTarget(activeAnswerRef.current || chatBottomRef.current, behavior);
+  }
+
+  function scrollToAssistantWork(behavior: ScrollBehavior = "smooth") {
+    scrollToContextTarget(assistantWorkRef.current || chatBottomRef.current, behavior);
+  }
+
+  function scrollToContextIfIdle(target: HTMLElement | null, behavior: ScrollBehavior = "smooth") {
+    if (streamingAnswer || isAsking) {
+      return;
+    }
+    window.requestAnimationFrame(() => scrollToContextTarget(target, behavior));
   }
 
   function updateAutoFollowAnswer(value: boolean) {
@@ -522,7 +644,7 @@ export function CaseRoomView({
       visibleAnswer: ""
     });
     updateAutoFollowAnswer(true);
-    window.requestAnimationFrame(() => scrollToLatestAnswer("smooth"));
+    window.requestAnimationFrame(() => scrollToActiveAnswer("smooth"));
 
     let visibleAnswer = "";
     for (const chunk of splitForReveal(turn.result.answer)) {
@@ -533,7 +655,7 @@ export function CaseRoomView({
       });
       window.requestAnimationFrame(() => {
         if (autoFollowAnswerRef.current) {
-          scrollToLatestAnswer("smooth");
+          scrollToActiveAnswer("smooth");
         }
       });
       await wait(Math.min(450, Math.max(120, chunk.length * 12)));
@@ -541,7 +663,7 @@ export function CaseRoomView({
 
     setAnswers((current) => [turn, ...current].slice(0, 20));
     setStreamingAnswer(null);
-    window.requestAnimationFrame(() => scrollToLatestAnswer("smooth"));
+    window.requestAnimationFrame(() => scrollToActiveAnswer("smooth"));
   }
 
   useEffect(() => {
@@ -599,17 +721,47 @@ export function CaseRoomView({
     }
 
     if (autoFollowAnswer) {
-      scrollToLatestAnswer("smooth");
+      if (streamingAnswer) {
+        scrollToActiveAnswer("smooth");
+      } else {
+        scrollToAssistantWork("smooth");
+      }
     }
   }, [isAsking, streamingAnswer?.visibleAnswer, workStateIndex, autoFollowAnswer]);
 
+  useEffect(() => {
+    if (!showIntakeCard) {
+      return;
+    }
+    scrollToContextIfIdle(processingCardRef.current);
+  }, [showIntakeCard, isImporting, displayImportItem?.status, importQueue.length]);
+
+  useEffect(() => {
+    if (!isCaseSummaryReady) {
+      return;
+    }
+    scrollToContextIfIdle(caseSummaryRef.current);
+  }, [isCaseSummaryReady, coverage, selectedCase?.id]);
+
+  useEffect(() => {
+    if (!shouldShowNamingCard) {
+      return;
+    }
+    scrollToContextIfIdle(namingCardRef.current);
+  }, [shouldShowNamingCard, selectedCase?.id]);
+
   function handleChatScroll() {
     const container = chatScrollRef.current;
-    if (!container || (!isAsking && !streamingAnswer)) {
+    if (!container) {
       return;
     }
 
-    updateAutoFollowAnswer(isNearBottom(container, 140));
+    const nearBottom = isNearBottom(container, 140);
+    setShowJumpToBottom(!nearBottom);
+
+    if (isAsking || streamingAnswer) {
+      updateAutoFollowAnswer(nearBottom);
+    }
   }
 
   function extractDroppedPaths(files: FileList) {
@@ -658,7 +810,7 @@ export function CaseRoomView({
 
   async function submitCaseQuestion(rawQuestion: string, selectedAction?: SuggestedAction) {
     const cleanQuestion = rawQuestion.trim();
-    const resolvedAction = selectedAction || resolveSuggestedActionReply(cleanQuestion, latestSuggestedActions);
+    const resolvedAction = selectedAction || resolveSuggestedActionReply(cleanQuestion, activeSuggestedActions);
     const displayQuestion = resolvedAction?.label || cleanQuestion;
     const retrievalQuestion = resolvedAction?.queryTemplate || cleanQuestion;
     const activeMode = resolvedAction?.intent || inferCollaborationModeFromText(cleanQuestion);
@@ -675,6 +827,8 @@ export function CaseRoomView({
     setActiveCollaborationMode(activeMode);
     setIsAsking(true);
     setProviderNotice("");
+    updateAutoFollowAnswer(true);
+    window.requestAnimationFrame(() => scrollToAssistantWork("smooth"));
     await wait(900);
     if (cleanQuestion.startsWith("'")) {
       try {
@@ -853,7 +1007,7 @@ export function CaseRoomView({
           <p className="eyebrow">Saksrom</p>
           <h2>{selectedCase?.name || "Saksrom"}</h2>
           {hasDocuments ? (
-          <div className="case-summary-card">
+          <div className="case-summary-card" ref={caseSummaryRef}>
             <div className="mode-line">
               <span className="local-pill">Sikker lokalmodus</span>
               <span>Ekstern AI er av. Svar bygger kun på lokale kilder i saken.</span>
@@ -1015,7 +1169,7 @@ export function CaseRoomView({
 
         <div className="case-chat-messages">
           {showIntakeCard ? (
-            <article className="case-system-card" aria-live="polite">
+            <article className="case-system-card" aria-live="polite" ref={processingCardRef}>
               <h3>{isImporting ? "Saken klargjøres" : "Dokumenter mottatt"}</h3>
               <p>
                 {isImporting
@@ -1029,9 +1183,9 @@ export function CaseRoomView({
                 <strong>{liveImportProgress}%</strong>
               </div>
               <div className="case-intake-steps" aria-live="polite">
-                {intakeWorkState.states.map((state, index) => (
-                  <span key={state} className={index === intakeWorkState.activeIndex && isImporting ? "is-active" : undefined}>
-                    {state}
+                {intakeWorkState.stepViews.map((step) => (
+                  <span key={step.stage} className={`is-${step.state}`}>
+                    {step.label}
                   </span>
                 ))}
               </div>
@@ -1039,13 +1193,39 @@ export function CaseRoomView({
                 <span>Dokumenter</span>
                 <strong>{readyImportItems.length}/{importQueue.length || documents.length}</strong>
                 <span>Sider</span>
-                <strong>{documents.reduce((sum, document) => sum + (document.analyzed_page_count || 0), 0)}/{totalPages || importPages || "beregnes"}</strong>
+                <strong>
+                  {pageProgress.totalPages > 0
+                    ? `${pageProgress.processedPages} av ${pageProgress.totalPages} sider behandlet`
+                    : importPages > 0
+                      ? `0 av ${importPages} sider behandlet`
+                      : "Sideprogresjon beregnes"}
+                </strong>
+                <span>Gjenstår</span>
+                <strong>
+                  {pageProgress.totalPages > 0
+                    ? `${pageProgress.pagesRemaining} sider gjenstår`
+                    : "Beregnes"}
+                </strong>
+                <span>Kan brukes som kilde</span>
+                <strong>
+                  {pageProgress.totalPages > 0
+                    ? `${pageProgress.pagesWithSources} sider`
+                    : sources.length > 0
+                      ? `${sources.length} kilder`
+                      : "Beregnes"}
+                </strong>
                 <span>Kildedekning</span>
-                <strong>{Math.round(intakeCoverage)} %</strong>
+                <strong>{pageProgress.totalPages > 0 || !isImporting ? `${Math.round(intakeCoverage)} %` : "Beregnes"}</strong>
                 <span>Nåværende steg</span>
-                <strong>{intakeStepLabel(activeImportItem)}</strong>
+                <strong>{liveCurrentStep}</strong>
                 <span>Estimert tid</span>
                 <strong>{importEta(activeImportItem, importNow)}</strong>
+                {isImporting && liveImportElapsed ? (
+                  <>
+                    <span>Arbeidstid</span>
+                    <strong>{liveImportElapsed}</strong>
+                  </>
+                ) : null}
               </div>
               {importQueue.length > 0 ? (
                 <div className="case-import-file-list">
@@ -1054,7 +1234,10 @@ export function CaseRoomView({
                       <span className="case-import-file__pulse" aria-hidden="true" />
                       <div>
                         <strong>{item.name}</strong>
-                        <span>{item.detail}</span>
+                        <span>
+                          {processingStageLabel(toProcessingStage(item.status))}
+                          {isImporting && item.path === displayImportItem?.path && liveImportElapsed ? ` · fortsatt aktiv · ${liveImportElapsed}` : ""}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -1064,7 +1247,7 @@ export function CaseRoomView({
             </article>
           ) : null}
           {shouldShowNamingCard ? (
-            <article className="case-system-card case-naming-card">
+            <article className="case-system-card case-naming-card" ref={namingCardRef}>
               <h3>Navngi saken</h3>
               <p>Gi saken et navn som gjør den lett å finne igjen under Tidligere saker.</p>
               <label>
@@ -1104,19 +1287,28 @@ export function CaseRoomView({
                   Velg dokumenter
                 </button>
               ) : null}
-              {hasDocuments && !sourceCoverageTooLow && suggestedQuestions.length > 0 ? (
-                <div className="suggested-question-list suggested-question-list--centered">
-                  {suggestedQuestions.map((suggestion) => (
-                    <button key={suggestion} type="button" className="button-ghost" onClick={() => setQuestion(suggestion)}>
-                      {suggestion}
-                    </button>
-                  ))}
+              {hasDocuments && !sourceCoverageTooLow && activeSuggestedActions.length > 0 ? (
+                <div className="case-suggested-actions case-suggested-actions--initial">
+                  <strong>Velg et spor, eller skriv 1-4</strong>
+                  <div className="case-suggested-actions__grid">
+                    {activeSuggestedActions.map((action) => (
+                      <button
+                        key={action.id}
+                        type="button"
+                        className="button-ghost"
+                        onClick={() => void submitCaseQuestion(action.label, action)}
+                      >
+                        {action.index}. {action.label}
+                      </button>
+                    ))}
+                  </div>
+                  <span>Du kan også spørre fritt.</span>
                 </div>
               ) : null}
             </div>
           ) : (
             visibleAnswers.map((entry, index) => (
-              <article key={`${entry.question}-${index}`} className="case-message-group">
+              <article key={`${entry.question}-${index}`} className="case-message-group" ref={index === 0 ? activeAnswerRef : undefined}>
                 <div className="case-message case-message--user">{entry.question}</div>
                 <div className="case-message case-message--assistant">
                   <div className="case-answer-body">{entry.result.answer}</div>
@@ -1183,7 +1375,7 @@ export function CaseRoomView({
             ))
           )}
           {streamingAnswer ? (
-            <article className="case-message-group">
+            <article className="case-message-group" ref={activeAnswerRef}>
               <div className="case-message case-message--user">{streamingAnswer.question}</div>
               <div className="case-message case-message--assistant case-message--streaming">
                 <div className="case-answer-body">{streamingAnswer.visibleAnswer}</div>
@@ -1191,15 +1383,9 @@ export function CaseRoomView({
             </article>
           ) : null}
           {providerNotice ? <div className="case-provider-notice">{providerNotice}</div> : null}
-          {isAsking && !streamingAnswer && workstyle.showDetailedWorkStates ? (
-            <div className="case-work-states" role="status" aria-live="polite" aria-label="Evida arbeider">
-              {SAKSROM_WORK_STATES.map((state, index) => (
-                <span key={state} className={index <= workStateIndex ? "is-active" : undefined}>
-                  {state}
-                </span>
-              ))}
-            </div>
-          ) : null}
+          <div ref={assistantWorkRef}>
+            <AssistantWorkState active={isAsking && !streamingAnswer && workstyle.showDetailedWorkStates} currentStep={workStateIndex} />
+          </div>
           <div ref={chatBottomRef} className="case-chat-bottom-anchor" aria-hidden="true" />
         </div>
       </div>
@@ -1215,8 +1401,14 @@ export function CaseRoomView({
           Følg svaret
         </button>
       ) : null}
+      {!isAsking && !streamingAnswer && showJumpToBottom ? (
+        <button type="button" className="follow-answer-button" onClick={() => scrollToLatestAnswer("smooth")}>
+          Hopp nederst
+        </button>
+      ) : null}
 
       <form
+        ref={chatInputRef}
         className="case-chat-composer"
         onSubmit={(event) => {
           event.preventDefault();

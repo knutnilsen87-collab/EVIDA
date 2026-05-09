@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct CaseSummary {
     pub id: String,
     pub name: String,
+    pub case_number: Option<String>,
     pub jurisdiction: String,
     pub status: String,
     pub document_count: i64,
@@ -11,6 +12,26 @@ pub struct CaseSummary {
     pub source_coverage_percent: f64,
     pub risk_level: String,
     pub updated_at: String,
+    pub last_opened_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppSetting {
+    pub key: String,
+    pub value_json: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecuritySettings {
+    pub local_processing_default: bool,
+    pub external_ai_enabled: bool,
+    pub allow_source_excerpt_sending: bool,
+    pub allow_full_document_sending: bool,
+    pub require_external_ai_confirmation: bool,
+    pub redact_logs: bool,
+    pub block_export_without_control: bool,
+    pub screen_sharing_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

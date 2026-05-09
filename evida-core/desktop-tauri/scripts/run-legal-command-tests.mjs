@@ -42,21 +42,9 @@ function createMemoryStorage() {
 
 const requiredTriggers = [
   "'kronologi",
-  "'krysskobling",
   "'bevis",
-  "'anforsler",
-  "'motargumenter",
-  "'presedens",
   "'risiko",
-  "'frister",
-  "'strategi",
-  "'forlik",
-  "'utkast",
-  "'kvalitet",
-  "'endelig",
-  "'masker",
-  "'bates",
-  "'rettssimulering"
+  "'kvalitet"
 ];
 
 for (const trigger of requiredTriggers) {
@@ -68,13 +56,18 @@ assert.equal(resolveLegalCommand("vanlig chat").isCommand, false, "free chat is 
 assert.equal(resolveLegalCommand("'ukjent").command, undefined, "unknown command stays unresolved");
 
 const chronology = resolveLegalCommand("'kronologi").command;
-const draft = resolveLegalCommand("'utkast").command;
+const evidence = resolveLegalCommand("'bevis").command;
+const risk = resolveLegalCommand("'risiko").command;
 const quality = resolveLegalCommand("'kvalitet").command;
-assert.equal(gateLegalCommand(chronology, "not_ready", 0).allowed, false, "analysis command is blocked when not ready");
-assert.equal(gateLegalCommand(chronology, "ready_for_preliminary_analysis", 84).allowed, true, "analysis command opens when ready");
-assert.equal(gateLegalCommand(draft, "ready_for_preliminary_analysis", 84).allowed, false, "draft command waits for draft readiness");
-assert.equal(gateLegalCommand(draft, "ready_for_draft_control", 96).allowed, true, "draft command opens at draft readiness");
-assert.equal(gateLegalCommand(quality, "requires_control", 60).allowed, true, "quality command can open control");
+assert.equal(resolveLegalCommand("'utkast").command, undefined, "draft command is not part of V1");
+assert.equal(resolveLegalCommand("'rettssimulering").command, undefined, "simulation command is not part of V1");
+assert.equal(gateLegalCommand(chronology, "not_ready", 49).allowed, false, "chronology is blocked below 50 coverage");
+assert.equal(gateLegalCommand(chronology, "requires_control", 50).allowed, true, "chronology opens at 50 coverage");
+assert.equal(gateLegalCommand(evidence, "requires_control", 50).allowed, true, "evidence opens at 50 coverage");
+assert.equal(gateLegalCommand(risk, "requires_control", 79).allowed, false, "risk waits for 80 coverage");
+assert.equal(gateLegalCommand(risk, "ready_for_preliminary_analysis", 80).allowed, true, "risk opens at 80 coverage");
+assert.equal(gateLegalCommand(quality, "ready_for_preliminary_analysis", 94).allowed, false, "quality waits for 95 coverage");
+assert.equal(gateLegalCommand(quality, "ready_for_draft_control", 95).allowed, true, "quality opens at 95 coverage");
 
 const storage = createMemoryStorage();
 assert.equal(readWorkstylePreferences(storage).answerLength, DEFAULT_WORKSTYLE_PREFERENCES.answerLength, "default workstyle loads");
@@ -88,4 +81,4 @@ const readBack = readWorkstylePreferences(storage);
 assert.equal(readBack.answerLength, "detailed", "workstyle answer length persists");
 assert.equal(readBack.showNextSuggestions, false, "workstyle suggestions preference persists");
 
-console.log(`legal command tests passed (${requiredTriggers.length + 12} assertions).`);
+console.log(`legal command tests passed (${requiredTriggers.length + 18} assertions).`);

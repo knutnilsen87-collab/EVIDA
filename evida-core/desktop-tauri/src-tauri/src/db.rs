@@ -1,6 +1,6 @@
 use crate::domain::{
     ArgumentItem, AuditEvent, CaseAiMessage, CaseAiMessageSource, CaseCoverageAudit,
-    CaseSummary, ChronologyEvent, ContradictionItem, DatabaseSecurityStatus,
+    AppSetting, CaseSummary, ChronologyEvent, ContradictionItem, DatabaseSecurityStatus,
     DocumentCoverageAudit, DocumentIngestionReport, DocumentSummary, EvidenceItem,
     MaintenanceReport, ReindexReport, RiskItem, SourceObjectSummary, WorkItems,
 };
@@ -69,11 +69,20 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS cases (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            case_number TEXT,
             jurisdiction TEXT NOT NULL DEFAULT 'NO',
             status TEXT NOT NULL DEFAULT 'active',
             source_coverage_percent REAL NOT NULL DEFAULT 0,
             risk_level TEXT NOT NULL DEFAULT 'unknown',
+            last_opened_at TEXT,
+            workspace_path TEXT,
             created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
 
@@ -257,6 +266,9 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "documents", "mime_type", "TEXT")?;
     add_column_if_missing(conn, "documents", "ocr_quality", "REAL")?;
     add_column_if_missing(conn, "documents", "exhibit_id", "TEXT")?;
+    add_column_if_missing(conn, "cases", "case_number", "TEXT")?;
+    add_column_if_missing(conn, "cases", "last_opened_at", "TEXT")?;
+    add_column_if_missing(conn, "cases", "workspace_path", "TEXT")?;
     add_column_if_missing(conn, "cases", "deleted_at", "TEXT")?;
     add_column_if_missing(conn, "audit_events", "sequence_number", "INTEGER NOT NULL DEFAULT 0")?;
     add_column_if_missing(conn, "audit_events", "previous_event_hash", "TEXT")?;
@@ -314,11 +326,12 @@ fn add_column_if_missing(conn: &Connection, table: &str, column: &str, definitio
 pub fn create_case(conn: &Connection, name: &str, jurisdiction: &str) -> Result<CaseSummary> {
     let id = format!("CASE-{}", Uuid::new_v4());
     let now = Utc::now().to_rfc3339();
+    let workspace_path = case_project_dir(&id)?.display().to_string();
 
     conn.execute(
-        "INSERT INTO cases (id, name, jurisdiction, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, 'active', ?4, ?5)",
-        params![id, name, jurisdiction, now, now],
+        "INSERT INTO cases (id, name, jurisdiction, status, last_opened_at, workspace_path, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?7)",
+        params![id, name, jurisdiction, now, workspace_path, now, now],
     )?;
 
     crate::audit::append_audit_event(
@@ -363,6 +376,81 @@ pub fn rename_case(conn: &Connection, case_id: &str, name: &str) -> Result<CaseS
     get_case(conn, case_id)
 }
 
+pub fn set_case_number(conn: &Connection, case_id: &str, case_number: Option<&str>) -> Result<CaseSummary> {
+    let cleaned = case_number.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE cases SET case_number = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+        params![cleaned, now, case_id],
+    )?;
+    crate::audit::append_audit_event(
+        conn,
+        Some(case_id),
+        "local-user",
+        "CASE_NUMBER_UPDATED",
+        "case",
+        case_id,
+        "PASS",
+        None,
+    )?;
+    get_case(conn, case_id)
+}
+
+pub fn update_case_last_opened(conn: &Connection, case_id: &str) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE cases SET last_opened_at = ?1, updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+        params![now, case_id],
+    )?;
+    Ok(())
+}
+
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT value_json FROM app_settings WHERE key = ?1")?;
+    let value = stmt.query_row(params![key], |row| row.get::<_, String>(0));
+    match value {
+        Ok(value) => Ok(Some(value)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value_json: &str) -> Result<()> {
+    serde_json::from_str::<serde_json::Value>(value_json)
+        .with_context(|| format!("Ugyldig JSON for innstilling {key}"))?;
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        r#"
+        INSERT INTO app_settings (key, value_json, updated_at)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT(key) DO UPDATE SET
+          value_json = excluded.value_json,
+          updated_at = excluded.updated_at
+        "#,
+        params![key, value_json, now],
+    )?;
+    Ok(())
+}
+
+pub fn list_settings(conn: &Connection) -> Result<Vec<AppSetting>> {
+    let mut stmt = conn.prepare("SELECT key, value_json, updated_at FROM app_settings ORDER BY key ASC")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(AppSetting {
+            key: row.get(0)?,
+            value_json: row.get(1)?,
+            updated_at: row.get(2)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
 fn case_project_dir(case_id: &str) -> Result<PathBuf> {
     Ok(default_data_dir()?.join("cases").join(format!("case_{}", case_id)))
 }
@@ -404,12 +492,13 @@ pub fn get_case(conn: &Connection, case_id: &str) -> Result<CaseSummary> {
     let mut stmt = conn.prepare(
         r#"
         SELECT
-          c.id, c.name, c.jurisdiction, c.status,
+          c.id, c.name, c.case_number, c.jurisdiction, c.status,
           COALESCE(COUNT(d.id), 0) AS document_count,
           COALESCE(SUM(d.page_count), 0) AS page_count,
           c.source_coverage_percent,
           c.risk_level,
-          c.updated_at
+          c.updated_at,
+          c.last_opened_at
         FROM cases c
         LEFT JOIN documents d ON d.case_id = c.id
         WHERE c.id = ?1 AND c.deleted_at IS NULL
@@ -421,13 +510,15 @@ pub fn get_case(conn: &Connection, case_id: &str) -> Result<CaseSummary> {
         Ok(CaseSummary {
             id: row.get(0)?,
             name: row.get(1)?,
-            jurisdiction: row.get(2)?,
-            status: row.get(3)?,
-            document_count: row.get(4)?,
-            page_count: row.get(5)?,
-            source_coverage_percent: row.get(6)?,
-            risk_level: row.get(7)?,
-            updated_at: row.get(8)?,
+            case_number: row.get(2)?,
+            jurisdiction: row.get(3)?,
+            status: row.get(4)?,
+            document_count: row.get(5)?,
+            page_count: row.get(6)?,
+            source_coverage_percent: row.get(7)?,
+            risk_level: row.get(8)?,
+            updated_at: row.get(9)?,
+            last_opened_at: row.get(10)?,
         })
     })?;
 
@@ -438,17 +529,18 @@ pub fn list_cases(conn: &Connection) -> Result<Vec<CaseSummary>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT
-          c.id, c.name, c.jurisdiction, c.status,
+          c.id, c.name, c.case_number, c.jurisdiction, c.status,
           COALESCE(COUNT(d.id), 0) AS document_count,
           COALESCE(SUM(d.page_count), 0) AS page_count,
           c.source_coverage_percent,
           c.risk_level,
-          c.updated_at
+          c.updated_at,
+          c.last_opened_at
         FROM cases c
         LEFT JOIN documents d ON d.case_id = c.id
         WHERE c.deleted_at IS NULL
         GROUP BY c.id
-        ORDER BY c.updated_at DESC
+        ORDER BY COALESCE(c.last_opened_at, c.updated_at) DESC
         "#,
     )?;
 
@@ -456,13 +548,15 @@ pub fn list_cases(conn: &Connection) -> Result<Vec<CaseSummary>> {
         Ok(CaseSummary {
             id: row.get(0)?,
             name: row.get(1)?,
-            jurisdiction: row.get(2)?,
-            status: row.get(3)?,
-            document_count: row.get(4)?,
-            page_count: row.get(5)?,
-            source_coverage_percent: row.get(6)?,
-            risk_level: row.get(7)?,
-            updated_at: row.get(8)?,
+            case_number: row.get(2)?,
+            jurisdiction: row.get(3)?,
+            status: row.get(4)?,
+            document_count: row.get(5)?,
+            page_count: row.get(6)?,
+            source_coverage_percent: row.get(7)?,
+            risk_level: row.get(8)?,
+            updated_at: row.get(9)?,
+            last_opened_at: row.get(10)?,
         })
     })?;
 

@@ -17,6 +17,7 @@ export type ViewKey =
 export interface CaseSummary {
   id: string;
   name: string;
+  case_number?: string | null;
   jurisdiction: string;
   status: CaseStatus;
   document_count: number;
@@ -24,6 +25,74 @@ export interface CaseSummary {
   source_coverage_percent: number;
   risk_level: "low" | "medium" | "high" | "unknown";
   updated_at: string;
+  last_opened_at?: string | null;
+}
+
+export interface WindowCaseContext {
+  windowId: string;
+  caseId: string | null;
+  displayName: string;
+  caseNumber?: string | null;
+  workspaceView: ViewKey;
+}
+
+export interface AppSetting {
+  key: string;
+  value_json: string;
+  updated_at: string;
+}
+
+export interface SecuritySettings {
+  local_processing_default: boolean;
+  external_ai_enabled: boolean;
+  allow_source_excerpt_sending: boolean;
+  allow_full_document_sending: boolean;
+  require_external_ai_confirmation: boolean;
+  encrypt_case_metadata: boolean;
+  encrypt_source_excerpts: boolean;
+  encrypt_chat_log: boolean;
+  encrypt_export_buffer: boolean;
+  redact_logs: boolean;
+  no_document_text_logs: boolean;
+  no_chat_logs: boolean;
+  no_sensitive_path_logs: boolean;
+  block_export_without_control: boolean;
+  include_sources_in_export: boolean;
+  mark_exports_with_coverage: boolean;
+  allow_export_without_control: boolean;
+  screen_sharing_mode: boolean;
+  hide_sensitive_previews: boolean;
+  hide_document_names_in_screen_share: boolean;
+  hide_party_names_in_window_title: boolean;
+  auto_lock: "never" | "5" | "15" | "30" | "system_lock";
+  answer_length: "short" | "balanced" | "detailed";
+  answer_structure: "standard" | "sources_first" | "assessment_first";
+  show_work_states: boolean;
+  progressive_answer_reveal: boolean;
+  follow_answer_while_writing: boolean;
+  show_suggested_next_steps: boolean;
+  allow_numbered_followups: boolean;
+  adapt_workstyle_locally: boolean;
+  auto_process_documents: boolean;
+  show_processing_in_case_room: boolean;
+  hide_technical_details_by_default: boolean;
+  preliminary_summary_threshold: number;
+  draft_control_threshold: number;
+  warn_on_large_files: boolean;
+  preserve_originals_locally: boolean;
+  keep_encrypted_copy_only: boolean;
+  provider_mode: "off" | "local" | "external";
+  text_size: "normal" | "large" | "extra_large";
+  high_contrast: boolean;
+  reduce_motion: boolean;
+  disable_typewriter_effect: boolean;
+  disable_auto_scroll_while_answering: boolean;
+  announce_import_status: boolean;
+  announce_answer_completion: boolean;
+  announce_summary_ready: boolean;
+  automatic_local_backup: boolean;
+  encrypted_backup: boolean;
+  backup_frequency: "off" | "daily" | "weekly";
 }
 
 export interface MaintenanceReport {

@@ -1,24 +1,8 @@
-import type { CaseReadinessVerdict, CaseReadinessSeverity } from "../readiness/caseReadiness";
+import type { CaseReadinessSeverity, CaseReadinessVerdict } from "../readiness/caseReadiness";
 
-export type LegalCommandId =
-  | "chronology"
-  | "crosslink"
-  | "evidence"
-  | "arguments"
-  | "counterarguments"
-  | "precedent"
-  | "risk"
-  | "deadlines"
-  | "strategy"
-  | "settlement"
-  | "draft"
-  | "quality"
-  | "final"
-  | "redact"
-  | "bates"
-  | "simulation";
+export type LegalCommandId = "chronology" | "evidence" | "risk" | "quality";
 
-export type LegalCommandReadiness = "documents" | "analysis" | "draft";
+export type LegalCommandReadiness = "has_sources" | "preliminary" | "draft";
 
 export interface LegalCommand {
   id: LegalCommandId;
@@ -48,15 +32,7 @@ export const LEGAL_COMMANDS: LegalCommand[] = [
     aliases: ["'tidslinje"],
     label: "Bygg kronologi",
     description: "Lager en kildebasert tidslinje fra dokumentgrunnlaget.",
-    requiredReadiness: "analysis"
-  },
-  {
-    id: "crosslink",
-    trigger: "'krysskobling",
-    aliases: ["'koblinger", "'mønstre", "'monster"],
-    label: "Finn krysskoblinger",
-    description: "Ser etter koblinger mellom aktører, transaksjoner og dokumenter.",
-    requiredReadiness: "analysis"
+    requiredReadiness: "has_sources"
   },
   {
     id: "evidence",
@@ -64,31 +40,7 @@ export const LEGAL_COMMANDS: LegalCommand[] = [
     aliases: ["'bevismatrise"],
     label: "Bygg bevismatrise",
     description: "Kobler påstander til støttende og svekkende kilder.",
-    requiredReadiness: "analysis"
-  },
-  {
-    id: "arguments",
-    trigger: "'anforsler",
-    aliases: ["'anførsler"],
-    label: "Lag anførselsgrunnlag",
-    description: "Starter et kontrollert anførselsgrunnlag fra kildene.",
-    requiredReadiness: "analysis"
-  },
-  {
-    id: "counterarguments",
-    trigger: "'motargumenter",
-    aliases: ["'motpart", "'svakheter"],
-    label: "Finn motargumenter",
-    description: "Finner mulige svakheter, motstrid og motpartens beste punkter.",
-    requiredReadiness: "analysis"
-  },
-  {
-    id: "precedent",
-    trigger: "'presedens",
-    aliases: ["'rettskilder", "'lovdata"],
-    label: "Presedensgrunnlag",
-    description: "Markerer rettskildebehov uten å hente eksterne rettskilder automatisk.",
-    requiredReadiness: "analysis"
+    requiredReadiness: "has_sources"
   },
   {
     id: "risk",
@@ -96,39 +48,7 @@ export const LEGAL_COMMANDS: LegalCommand[] = [
     aliases: ["'risikovurdering"],
     label: "Vurder risiko",
     description: "Lager kildebaserte risikopunkter og anbefalte kontroller.",
-    requiredReadiness: "analysis"
-  },
-  {
-    id: "deadlines",
-    trigger: "'frister",
-    aliases: ["'frist"],
-    label: "Finn frister",
-    description: "Leter etter datoer og fristpunkter i kildene.",
-    requiredReadiness: "analysis"
-  },
-  {
-    id: "strategy",
-    trigger: "'strategi",
-    aliases: ["'sporvalg"],
-    label: "Vurder strategi",
-    description: "Samler hovedspor, risiko og manglende informasjon.",
-    requiredReadiness: "analysis"
-  },
-  {
-    id: "settlement",
-    trigger: "'forlik",
-    aliases: ["'forliksspor"],
-    label: "Forliksspor",
-    description: "Forbereder temaer som kan testes i forlikssimulering.",
-    requiredReadiness: "analysis"
-  },
-  {
-    id: "draft",
-    trigger: "'utkast",
-    aliases: ["'draft"],
-    label: "Lag kontrollert utkast",
-    description: "Åpner utkastarbeid bare når saken er klar for utkastkontroll.",
-    requiredReadiness: "draft"
+    requiredReadiness: "preliminary"
   },
   {
     id: "quality",
@@ -136,41 +56,12 @@ export const LEGAL_COMMANDS: LegalCommand[] = [
     aliases: ["'kontroll"],
     label: "Kvalitetskontroll",
     description: "Åpner kontrollgrunnlag og readiness-verdict.",
-    requiredReadiness: "documents"
-  },
-  {
-    id: "final",
-    trigger: "'endelig",
-    aliases: ["'sluttkontroll"],
-    label: "Endelig kontroll",
-    description: "Blokkerer endelig bruk uten manuell juridisk godkjenning.",
     requiredReadiness: "draft"
-  },
-  {
-    id: "redact",
-    trigger: "'masker",
-    aliases: ["'sladd", "'rediger"],
-    label: "Maskering",
-    description: "Åpner eksport/kontroll for manuell maskering. Automatisk maskering er ikke aktivert.",
-    requiredReadiness: "draft"
-  },
-  {
-    id: "bates",
-    trigger: "'bates",
-    aliases: ["'bilag"],
-    label: "Bates/bilag",
-    description: "Viser dokumentlisten og bilagsmetadata.",
-    requiredReadiness: "documents"
-  },
-  {
-    id: "simulation",
-    trigger: "'rettssimulering",
-    aliases: ["'dommer", "'kryssforhor", "'kryssforhør", "'prosedyre", "'dom"],
-    label: "Rettssimulering",
-    description: "Åpner separat treningsworkspace med readiness-gating.",
-    requiredReadiness: "analysis"
   }
 ];
+
+const BLOCKED_REASON =
+  "Jeg kan ikke kjøre denne modusen ennå fordi dokumentgrunnlaget ikke er klart nok. Trygt neste steg er å vente til dokumentene er ferdig behandlet eller se behandlingsstatus.";
 
 export function resolveLegalCommand(input: string): LegalCommandResolution {
   const normalizedInput = input.trim().toLowerCase();
@@ -194,34 +85,30 @@ export function gateLegalCommand(
   readinessVerdict: CaseReadinessVerdict,
   sourceCoveragePercent: number
 ): LegalCommandGate {
-  if (command.requiredReadiness === "documents") {
-    return {
-      allowed: sourceCoveragePercent > 0 || readinessVerdict !== "not_ready",
-      severity: readinessVerdict === "not_ready" ? "warning" : "success",
-      reason:
-        sourceCoveragePercent > 0 || readinessVerdict !== "not_ready"
-          ? "Kommandoen kan brukes til kontroll av dokumentgrunnlaget."
-          : "Importer dokumenter før kommandoen brukes."
-    };
-  }
-
-  if (command.requiredReadiness === "analysis") {
-    const allowed = readinessVerdict === "ready_for_preliminary_analysis" || readinessVerdict === "ready_for_draft_control";
+  if (command.requiredReadiness === "has_sources") {
+    const allowed = sourceCoveragePercent >= 50;
     return {
       allowed,
       severity: allowed ? "success" : "critical",
-      reason: allowed
-        ? "Kommandoen kan brukes til foreløpig, kildebasert arbeid."
-        : "Kommandoen er låst til dokumentgrunnlaget er klart for foreløpig analyse."
+      reason: allowed ? "Kommandoen kan brukes til foreløpig, kildebasert arbeid." : BLOCKED_REASON
     };
   }
 
-  const allowed = readinessVerdict === "ready_for_draft_control";
+  if (command.requiredReadiness === "preliminary") {
+    const allowed =
+      sourceCoveragePercent >= 80 &&
+      (readinessVerdict === "ready_for_preliminary_analysis" || readinessVerdict === "ready_for_draft_control");
+    return {
+      allowed,
+      severity: allowed ? "success" : "critical",
+      reason: allowed ? "Kommandoen kan brukes til foreløpig, kildebasert risikoarbeid." : BLOCKED_REASON
+    };
+  }
+
+  const allowed = sourceCoveragePercent >= 95 && readinessVerdict === "ready_for_draft_control";
   return {
     allowed,
     severity: allowed ? "success" : "critical",
-    reason: allowed
-      ? "Kommandoen kan brukes til kontrollert utkastarbeid."
-      : "Kommandoen er låst til saken er klar for utkastkontroll."
+    reason: allowed ? "Kommandoen kan brukes til kontrollert kvalitetssjekk." : BLOCKED_REASON
   };
 }

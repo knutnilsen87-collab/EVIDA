@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AuditEvent,
+  AppSetting,
   CaseSummary,
   DatabaseSecurityStatus,
   DocumentIngestionReport,
@@ -20,6 +21,7 @@ import type {
 } from "../types";
 
 const STORE_KEY = "evida-dev-store-v1";
+const SETTINGS_STORE_KEY = "evida-settings-dev-v1";
 
 interface DevStore {
   cases: CaseSummary[];
@@ -126,13 +128,15 @@ export async function createCase(name: string, jurisdiction = "NO"): Promise<Cas
     const created: CaseSummary = {
       id: id("CASE"),
       name,
+      case_number: null,
       jurisdiction,
       status: "active",
       document_count: 0,
       page_count: 0,
       source_coverage_percent: 0,
       risk_level: "unknown",
-      updated_at: now()
+      updated_at: now(),
+      last_opened_at: now()
     };
     store.cases.unshift(created);
     appendAudit(store, {
@@ -143,6 +147,91 @@ export async function createCase(name: string, jurisdiction = "NO"): Promise<Cas
     });
     writeStore(store);
     return created;
+  }
+}
+
+export async function setCaseNumber(caseId: string, caseNumber: string | null): Promise<CaseSummary> {
+  try {
+    return await callTauri<CaseSummary>("set_case_number", { caseId, caseNumber });
+  } catch {
+    const store = readStore();
+    let updated: CaseSummary | undefined;
+    store.cases = store.cases.map((item) => {
+      if (item.id !== caseId) {
+        return item;
+      }
+      updated = { ...item, case_number: caseNumber, updated_at: now() };
+      return updated;
+    });
+    writeStore(store);
+    if (!updated) {
+      throw new Error("Fant ikke saken.");
+    }
+    return updated;
+  }
+}
+
+export async function markCaseOpened(caseId: string): Promise<void> {
+  try {
+    await callTauri<void>("mark_case_opened", { caseId });
+  } catch {
+    const store = readStore();
+    store.cases = store.cases.map((item) =>
+      item.id === caseId ? { ...item, last_opened_at: now(), updated_at: now() } : item
+    );
+    writeStore(store);
+  }
+}
+
+export async function openNewCaseWindow(): Promise<CaseSummary> {
+  return await callTauri<CaseSummary>("open_new_case_window");
+}
+
+export async function openCaseWindow(caseId: string): Promise<void> {
+  await callTauri<void>("open_case_window", { caseId });
+}
+
+export async function setCurrentWindowTitle(windowLabel: string, title: string): Promise<void> {
+  try {
+    await callTauri<void>("set_current_window_title", { windowLabel, title });
+  } catch {
+    document.title = title;
+  }
+}
+
+function readSettingsStore(): Record<string, AppSetting> {
+  const raw = window.localStorage.getItem(SETTINGS_STORE_KEY);
+  return raw ? JSON.parse(raw) : {};
+}
+
+function writeSettingsStore(settings: Record<string, AppSetting>) {
+  window.localStorage.setItem(SETTINGS_STORE_KEY, JSON.stringify(settings));
+}
+
+export async function listSettings(): Promise<AppSetting[]> {
+  try {
+    return await callTauri<AppSetting[]>("list_settings");
+  } catch {
+    return Object.values(readSettingsStore());
+  }
+}
+
+export async function getSetting(key: string): Promise<string | null> {
+  try {
+    return await callTauri<string | null>("get_setting", { key });
+  } catch {
+    return readSettingsStore()[key]?.value_json ?? null;
+  }
+}
+
+export async function setSetting(key: string, valueJson: string): Promise<void> {
+  try {
+    await callTauri<void>("set_setting", { key, valueJson });
+  } catch {
+    JSON.parse(valueJson);
+    const settings = readSettingsStore();
+    settings[key] = { key, value_json: valueJson, updated_at: now() };
+    writeSettingsStore(settings);
   }
 }
 

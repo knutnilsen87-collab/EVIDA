@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [switch]$SkipBuild
 )
@@ -89,3 +89,4 @@ Write-Host "Evida release prepared:"
 Write-Host "  $release"
 Write-Host "  $checksumPath"
 Write-Host "  $manifestPath"
+

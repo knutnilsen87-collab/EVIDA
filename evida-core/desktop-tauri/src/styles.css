@@ -195,12 +195,28 @@ button:disabled {
   opacity: 0.72;
 }
 
+.sidebar-actions {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 22px;
+}
+
+.sidebar-actions button {
+  justify-content: center;
+  margin: 0;
+  border-color: #d8d3c7;
+}
+
 .workspace {
   padding: 24px 28px;
   overflow: auto;
 }
 
 .workspace--chat {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
   padding: 0 28px;
   overflow: hidden;
 }
@@ -209,6 +225,116 @@ button:disabled {
   min-height: 100vh;
   padding: 0;
   overflow: auto;
+}
+
+.desktop-menu {
+  display: flex;
+  gap: 4px;
+  margin: -10px 0 14px;
+  color: #4f4942;
+  font-size: 13px;
+}
+
+.desktop-menu-item {
+  position: relative;
+}
+
+.desktop-menu-trigger {
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 6px 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.desktop-menu-trigger:hover,
+.desktop-menu-trigger[aria-expanded="true"] {
+  background: #ebe7de;
+}
+
+.desktop-menu-item:has(.desktop-menu-popover) {
+  z-index: 30;
+}
+
+.desktop-menu-popover {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 31;
+  min-width: 230px;
+  overflow: hidden;
+  border: 1px solid #e1ddd4;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+}
+
+.desktop-menu-popover button {
+  display: flex;
+  justify-content: space-between;
+  width: 230px;
+  border-radius: 0;
+  border-color: #e1ddd4;
+  padding: 8px 10px;
+  background: #fff;
+  text-align: left;
+}
+
+.desktop-menu-popover button:hover,
+.desktop-menu-popover button:focus-visible {
+  background: #f7f6f2;
+}
+
+.desktop-menu kbd {
+  color: #716b61;
+  font-size: 11px;
+}
+
+.case-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid #e1ddd4;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.case-header h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.case-header__meta,
+.case-header__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: #5f574d;
+  font-size: 13px;
+}
+
+.case-header__status {
+  max-width: 280px;
+}
+
+.case-header__badge {
+  color: #113b24;
+  background: #eff8f0;
+  border: 1px solid #c9e8ce;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-weight: 800;
+}
+
+.case-header__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .data-safety-banner {
@@ -1516,7 +1642,8 @@ textarea {
   position: relative;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  flex: 1;
+  height: auto;
   min-height: 0;
   margin: 0;
 }
@@ -1539,13 +1666,13 @@ textarea {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 28px 4px 128px;
+  padding: 28px 4px 40px;
 }
 
 .case-chat-header,
 .case-chat-messages,
 .case-chat-composer {
-  width: min(900px, 100%);
+  width: min(980px, 100%);
   margin-left: auto;
   margin-right: auto;
 }
@@ -1646,10 +1773,23 @@ textarea {
 }
 
 .case-empty-chat {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
   margin: 76px auto;
-  max-width: 540px;
+  max-width: 620px;
   color: #5f574d;
   text-align: center;
+}
+
+.case-empty-chat p {
+  max-width: 560px;
+  margin: 0;
+  line-height: 1.65;
+}
+
+.case-empty-chat .button-primary {
+  margin-top: 2px;
 }
 
 .case-provider-notice {
@@ -1739,7 +1879,24 @@ textarea {
   border-color: #a8c8f0;
   background: #e8f2ff;
   font-weight: 800;
-  animation: intake-step-pulse 1.2s ease-in-out infinite;
+}
+
+.case-intake-steps span.is-done {
+  color: #245c34;
+  border-color: #b9d9c0;
+  background: #eef7ef;
+  font-weight: 700;
+}
+
+.case-intake-steps span.is-pending {
+  opacity: 0.68;
+}
+
+.case-intake-steps span.is-failed {
+  color: #7f1d1d;
+  border-color: #f2b7b7;
+  background: #fef2f2;
+  font-weight: 800;
 }
 
 .case-import-file-list {
@@ -1851,6 +2008,36 @@ textarea {
   border-color: #a8c8f0;
   background: #e8f2ff;
   font-weight: 750;
+}
+
+.assistant-work-card {
+  display: grid;
+  gap: 10px;
+  width: min(780px, 100%);
+  margin: 0 auto;
+  padding: 14px 16px;
+  border: 1px solid #d9e5f6;
+  border-radius: 16px;
+  background: #f7fbff;
+}
+
+.assistant-work-card p {
+  margin: 0;
+  color: #12375f;
+  font-weight: 800;
+}
+
+.assistant-work-card ol {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  color: #5d6a7b;
+}
+
+.assistant-work-card li[aria-current="step"] {
+  color: #12375f;
+  font-weight: 800;
 }
 
 .case-chat-bottom-anchor {
@@ -2069,9 +2256,10 @@ textarea {
 }
 
 .case-empty-chat h3 {
-  margin: 0 0 8px;
+  margin: 0;
   color: #171717;
   font-size: 22px;
+  line-height: 1.25;
 }
 
 .suggested-question-list {
@@ -2197,6 +2385,16 @@ textarea {
   border-top: 1px solid #e3ded3;
 }
 
+.case-suggested-actions--initial {
+  max-width: 720px;
+  margin: 20px auto 0;
+  padding: 16px;
+  border: 1px solid #e3ded3;
+  border-radius: 16px;
+  background: #fff;
+  text-align: left;
+}
+
 .case-suggested-actions__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2218,6 +2416,7 @@ textarea {
   position: sticky;
   bottom: 0;
   z-index: 20;
+  flex: 0 0 auto;
   display: flex;
   gap: 10px;
   padding: 16px 0 20px;
@@ -2327,6 +2526,165 @@ textarea {
   gap: 10px;
 }
 
+.case-switcher,
+.settings-modal {
+  width: min(920px, calc(100vw - 48px));
+  max-height: min(820px, calc(100vh - 48px));
+  overflow: auto;
+}
+
+.case-switcher__header,
+.settings-modal__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.case-switcher__header h2,
+.settings-modal__header h2 {
+  margin: 0;
+}
+
+.case-switcher__list {
+  display: grid;
+  gap: 10px;
+}
+
+.case-switcher__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #e1ddd4;
+  border-radius: 14px;
+  background: #faf9f6;
+}
+
+.case-switcher__row.is-active {
+  border-color: #202533;
+}
+
+.case-switcher__row h3,
+.case-switcher__row p {
+  margin: 0 0 4px;
+}
+
+.case-switcher__row small {
+  color: #716b61;
+}
+
+.case-switcher__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.settings-tabs {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.settings-tabs button {
+  justify-content: flex-start;
+}
+
+.settings-tabs button.active {
+  color: #fff;
+  background: #202533;
+  border-color: #202533;
+}
+
+.settings-panel,
+.settings-section {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-status-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e1ddd4;
+  border-radius: 12px;
+  background: #faf9f6;
+}
+
+.settings-status-row strong.is-ok {
+  color: #245c34;
+}
+
+.settings-status-row strong.is-warn {
+  color: #745414;
+}
+
+.settings-note {
+  padding: 12px;
+  border: 1px solid #d6e4f5;
+  border-radius: 12px;
+  background: #f5f9ff;
+}
+
+.settings-check {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-weight: 650;
+}
+
+.settings-check input {
+  min-width: 0;
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.settings-field input,
+.settings-field select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #d7d1c7;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+
+.shortcut-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.shortcut-list dt {
+  font-weight: 850;
+}
+
+.shortcut-list dd {
+  margin: 0;
+}
+
 .app-shell[data-theme="dark"] {
   color: #f4f1ea;
   background: #151515;
@@ -2399,6 +2757,9 @@ textarea {
 
 .app-shell[data-theme="dark"] .sidebar button.active,
 .app-shell[data-theme="dark"] .sidebar button:hover,
+.app-shell[data-theme="dark"] .case-header,
+.app-shell[data-theme="dark"] .case-switcher__row,
+.app-shell[data-theme="dark"] .settings-status-row,
 .app-shell[data-theme="dark"] .status-card,
 .app-shell[data-theme="dark"] .panel,
 .app-shell[data-theme="dark"] .source-panel,
@@ -2500,6 +2861,28 @@ textarea {
   color: #9fc9ff;
   background: transparent;
   border-color: transparent;
+}
+
+.app-shell[data-theme="dark"] .desktop-menu-trigger:hover,
+.app-shell[data-theme="dark"] .desktop-menu-trigger[aria-expanded="true"],
+.app-shell[data-theme="dark"] .desktop-menu-popover,
+.app-shell[data-theme="dark"] .desktop-menu-popover button,
+.app-shell[data-theme="dark"] .settings-note {
+  color: #f4f1ea;
+  background: #242321;
+  border-color: #49443c;
+}
+
+.app-shell[data-theme="dark"] .desktop-menu-popover button:hover,
+.app-shell[data-theme="dark"] .desktop-menu-popover button:focus-visible {
+  background: #302e2a;
+}
+
+.app-shell[data-theme="dark"] .case-header__badge,
+.app-shell[data-theme="dark"] .settings-tabs button.active {
+  color: #151515;
+  background: #d4b85f;
+  border-color: #d4b85f;
 }
 
 .app-shell[data-theme="dark"] .status-chip--ok {
@@ -2629,6 +3012,11 @@ textarea {
   border-top-color: #49443c;
 }
 
+.app-shell[data-theme="dark"] .case-suggested-actions--initial {
+  background: #1c1b19;
+  border-color: #49443c;
+}
+
 .app-shell[data-theme="dark"] .case-mode-chip {
   color: #bdf3ca;
   background: #143320;
@@ -2694,7 +3082,8 @@ textarea {
 
 .app-shell[data-theme="dark"] .case-live-progress__track,
 .app-shell[data-theme="dark"] .case-intake-steps span,
-.app-shell[data-theme="dark"] .case-import-file {
+.app-shell[data-theme="dark"] .case-import-file,
+.app-shell[data-theme="dark"] .assistant-work-card {
   background: #242321;
   border-color: #3b3935;
 }
@@ -2708,6 +3097,28 @@ textarea {
   color: #151515;
   border-color: #d4b85f;
   background: #d4b85f;
+}
+
+.app-shell[data-theme="dark"] .case-intake-steps span.is-done {
+  color: #d9f3df;
+  border-color: #3f7a4d;
+  background: #1d3524;
+}
+
+.app-shell[data-theme="dark"] .case-intake-steps span.is-pending {
+  color: #bdb6aa;
+  opacity: 0.7;
+}
+
+.app-shell[data-theme="dark"] .case-intake-steps span.is-failed {
+  color: #ffd4d4;
+  border-color: #803232;
+  background: #3a1d1d;
+}
+
+.app-shell[data-theme="dark"] .assistant-work-card p,
+.app-shell[data-theme="dark"] .assistant-work-card li[aria-current="step"] {
+  color: #f4f1ea;
 }
 
 .app-shell[data-theme="dark"] .topic-chip {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, KeyboardEvent, MouseEvent } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Download, FolderOpen, Moon, RotateCcw, Sun, Trash2 } from "lucide-react";
 import {
@@ -21,7 +22,10 @@ import {
   listDocuments,
   listSourceObjects,
   listWorkItems,
+  markCaseOpened,
+  openCaseWindow,
   openLocalDataFolder,
+  openNewCaseWindow,
   reindexCaseDocuments,
   registerDocument,
   renameCase,
@@ -40,10 +44,14 @@ import type {
 } from "./types";
 import { NextAction } from "./components/NextAction";
 import { Sidebar } from "./components/Sidebar";
+import { CaseHeader } from "./components/CaseHeader";
+import { CaseSwitcher } from "./components/CaseSwitcher";
+import { DesktopMenuBar } from "./components/DesktopMenuBar";
 import { SourcePanel } from "./components/SourcePanel";
 import { SourcePreviewDrawer } from "./components/SourcePreviewDrawer";
 import { StatusCard } from "./components/StatusCard";
 import { CaseRoomView } from "./components/CaseRoomView";
+import { SettingsView } from "./components/settings/SettingsView";
 import { ArgumentsView } from "./components/workrooms/ArgumentsView";
 import { ChronologyView } from "./components/workrooms/ChronologyView";
 import { ContradictionsView } from "./components/workrooms/ContradictionsView";
@@ -66,11 +74,18 @@ import {
 } from "./features/readiness/caseReadiness";
 import type { CaseCoverageSummary } from "./features/readiness/caseReadiness";
 import {
+  processingStageLabel,
+  processingStageProgress
+} from "./types/processing";
+import type { DocumentProcessingStage } from "./types/processing";
+import {
   LEGAL_COMMANDS,
   gateLegalCommand,
   resolveLegalCommand
 } from "./features/legalCommands/legalCommands";
 import type { LegalCommand } from "./features/legalCommands/legalCommands";
+import { useWindowCaseContext } from "./lib/windowCaseContext";
+import { useEvidaShortcuts } from "./lib/shortcuts";
 
 const viewTitles: Record<ViewKey, string> = {
   overview: "Saksoversikt",
@@ -96,24 +111,39 @@ const EVAL_LOGIN_PASSWORD = "eval-2026";
 type ThemeMode = "light" | "dark";
 type OnboardingStage = "intro" | "login" | "start" | "import" | "caseRoom";
 type ImportQueueStatus =
+  | DocumentProcessingStage
   | "selected"
   | "validating"
   | "hashing"
   | "extracting"
   | "chunking"
   | "ready"
-  | "needs_attention"
-  | "failed";
+  | "needs_attention";
 
 interface ImportQueueItem {
   path: string;
   name: string;
-  status: ImportQueueStatus;
+  status: DocumentProcessingStage;
   detail: string;
   pages?: number;
+  pagesProcessed?: number;
+  pagesTotal?: number;
   sources?: number;
   startedAt?: number;
   statusUpdatedAt?: number;
+}
+
+interface DocumentProcessingProgressEvent {
+  caseId: string;
+  path: string;
+  fileName: string;
+  stage: DocumentProcessingStage;
+  progressPercent: number;
+  pagesProcessed?: number;
+  pagesTotal?: number;
+  sourcesCreated?: number;
+  message: string;
+  updatedAt: string;
 }
 
 function countLabel(count: number, singular: string, plural: string) {
@@ -154,24 +184,8 @@ function nextUiTick() {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
-function importProgressPercent(status: ImportQueueStatus) {
-  switch (status) {
-    case "selected":
-      return 5;
-    case "validating":
-      return 15;
-    case "hashing":
-      return 30;
-    case "extracting":
-      return 65;
-    case "chunking":
-      return 85;
-    case "ready":
-      return 100;
-    case "needs_attention":
-    case "failed":
-      return 100;
-  }
+function importProgressPercent(status: DocumentProcessingStage) {
+  return processingStageProgress(status);
 }
 
 function formatDuration(ms: number) {
@@ -185,15 +199,15 @@ function formatDuration(ms: number) {
 }
 
 function importEta(item: ImportQueueItem, nowMs: number) {
-  if (["ready", "needs_attention", "failed"].includes(item.status)) {
+  if (["completed", "failed"].includes(item.status)) {
     return item.startedAt ? `Brukte ${formatDuration(nowMs - item.startedAt)}` : "";
   }
 
   const elapsed = item.startedAt ? nowMs - item.startedAt : 0;
-  if (item.status === "selected" || item.status === "validating" || item.status === "hashing") {
+  if (item.status === "queued" || item.status === "reading_file" || item.status === "counting_pages") {
     return elapsed > 2000 ? "Omtrent under 1 min igjen" : "Starter straks";
   }
-  if (item.status === "extracting") {
+  if (item.status === "extracting_text") {
     if (elapsed < 30_000) {
       return "Omtrent 1-3 min igjen";
     }
@@ -202,13 +216,26 @@ function importEta(item: ImportQueueItem, nowMs: number) {
     }
     return "Tar litt tid med stort dokument";
   }
-  if (item.status === "chunking") {
+  if (item.status === "finding_source_points" || item.status === "building_case_basis" || item.status === "checking_coverage") {
     return "Omtrent under 1 min igjen";
   }
   return "";
 }
 
 function importStatusLabel(status: ImportQueueStatus) {
+  if (
+    status === "queued" ||
+    status === "reading_file" ||
+    status === "counting_pages" ||
+    status === "extracting_text" ||
+    status === "finding_source_points" ||
+    status === "building_case_basis" ||
+    status === "checking_coverage" ||
+    status === "completed"
+  ) {
+    return processingStageLabel(status);
+  }
+
   switch (status) {
     case "selected":
       return "Venter på automatisk behandling";
@@ -234,6 +261,19 @@ function temporaryCaseTitle(date = new Date()) {
 }
 
 function importProcessingLabel(status: ImportQueueStatus) {
+  if (
+    status === "queued" ||
+    status === "reading_file" ||
+    status === "counting_pages" ||
+    status === "extracting_text" ||
+    status === "finding_source_points" ||
+    status === "building_case_basis" ||
+    status === "checking_coverage" ||
+    status === "completed"
+  ) {
+    return processingStageLabel(status);
+  }
+
   switch (status) {
     case "selected":
       return DOCUMENT_PROCESSING_LABELS.queued;
@@ -288,6 +328,7 @@ function documentReadiness(document: DocumentSummary) {
 
 export default function App() {
   const [activeView, setActiveView] = useState<ViewKey>("caseRoom");
+  const windowCase = useWindowCaseContext(activeView);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>(() => {
     if (typeof window === "undefined") {
@@ -313,7 +354,7 @@ export default function App() {
   const [sources, setSources] = useState<SourceObjectSummary[]>([]);
   const [coverageAudit, setCoverageAudit] = useState<CaseCoverageAudit | null>(null);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
-  const [selectedCaseId, setSelectedCaseId] = useState<string>("");
+  const [selectedCaseId, setSelectedCaseId] = useState<string>(windowCase.context.caseId || "");
   const [caseName, setCaseName] = useState("Ny prosessak");
   const [documentPath, setDocumentPath] = useState("");
   const [lastImport, setLastImport] = useState("");
@@ -337,6 +378,7 @@ export default function App() {
   const [commandStatus, setCommandStatus] = useState("");
   const [attentionDetailsOpen, setAttentionDetailsOpen] = useState(false);
   const [technicalDetailsOpen, setTechnicalDetailsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
   const [evidenceRows, setEvidenceRows] = useState<EvidenceRow[]>([]);
   const [argumentRows, setArgumentRows] = useState<ArgumentRow[]>([]);
@@ -363,6 +405,12 @@ export default function App() {
       ? nextCases.find((item) => item.id === preferredCaseId)?.id || ""
       : "";
     setSelectedCaseId(activeCaseId);
+    const activeCase = nextCases.find((item) => item.id === activeCaseId);
+    if (activeCase) {
+      void windowCase.bindCase(activeCase, activeView);
+    } else {
+      windowCase.clearCase();
+    }
 
     if (activeCaseId) {
       const [nextDocuments, nextSources, nextAudit, nextWorkItems, nextCoverageAudit] = await Promise.all([
@@ -451,17 +499,27 @@ export default function App() {
     window.localStorage.setItem(AI_TRUST_STORAGE_KEY, trustContractHidden ? "true" : "false");
   }, [trustContractHidden]);
 
-  useEffect(() => {
-    function handleCommandShortcut(event: globalThis.KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setCommandPaletteOpen((current) => !current);
+  useEvidaShortcuts({
+    onNewCase: () => void handleCreateCase(),
+    onNewCaseWindow: () => void handleNewCaseInNewWindow(),
+    onOpenCaseSwitcher: () => setCasePickerOpen(true),
+    onImportDocuments: () => void handleChooseFiles(),
+    onFindInCase: () => setCommandPaletteOpen(true),
+    onCommandPalette: () => setCommandPaletteOpen((current) => !current),
+    onSettings: () => setSettingsOpen(true),
+    onCloseWindow: () => {
+      if (hasDesktopRuntime()) {
+        void getCurrentWindow().close();
+      } else {
+        handleCloseCase();
+      }
+    },
+    onQuit: () => {
+      if (hasDesktopRuntime()) {
+        void getCurrentWindow().close();
       }
     }
-
-    window.addEventListener("keydown", handleCommandShortcut);
-    return () => window.removeEventListener("keydown", handleCommandShortcut);
-  }, []);
+  });
 
   const selectedCase = cases.find((item) => item.id === selectedCaseId);
   const hasDocuments = documents.length > 0;
@@ -510,10 +568,12 @@ export default function App() {
   const hasActiveProcessing =
     isImporting ||
     Boolean(coverageAudit?.has_active_processing) ||
-    importQueue.some((item) => ["selected", "validating", "hashing", "extracting", "chunking"].includes(item.status)) ||
+    importQueue.some((item) =>
+      ["queued", "reading_file", "counting_pages", "extracting_text", "finding_source_points", "building_case_basis", "checking_coverage"].includes(item.status)
+    ) ||
     documents.some((document) => document.ocr_status === "running");
   const activeImportItem = importQueue.find((item) =>
-    ["selected", "validating", "hashing", "extracting", "chunking"].includes(item.status)
+    ["queued", "reading_file", "counting_pages", "extracting_text", "finding_source_points", "building_case_basis", "checking_coverage"].includes(item.status)
   );
   const caseCoverage: CaseCoverageSummary = {
     totalDocuments: documents.length,
@@ -645,7 +705,7 @@ export default function App() {
       startCaseNameInputRef.current?.value.trim() ||
       panelCaseNameInputRef.current?.value.trim() ||
       caseName.trim() ||
-      "Ny sak";
+      temporaryCaseTitle();
     const created = await createCase(name, "NO");
     setCaseName("");
     if (startCaseNameInputRef.current) {
@@ -656,6 +716,47 @@ export default function App() {
     }
     await refresh(created.id);
     setOnboardingStage("caseRoom");
+    setActiveView("caseRoom");
+  }
+
+  async function handleNewCaseInNewWindow() {
+    if (!hasDesktopRuntime()) {
+      const created = await createCase(temporaryCaseTitle(), "NO");
+      await refresh(created.id);
+      setOnboardingStage("caseRoom");
+      setActiveView("caseRoom");
+      return;
+    }
+    await openNewCaseWindow();
+    await refresh(selectedCaseId);
+  }
+
+  async function handleOpenCaseInCurrentWindow(caseId: string) {
+    await markCaseOpened(caseId);
+    await refresh(caseId);
+    setCasePickerOpen(false);
+    setOnboardingStage("caseRoom");
+    setActiveView("caseRoom");
+  }
+
+  async function handleOpenCaseInNewWindow(caseId: string) {
+    if (!hasDesktopRuntime()) {
+      await handleOpenCaseInCurrentWindow(caseId);
+      return;
+    }
+    await openCaseWindow(caseId);
+    setCasePickerOpen(false);
+    await refresh(selectedCaseId);
+  }
+
+  async function handleRenameCaseFromSwitcher(caseId: string, nextName: string) {
+    await renameCase(caseId, nextName);
+    await refresh(selectedCaseId || caseId);
+  }
+
+  function handleCloseCase() {
+    setSelectedCaseId("");
+    windowCase.clearCase();
     setActiveView("caseRoom");
   }
 
@@ -760,7 +861,7 @@ export default function App() {
       return "Skriv en kommando som starter med apostrof, for eksempel 'kronologi eller 'bevis.";
     }
     if (!resolution.command) {
-      return "Jeg kjenner ikke den kommandoen ennå. Bruk for eksempel 'kronologi, 'bevis, 'risiko, 'kvalitet eller 'rettssimulering.";
+      return "Jeg kjenner ikke den kommandoen ennå. V1 støtter 'kronologi, 'bevis, 'risiko og 'kvalitet.";
     }
 
     return executeLegalCommand(resolution.command);
@@ -775,54 +876,17 @@ export default function App() {
 
     switch (command.id) {
       case "chronology":
-      case "deadlines":
         await buildChronology();
-        return command.id === "deadlines"
-          ? "Jeg har åpnet kronologi som frist- og datogrunnlag. Kontroller alle datoer mot kildene."
-          : "Kronologi er bygget fra sporbare kilder.";
+        return "Kronologi er bygget fra sporbare kilder.";
       case "evidence":
         await buildEvidence();
         return "Bevismatrisen er bygget fra sporbare kilder.";
-      case "arguments":
-        await buildArguments();
-        return "Anførselsgrunnlag er opprettet som kontrollert arbeidsobjekt.";
-      case "crosslink":
-      case "counterarguments":
-        await buildContradictions();
-        return command.id === "counterarguments"
-          ? "Jeg har åpnet motstrid og svake punkter som grunnlag for motargumenter."
-          : "Krysskobling er behandlet som mønster- og motstridskontroll.";
       case "risk":
-      case "strategy":
         await buildRisk();
-        return command.id === "strategy"
-          ? "Strategigrunnlag er åpnet som risiko, hovedspor og manglende kontrollpunkter. Dette er ikke en endelig anbefaling."
-          : "Risikovurderingen er kjørt fra kildegrunnlaget.";
-      case "settlement":
-      case "simulation":
-        setActiveView("litigationSimulation");
-        return command.id === "settlement"
-          ? "Forlikssporet er åpnet i Rettssimulering. Bruk det som trening, ikke som forliksråd alene."
-          : "Rettssimulering er åpnet som separat treningsworkspace.";
-      case "precedent":
-        setActiveView("control");
-        return "Presedenskommandoen er registrert, men Evida henter ikke Lovdata eller eksterne rettskilder automatisk. Bruk kontrollgrunnlaget som faktum før separat rettskildesøk.";
+        return "Risikovurderingen er kjørt fra kildegrunnlaget.";
       case "quality":
         setActiveView("control");
         return "Kontrollgrunnlag er åpnet med readiness, kildecoverage og avvik.";
-      case "draft":
-        generateDraft();
-        setActiveView("draft");
-        return "Kontrollert utkast er åpnet. AI-forslag må fortsatt kontrolleres og godkjennes.";
-      case "final":
-        setActiveView("control");
-        return "Endelig bruk kan ikke genereres automatisk. Saken er åpnet i kontrollgrunnlag for manuell sluttkontroll.";
-      case "redact":
-        setActiveView("export");
-        return "Maskering er åpnet som manuell eksport- og kontrolloppgave. Automatisk maskering er ikke aktivert.";
-      case "bates":
-        setActiveView("documents");
-        return "Dokumentlisten er åpnet for Bates/bilagsmetadata og kildekontroll.";
     }
   }
 
@@ -989,8 +1053,8 @@ export default function App() {
         cleanPaths.map((path) => ({
           path,
           name: fileNameFromPath(path),
-          status: "selected",
-          detail: "Klar til import",
+          status: "queued",
+          detail: processingStageLabel("queued"),
           startedAt: importStartedAt,
           statusUpdatedAt: importStartedAt
         }))
@@ -1019,26 +1083,32 @@ export default function App() {
         const reports = [];
         for (const path of cleanPaths) {
           const name = fileNameFromPath(path);
-          updateQueueItem(path, { status: "validating", detail: "Sjekker filtype og størrelse" });
+          updateQueueItem(path, { status: "reading_file", detail: processingStageLabel("reading_file") });
           setProcessingLog((current) => [...current, `Sjekker ${name}`]);
-          updateQueueItem(path, { status: "hashing", detail: "Sikrer dokumentreferanse" });
+          await nextUiTick();
+          updateQueueItem(path, { status: "counting_pages", detail: processingStageLabel("counting_pages") });
           setProcessingLog((current) => [...current, `Sikrer dokumentreferanse for ${name}`]);
-          updateQueueItem(path, { status: "extracting", detail: "Leser tekst og teller sider" });
+          updateQueueItem(path, { status: "extracting_text", detail: processingStageLabel("extracting_text") });
           await nextUiTick();
           const report = await registerDocument(activeCaseId, path);
           updateQueueItem(path, {
-            status: "chunking",
-            detail: "Lager sporbare kilder",
+            status: "finding_source_points",
+            detail: processingStageLabel("finding_source_points"),
             pages: report.pages_created,
             sources: report.sources_created
           });
+          await nextUiTick();
+          updateQueueItem(path, { status: "building_case_basis", detail: processingStageLabel("building_case_basis") });
+          await nextUiTick();
+          updateQueueItem(path, { status: "checking_coverage", detail: processingStageLabel("checking_coverage") });
+          await nextUiTick();
           reports.push(report);
           updateQueueItem(path, {
-            status: report.sources_created > 0 ? "ready" : "needs_attention",
+            status: report.sources_created > 0 ? "completed" : "failed",
             detail:
               report.sources_created > 0
-                ? `${countLabel(report.pages_created, "side", "sider")} og ${countLabel(report.sources_created, "kildeutdrag", "kildeutdrag")} klare`
-                : "Venter på automatisk teksthenting fra dokumentmotoren.",
+                ? processingStageLabel("completed")
+                : processingStageLabel("failed"),
             pages: report.pages_created,
             sources: report.sources_created
           });
@@ -1077,7 +1147,7 @@ export default function App() {
         setImportError(`Import feilet: ${String(error)}`);
         setImportQueue((current) =>
           current.map((item) =>
-            ["ready", "needs_attention"].includes(item.status)
+            item.status === "completed" || item.status === "failed"
               ? item
               : { ...item, status: "failed", detail: String(error) }
           )
@@ -1135,6 +1205,56 @@ export default function App() {
     const timer = window.setInterval(() => setImportNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [isImporting]);
+
+  useEffect(() => {
+    if (!hasDesktopRuntime()) {
+      return;
+    }
+
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    listen<DocumentProcessingProgressEvent>("document-processing-progress", (event) => {
+      const payload = event.payload;
+      if (selectedCaseId && payload.caseId !== selectedCaseId) {
+        return;
+      }
+
+      setImportNow(Date.now());
+      setImportQueue((current) =>
+        current.map((item) => {
+          if (item.path !== payload.path) {
+            return item;
+          }
+
+          return {
+            ...item,
+            name: payload.fileName || item.name,
+            status: payload.stage,
+            detail: payload.message || processingStageLabel(payload.stage),
+            pages: payload.pagesTotal ?? item.pages,
+            pagesProcessed: payload.pagesProcessed ?? item.pagesProcessed,
+            pagesTotal: payload.pagesTotal ?? item.pagesTotal,
+            sources: payload.sourcesCreated ?? item.sources,
+            statusUpdatedAt: Date.now()
+          };
+        })
+      );
+    })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+        } else {
+          unlisten = nextUnlisten;
+        }
+      })
+      .catch((error) => setImportError(`Dokumentstatus kunne ikke startes: ${String(error)}`));
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [selectedCaseId]);
 
   async function handleChooseFiles() {
     const paths = await chooseDocumentPaths();
@@ -1956,7 +2076,7 @@ export default function App() {
             <div className="import-queue__header">
               <strong>Importkø</strong>
               <span>
-                {importQueue.filter((item) => item.status === "ready").length} av {importQueue.length} klare
+                {importQueue.filter((item) => item.status === "completed").length} av {importQueue.length} klare
                 {isImporting ? " · ETA oppdateres fortløpende" : ""}
               </span>
             </div>
@@ -1973,7 +2093,7 @@ export default function App() {
                     </div>
                     <span className="import-eta">
                       {eta}
-                      {item.startedAt && !["ready", "needs_attention", "failed"].includes(item.status)
+                      {item.startedAt && !["completed", "failed"].includes(item.status)
                         ? ` · gått ${formatDuration(importNow - item.startedAt)}`
                         : ""}
                     </span>
@@ -1981,7 +2101,7 @@ export default function App() {
                   <div className="import-queue-row__meta">
                     {typeof item.pages === "number" ? <span>{countLabel(item.pages, "side", "sider")}</span> : null}
                     {typeof item.sources === "number" ? <span>{countLabel(item.sources, "kildeutdrag", "kildeutdrag")}</span> : null}
-                    <span className={item.status === "ready" ? "status-chip status-chip--ok" : item.status === "failed" || item.status === "needs_attention" ? "status-chip status-chip--warn" : "status-chip"}>
+                    <span className={item.status === "completed" ? "status-chip status-chip--ok" : item.status === "failed" ? "status-chip status-chip--warn" : "status-chip"}>
                       {importStatusLabel(item.status)}
                     </span>
                   </div>
@@ -2519,9 +2639,39 @@ export default function App() {
           onNavigate={setActiveView}
           hasDocuments={hasDocuments}
           readinessVerdict={caseReadiness.verdict}
+          onNewCase={() => void handleCreateCase()}
+          onNewCaseInNewWindow={() => void handleNewCaseInNewWindow()}
+          onOpenCaseSwitcher={() => setCasePickerOpen(true)}
         />
       ) : null}
       <main className={`workspace ${!showNavigation ? "workspace--guided" : ""} ${showNavigation && isCaseRoomView ? "workspace--chat" : ""}`}>
+        {showNavigation ? (
+          <DesktopMenuBar
+            onNewCase={() => void handleCreateCase()}
+            onNewCaseWindow={() => void handleNewCaseInNewWindow()}
+            onOpenCaseSwitcher={() => setCasePickerOpen(true)}
+            onImportDocuments={() => void handleChooseFiles()}
+            onExport={() => setActiveView("export")}
+            onCloseCase={handleCloseCase}
+            onToggleTheme={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+            onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenDataFolder={() => void openLocalDataFolder()}
+          />
+        ) : null}
+        {showNavigation && !isCaseRoomView ? (
+          <CaseHeader
+            selectedCase={selectedCase}
+            coveragePercent={caseReadiness.sourceCoveragePercent}
+            hasDocuments={hasDocuments}
+            hasSources={hasSources}
+            pendingOcrPages={pendingOcrPages}
+            deviations={deviations}
+            onOpenCaseSwitcher={() => setCasePickerOpen(true)}
+            onNewCase={() => void handleCreateCase()}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        ) : null}
         {showNavigation && !isCaseRoomView ? (
           <header className="topbar">
             <div>
@@ -2574,6 +2724,21 @@ export default function App() {
         />
       ) : null}
       <SourcePreviewDrawer source={activeSource} onClose={() => setActiveSource(undefined)} />
+      <CaseSwitcher
+        open={casePickerOpen && showNavigation}
+        cases={cases}
+        activeCaseId={selectedCaseId || null}
+        onClose={() => setCasePickerOpen(false)}
+        onOpenInCurrentWindow={(caseId) => void handleOpenCaseInCurrentWindow(caseId)}
+        onOpenInNewWindow={(caseId) => void handleOpenCaseInNewWindow(caseId)}
+        onRenameCase={(caseId, name) => void handleRenameCaseFromSwitcher(caseId, name)}
+      />
+      <SettingsView
+        open={settingsOpen}
+        dbSecurity={dbSecurity}
+        onClose={() => setSettingsOpen(false)}
+        onOpenDataFolder={() => void openLocalDataFolder()}
+      />
       {commandPaletteOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setCommandPaletteOpen(false)}>
           <div className="modal command-palette" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>

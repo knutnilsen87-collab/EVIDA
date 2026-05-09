@@ -22,6 +22,9 @@ interface SidebarProps {
   onNavigate: (view: ViewKey) => void;
   hasDocuments: boolean;
   readinessVerdict: CaseReadinessVerdict;
+  onNewCase: () => void;
+  onNewCaseInNewWindow: () => void;
+  onOpenCaseSwitcher: () => void;
 }
 
 function isUnlocked(unlock: UnlockLevel, hasDocuments: boolean, readinessVerdict: CaseReadinessVerdict) {
@@ -60,7 +63,15 @@ function lockedReason(unlock: UnlockLevel) {
   return "";
 }
 
-export function Sidebar({ activeView, onNavigate, hasDocuments, readinessVerdict }: SidebarProps) {
+export function Sidebar({
+  activeView,
+  onNavigate,
+  hasDocuments,
+  readinessVerdict,
+  onNewCase,
+  onNewCaseInNewWindow,
+  onOpenCaseSwitcher
+}: SidebarProps) {
   const visibleItems = hasDocuments
     ? items
     : items.filter((item) => item.key === "caseRoom" || item.key === "documents");
@@ -73,6 +84,11 @@ export function Sidebar({ activeView, onNavigate, hasDocuments, readinessVerdict
           <div className="brand-name">Evida</div>
           <div className="brand-subtitle">Kildebasert saksrom</div>
         </div>
+      </div>
+      <div className="sidebar-actions">
+        <button type="button" className="button-primary" onClick={onNewCase}>+ Ny sak</button>
+        <button type="button" className="button-secondary" onClick={onOpenCaseSwitcher}>Bytt sak</button>
+        <button type="button" className="button-ghost" onClick={onNewCaseInNewWindow}>Ny sak i nytt vindu</button>
       </div>
       <ul>
         {visibleItems.map((item) => {
