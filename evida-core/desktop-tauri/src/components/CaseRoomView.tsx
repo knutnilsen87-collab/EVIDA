@@ -128,6 +128,34 @@ function firstSentence(value: string) {
   return sentence.length > 150 ? `${sentence.slice(0, 147)}...` : sentence;
 }
 
+function cleanSummaryPoint(value: string) {
+  const sentence = firstSentence(value).replace(/\s+/g, " ").trim();
+  const topic = sentence.match(/\bTema:\s*([^|.]+)/i)?.[1]?.trim();
+  let clean = topic || sentence;
+
+  clean = clean
+    .replace(/^ØKOKRIM\s*[-–]\s*/i, "")
+    .replace(/^EVIDA\s+STRESSTEST\s*/i, "")
+    .replace(/^STOR\s+KOMPLEKS\s+STRAFFESAK\s*\([^)]*\)\s*Sak nr:\s*[^|.]+/i, "")
+    .replace(/^STOR\s+KOMPLEKS\s+STRAFFESAK[^|.]*/i, "")
+    .replace(/\s*\|\s*Bates\b.*$/i, "")
+    .replace(/\s*\|\s*Dokumenttype\b.*$/i, "")
+    .replace(/\s*\|\s*Dokument-ID\b.*$/i, "")
+    .replace(/\s*\|\s*Kilde-ID\b.*$/i, "")
+    .replace(/^[-–|:\s]+/, "")
+    .trim();
+
+  if (!clean) {
+    return "Kilden inneholder saksinformasjon som bør leses i originalutdraget.";
+  }
+
+  if (clean.length < 18) {
+    return `${clean} inngår i kildegrunnlaget.`;
+  }
+
+  return clean.length > 150 ? `${clean.slice(0, 147)}...` : clean;
+}
+
 function tokenize(value: string) {
   return value
     .toLowerCase()
@@ -182,7 +210,7 @@ function buildCaseSummarySections(
 ): CaseSummarySections {
   const representativeSources = sources.slice(0, 7);
   const keyPoints = unique(
-    representativeSources.map((source) => firstSentence(source.text_excerpt)).filter((line) => line.length > 12),
+    representativeSources.map((source) => cleanSummaryPoint(source.text_excerpt)).filter((line) => line.length > 12),
     6
   );
   const actors = extractActorsFromSources(representativeSources);
@@ -218,7 +246,7 @@ function formatAnswer(
   deviations: string[],
   nextActionTitle: string
 ) {
-  const answerSentences = selected.map((source) => firstSentence(source.text_excerpt));
+  const answerSentences = selected.map((source) => cleanSummaryPoint(source.text_excerpt));
   const importantPoints = answerSentences.length > 0 ? answerSentences : ["Jeg finner ikke et tydelig kildepunkt ennå."];
   const needsCaution = coverage < 95 || pendingOcrPages > 0 || deviations.length > 0;
 

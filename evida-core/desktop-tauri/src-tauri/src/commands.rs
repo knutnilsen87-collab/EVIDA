@@ -80,8 +80,8 @@ fn open_or_focus_case_window(app: &AppHandle, case: &CaseSummary) -> Result<(), 
     let url = format!("index.html?caseId={}", case.id);
     WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
         .title(format!("Evida — {}", case.name))
-        .inner_size(1280.0, 900.0)
-        .min_inner_size(1100.0, 720.0)
+        .inner_size(1600.0, 1040.0)
+        .min_inner_size(1200.0, 820.0)
         .center()
         .build()
         .map_err(|error| error.to_string())?;

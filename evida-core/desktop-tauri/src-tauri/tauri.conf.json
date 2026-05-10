@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "Evida",
-        "width": 1440,
-        "height": 900,
+        "width": 1600,
+        "height": 1040,
         "minWidth": 1200,
-        "minHeight": 760,
+        "minHeight": 820,
         "center": true,
         "resizable": true,
         "maximized": false
