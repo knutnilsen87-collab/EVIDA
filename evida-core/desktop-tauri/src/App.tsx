@@ -2511,6 +2511,12 @@ export default function App() {
               importQueue={importQueue}
               isImporting={isImporting}
               importNow={importNow}
+              totalPageCount={totalPages}
+              processedPageCount={analyzedPages}
+              sourcePageCount={pagesWithSources}
+              missingSourcePageCount={pagesMissingSources}
+              hasActiveProcessing={hasActiveProcessing}
+              automaticTextRecognitionAvailable={automaticTextRecognitionAvailable}
               pendingOcrPages={pendingOcrPages}
               coverage={coveragePercent}
               deviations={deviations}
@@ -2717,6 +2723,10 @@ export default function App() {
         <SourcePanel
           selectedCase={selectedCase}
           coverage={caseReadiness.sourceCoveragePercent}
+          totalPages={totalPages}
+          processedPages={analyzedPages}
+          pagesWithSources={pagesWithSources}
+          pagesMissingSources={pagesMissingSources}
           ocrStatus={pendingOcrPages > 0 ? `${pendingOcrPages} sider venter på tekst` : "Ingen ventende sider"}
           sourceCount={sources.length}
           deviations={deviations}

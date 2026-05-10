@@ -27,8 +27,9 @@ import {
   processingStageProgress,
   processingStepViews
 } from "../types/processing";
-import type { DocumentProcessingStage } from "../types/processing";
+import type { DocumentProcessingStage, ProcessingActivityState } from "../types/processing";
 import { calculatePageProgress } from "../lib/processing";
+import { classifyUserQuestion } from "../lib/intentParser";
 import { AssistantWorkState } from "./AssistantWorkState";
 
 type LegacyImportStage = "selected" | "validating" | "hashing" | "extracting" | "chunking" | "ready" | "needs_attention";
@@ -41,6 +42,12 @@ interface CaseRoomViewProps {
   importQueue: CaseRoomImportItem[];
   isImporting: boolean;
   importNow: number;
+  totalPageCount: number;
+  processedPageCount: number;
+  sourcePageCount: number;
+  missingSourcePageCount: number;
+  hasActiveProcessing: boolean;
+  automaticTextRecognitionAvailable: boolean;
   pendingOcrPages: number;
   coverage: number;
   deviations: string[];
@@ -403,6 +410,219 @@ function activeIntakeWorkState(stage: DocumentProcessingStage | LegacyImportStag
   */
 }
 
+function resolveProcessingActivityState(args: {
+  hasDocuments: boolean;
+  isImporting: boolean;
+  hasActiveProcessing: boolean;
+  hasQueuedItems: boolean;
+  hasFailedItems: boolean;
+  pagesMissingSources: number;
+  automaticTextRecognitionAvailable: boolean;
+}): ProcessingActivityState {
+  if (args.hasFailedItems) {
+    return "failed";
+  }
+  if (args.isImporting || args.hasActiveProcessing) {
+    return "active";
+  }
+  if (args.hasQueuedItems) {
+    return "queued";
+  }
+  if (!args.hasDocuments) {
+    return "queued";
+  }
+  if (args.pagesMissingSources <= 0) {
+    return "completed";
+  }
+  if (!args.automaticTextRecognitionAvailable) {
+    return "unavailable";
+  }
+  return "completed_with_gaps";
+}
+
+function processingActivityLabel(state: ProcessingActivityState) {
+  switch (state) {
+    case "active":
+      return "Evida behandler fortsatt dokumentene.";
+    case "queued":
+      return "Dokumentene venter på behandling.";
+    case "waiting_for_worker":
+      return "Venter på dokumentmotor.";
+    case "paused":
+      return "Behandlingen er satt på pause.";
+    case "completed":
+      return "Alle sider er klare.";
+    case "completed_with_gaps":
+      return "Behandlingen er fullført, men noen sider kunne ikke gjøres om til sporbare kilder.";
+    case "failed":
+      return "Behandlingen kunne ikke fullføres automatisk.";
+    case "unavailable":
+      return "Automatisk teksthenting er ikke tilgjengelig i denne versjonen.";
+  }
+}
+
+function processingActivityDetail(state: ProcessingActivityState, pagesMissingSources: number, pagesWithSources: number) {
+  if (state === "active" && pagesMissingSources > 0) {
+    return `Evida behandler fortsatt ${pagesMissingSources} sider.`;
+  }
+  if (state === "unavailable" && pagesMissingSources > 0) {
+    return `${pagesMissingSources} sider mangler tekst. Evida bruker de ${pagesWithSources} sidene som er klare og markerer resten som manglende grunnlag.`;
+  }
+  if (state === "completed_with_gaps" && pagesMissingSources > 0) {
+    return `${pagesMissingSources} sider mangler fortsatt tekst eller sporbare kilder.`;
+  }
+  return "";
+}
+
+function buildRecommendationAnswer(args: {
+  selectedCase?: CaseSummary;
+  sources: SourceObjectSummary[];
+  readiness: ReadinessResult;
+  sourceCoveragePercent: number;
+  pagesMissingSources: number;
+  pagesRemainingProcessing: number;
+  processingActivityState: ProcessingActivityState;
+  etaLabel: string;
+  nextActionTitle: string;
+}): CaseAnswer {
+  const coverage = Math.max(0, Math.min(100, Math.round(args.sourceCoveragePercent)));
+  const hasMissingSources = args.pagesMissingSources > 0;
+  const isWorking = args.processingActivityState === "active";
+
+  let directRecommendation = "Start med å legge til dokumenter, så kan Evida bygge kildegrunnlaget.";
+  let safeLevel = "Ikke klar for saksarbeid";
+  let orderedSteps = [
+    "Legg til dokumenter i Saksrom.",
+    "La Evida lese dokumentene og lage sporbare kilder.",
+    "Vent med juridisk analyse til kildedekningen er høy nok."
+  ];
+  let waitWith = [
+    "Saksoppsummering.",
+    "Kronologi, bevismatrise, risiko og utkast.",
+    "Endelig kontroll eller rettssimulering."
+  ];
+
+  if (coverage < 50) {
+    directRecommendation = isWorking
+      ? "Jeg anbefaler at du følger behandlingsstatus nå og venter med juridisk analyse til flere sider er gjort om til sporbare kilder."
+      : "Jeg anbefaler at du sjekker behandlingsstatus før du bruker Saksrom til juridisk analyse.";
+    safeLevel = "Behandlingsstatus og importkontroll";
+    orderedSteps = [
+      "Følg behandlingsstatus for dokumentene.",
+      "Vent til kildedekningen passerer minst 50 % før du bruker Saksrom til foreløpig orientering.",
+      "Når dekningen nærmer seg 80 %, kan du be om foreløpig oversikt."
+    ];
+    waitWith = [
+      "Juridiske vurderinger.",
+      "Kronologi, bevismatrise og risikovurdering.",
+      "Utkast, eksport og rettssimulering."
+    ];
+  } else if (coverage < 80) {
+    directRecommendation = "Jeg anbefaler at du bruker saken kun til foreløpig orientering, og lar behandlingen bli mer komplett før du lager arbeidsprodukter.";
+    safeLevel = "Foreløpig orientering";
+    orderedSteps = [
+      "Se hva som mangler i behandlingsstatus.",
+      "Bruk Saksrom til å orientere deg i det som allerede er kildeklart.",
+      "Vent med strukturerte juridiske arbeidsprodukter til dekningen er minst 80 %."
+    ];
+    waitWith = [
+      "Utkast og endelig kontroll.",
+      "Rettssimulering.",
+      "Konklusjoner som forutsetter komplett dokumentgrunnlag."
+    ];
+  } else if (coverage < 95) {
+    directRecommendation = "Jeg anbefaler at du bruker Saksrom til foreløpig oversikt nå, men markerer alt arbeid som foreløpig.";
+    safeLevel = "Foreløpig saksarbeid";
+    orderedSteps = [
+      "Les den foreløpige saksoppsummeringen.",
+      "Bygg kronologi hvis du samtidig noterer at noe dokumentgrunnlag mangler.",
+      "Se etter motstrid og bevis, men ikke lås vurderingene før dekningen er høyere."
+    ];
+    waitWith = [
+      "Endelige utkast.",
+      "Eksport uten kontroll.",
+      "Rettssimulering og konklusjoner."
+    ];
+  } else if (coverage < 100 || hasMissingSources) {
+    directRecommendation = `Jeg anbefaler at du bruker Saksrom til foreløpig saksarbeid nå, og først sjekker hvorfor ${args.pagesMissingSources} sider fortsatt ikke er med i kildegrunnlaget.`;
+    safeLevel = "Foreløpig saksarbeid";
+    orderedSteps = [
+      `Se behandlingsstatus for de ${args.pagesMissingSources} sidene som mangler kildegrunnlag.`,
+      "Fortsett i Saksrom for foreløpig oversikt.",
+      "Bygg kronologi når du er klar over at noen sider mangler.",
+      "Vent med utkast, endelig kontroll og rettssimulering til sidene er avklart."
+    ];
+    waitWith = [
+      "Endelige utkast.",
+      "Eksport og kvalitetssikring som forutsetter komplett grunnlag.",
+      "Rettssimulering uten tydelig forbehold."
+    ];
+  } else {
+    directRecommendation = "Jeg anbefaler at du bygger kronologi først, deretter bevismatrise, motstrid og risiko før du går videre til utkast og kvalitet.";
+    safeLevel = "Kontrollert saksarbeid";
+    orderedSteps = [
+      "Bygg kronologi.",
+      "Bygg bevismatrise.",
+      "Se etter motstrid.",
+      "Vurder risiko.",
+      "Gå videre til utkast og kvalitetssjekk."
+    ];
+    waitWith = [
+      "Ingenting bør brukes uten menneskelig juridisk kontroll.",
+      "Ikke eksporter eller send videre uten kildekontroll."
+    ];
+  }
+
+  const whyLines = [
+    `Readiness: ${args.readiness.label}.`,
+    `Kildedekning: ${coverage} %.`,
+    hasMissingSources ? `${args.pagesMissingSources} sider mangler fortsatt sporbare kilder.` : "Ingen kjente sider mangler sporbare kilder.",
+    isWorking ? `Behandling: aktiv. Estimert tid: ${args.etaLabel}.` : `Behandling: ${processingActivityLabel(args.processingActivityState)}`
+  ];
+
+  const selectedSources = args.sources.slice(0, 3);
+  return {
+    answer: [
+      "Anbefalt neste steg",
+      "",
+      "Kort svar",
+      directRecommendation,
+      "",
+      "Hvorfor",
+      ...whyLines.map((line) => `- ${line}`),
+      "",
+      "Anbefalt rekkefølge",
+      ...orderedSteps.map((step, index) => `${index + 1}. ${step}`),
+      "",
+      "Hva du bør vente med",
+      ...waitWith.map((step) => `- ${step}`),
+      "",
+      "Status nå",
+      `Kildedekning: ${coverage} %`,
+      `Sider som gjenstår: ${args.pagesMissingSources}`,
+      `Behandling: ${processingActivityLabel(args.processingActivityState)}`,
+      `Trygt arbeidsnivå: ${safeLevel}`,
+      `Anbefalt neste steg: ${orderedSteps[0] || args.nextActionTitle}`
+    ].join("\n"),
+    sourceIds: selectedSources.map((source) => source.id),
+    validatedSources: selectedSources.map((source) => ({
+      sourceId: source.id,
+      documentId: source.document_id,
+      pageNumber: source.page_start,
+      validationStatus: "LOCAL"
+    })),
+    answerStrength: {
+      level: coverage >= 95 ? "Middels" : "Lav",
+      reason: "Anbefalingen bygger på readiness, kildedekning, behandlingsstatus og tilgjengelige arbeidsmoduser."
+    },
+    uncertainty: hasMissingSources
+      ? "Middels. Noe dokumentgrunnlag mangler fortsatt sporbare kilder."
+      : "Lav til middels. Anbefalingen må fortsatt vurderes av bruker.",
+    missing: hasMissingSources ? `${args.pagesMissingSources} sider mangler sporbare kilder.` : "Menneskelig juridisk kontroll.",
+    nextStep: orderedSteps[0] || args.nextActionTitle
+  };
+}
+
 function buildAnswer(
   question: string,
   sources: SourceObjectSummary[],
@@ -512,6 +732,12 @@ export function CaseRoomView({
   importQueue,
   isImporting,
   importNow,
+  totalPageCount,
+  processedPageCount,
+  sourcePageCount,
+  missingSourcePageCount,
+  hasActiveProcessing,
+  automaticTextRecognitionAvailable,
   pendingOcrPages,
   coverage,
   deviations,
@@ -544,42 +770,55 @@ export function CaseRoomView({
   const hasDocuments = documents.length > 0;
   const isBlocked = readiness.verdict === "not_ready";
   const isPreliminaryOnly = readiness.verdict === "requires_control";
-  const documentTotalPages = documents.reduce((sum, document) => sum + document.page_count, 0);
+  const documentTotalPages = totalPageCount || documents.reduce((sum, document) => sum + document.page_count, 0);
   const queuedTotalPages = importQueue.reduce((sum, item) => sum + (item.pagesTotal || item.pages || 0), 0);
   const totalPages = documentTotalPages || queuedTotalPages;
   const documentProcessedPages = documents.reduce((sum, document) => sum + (document.analyzed_page_count || 0), 0);
   const queuedProcessedPages = importQueue.reduce((sum, item) => sum + (item.pagesProcessed || 0), 0);
-  const processedPages = documentTotalPages > 0 ? documentProcessedPages : queuedProcessedPages;
-  const pagesWithSources = documentTotalPages > 0 ? Math.round((Math.max(0, Math.min(100, coverage)) / 100) * documentTotalPages) : 0;
+  const processedPages = processedPageCount || (documentTotalPages > 0 ? documentProcessedPages : queuedProcessedPages);
+  const pagesWithSources = sourcePageCount || (documentTotalPages > 0 ? Math.round((Math.max(0, Math.min(100, coverage)) / 100) * documentTotalPages) : 0);
   const pageProgress = calculatePageProgress({
     totalPages,
     processedPages,
     pagesWithSources
   });
+  const pagesMissingSources = missingSourcePageCount || pageProgress.pagesMissingSources;
+  const processingPercent = totalPages > 0 ? Math.round((pageProgress.processedPages / totalPages) * 100) : 0;
+  const intakeCoverage = totalPages > 0 ? pageProgress.sourceCoveragePercent : coverage;
   const processedDocuments = documents.filter((document) => document.source_count > 0 || document.analyzed_page_count > 0);
-  const sourceCoverageTooLow = hasDocuments && coverage < 50;
+  const sourceCoverageTooLow = hasDocuments && intakeCoverage < 50;
   const canAsk = Boolean(selectedCase?.id && hasDocuments && hasSources && !isBlocked && !sourceCoverageTooLow);
-  const isIncomplete = !hasSources || coverage < 95 || pendingOcrPages > 0 || deviations.length > 0;
+  const isIncomplete = !hasSources || intakeCoverage < 95 || pendingOcrPages > 0 || deviations.length > 0 || pagesMissingSources > 0;
   const readyImportItems = importQueue.filter((item) => item.status === "completed");
   const activeImportItem = importQueue.find((item) => !["completed", "failed"].includes(item.status));
   const displayImportItem = activeImportItem || importQueue.find((item) => item.status === "failed") || importQueue[importQueue.length - 1];
   const importPages = importQueue.reduce((sum, item) => sum + (item.pages || 0), 0);
-  const intakeCoverage = totalPages > 0 ? pageProgress.sourceCoveragePercent : coverage;
   const showIntakeCard = importQueue.length > 0 || isImporting;
   const liveImportProgress = importLiveProgressPercent(displayImportItem, importNow);
   const liveImportElapsed = displayImportItem?.startedAt ? formatDuration(importNow - displayImportItem.startedAt) : "";
   const liveCurrentStep = intakeStepLabel(displayImportItem);
   const intakeWorkState = activeIntakeWorkState(displayImportItem?.status);
+  const processingActivityState = resolveProcessingActivityState({
+    hasDocuments,
+    isImporting,
+    hasActiveProcessing,
+    hasQueuedItems: importQueue.some((item) => toProcessingStage(item.status) === "queued"),
+    hasFailedItems: importQueue.some((item) => toProcessingStage(item.status) === "failed"),
+    pagesMissingSources,
+    automaticTextRecognitionAvailable
+  });
+  const processingActivityText = processingActivityLabel(processingActivityState);
+  const processingActivityExtra = processingActivityDetail(processingActivityState, pagesMissingSources, pageProgress.pagesWithSources);
   const isCaseSummaryReady =
     hasDocuments &&
     hasSources &&
     !isBlocked &&
-    coverage >= 80 &&
+    intakeCoverage >= 80 &&
     (readiness.verdict === "ready_for_draft_control" ||
       readiness.verdict === "ready_for_preliminary_analysis" ||
-      coverage >= 95);
+      intakeCoverage >= 95);
   const shouldShowNamingCard = Boolean(selectedCase?.id && isCaseSummaryReady && isTemporaryCaseTitle(selectedCase.name));
-  const caseSummary = buildCaseSummarySections(selectedCase, sources, coverage, pendingOcrPages, deviations);
+  const caseSummary = buildCaseSummarySections(selectedCase, sources, intakeCoverage, pendingOcrPages, deviations);
   const summaryWorkStates = [
     "Leser kilder",
     "Finner hovedtemaer",
@@ -814,8 +1053,65 @@ export function CaseRoomView({
     const displayQuestion = resolvedAction?.label || cleanQuestion;
     const retrievalQuestion = resolvedAction?.queryTemplate || cleanQuestion;
     const activeMode = resolvedAction?.intent || inferCollaborationModeFromText(cleanQuestion);
+    const questionIntent = classifyUserQuestion(retrievalQuestion || displayQuestion);
 
     if (!displayQuestion) {
+      return;
+    }
+    if (questionIntent === "recommendation") {
+      if (!selectedCase?.id) {
+        setProviderNotice("Start med dokumenter, så oppretter Evida saken og kan anbefale tryggeste neste steg.");
+        return;
+      }
+      setActiveCollaborationMode(activeMode);
+      setIsAsking(true);
+      setProviderNotice("");
+      updateAutoFollowAnswer(true);
+      window.requestAnimationFrame(() => scrollToAssistantWork("smooth"));
+      await wait(700);
+      try {
+        const recommendationTurnId = `recommendation-${Date.now()}`;
+        const nextSuggestedActions = createDefaultSuggestedActions(recommendationTurnId);
+        const result = {
+          ...buildRecommendationAnswer({
+            selectedCase,
+            sources,
+            readiness,
+            sourceCoveragePercent: intakeCoverage,
+            pagesMissingSources,
+            pagesRemainingProcessing: pageProgress.pagesRemaining,
+            processingActivityState,
+            etaLabel: importEta(activeImportItem, importNow),
+            nextActionTitle
+          }),
+          suggestedActions: nextSuggestedActions
+        };
+        const answerJson = JSON.stringify({
+          question: displayQuestion,
+          result,
+          model_id: "safe-local-recommendation-mode",
+          prompt_version: "case_room_recommendation_v1",
+          source_index_version: `sources-${sources.length}`
+        });
+        const persisted = await recordCaseAiExchange({
+          caseId: selectedCase.id,
+          question: displayQuestion,
+          answerJson,
+          sourceIds: result.sourceIds,
+          modelId: "safe-local-recommendation-mode",
+          promptVersion: "case_room_recommendation_v1",
+          sourceIndexVersion: `sources-${sources.length}`
+        });
+        const stored = parseStoredAnswer(persisted);
+        setLatestSuggestedActions(nextSuggestedActions);
+        await revealAnswer(stored || { question: displayQuestion, result });
+        persistConversationTurn(result, nextSuggestedActions, activeMode, resolvedAction);
+        setQuestion("");
+      } catch (error) {
+        setProviderNotice(`Kunne ikke lage anbefaling: ${String(error)}`);
+      } finally {
+        setIsAsking(false);
+      }
       return;
     }
     if (!selectedCase?.id || !hasDocuments || !hasSources || sourceCoverageTooLow || isBlocked) {
@@ -1189,9 +1485,15 @@ export function CaseRoomView({
                   </span>
                 ))}
               </div>
+              <p className="muted">
+                {processingActivityText}
+                {processingActivityExtra ? ` ${processingActivityExtra}` : ""}
+              </p>
               <div className="case-intake-grid">
                 <span>Dokumenter</span>
                 <strong>{readyImportItems.length}/{importQueue.length || documents.length}</strong>
+                <span>Behandling</span>
+                <strong>{pageProgress.totalPages > 0 ? `${processingPercent} %` : `${liveImportProgress} %`}</strong>
                 <span>Sider</span>
                 <strong>
                   {pageProgress.totalPages > 0
@@ -1200,20 +1502,22 @@ export function CaseRoomView({
                       ? `0 av ${importPages} sider behandlet`
                       : "Sideprogresjon beregnes"}
                 </strong>
-                <span>Gjenstår</span>
+                <span>Gjenstår behandling</span>
                 <strong>
                   {pageProgress.totalPages > 0
                     ? `${pageProgress.pagesRemaining} sider gjenstår`
                     : "Beregnes"}
                 </strong>
-                <span>Kan brukes som kilde</span>
+                <span>Sider med kilder</span>
                 <strong>
                   {pageProgress.totalPages > 0
-                    ? `${pageProgress.pagesWithSources} sider`
+                    ? `${pageProgress.pagesWithSources} av ${pageProgress.totalPages}`
                     : sources.length > 0
                       ? `${sources.length} kilder`
                       : "Beregnes"}
                 </strong>
+                <span>Sider som mangler</span>
+                <strong>{pageProgress.totalPages > 0 ? pagesMissingSources : "Beregnes"}</strong>
                 <span>Kildedekning</span>
                 <strong>{pageProgress.totalPages > 0 || !isImporting ? `${Math.round(intakeCoverage)} %` : "Beregnes"}</strong>
                 <span>Nåværende steg</span>

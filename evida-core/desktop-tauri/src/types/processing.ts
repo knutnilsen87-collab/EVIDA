@@ -9,6 +9,16 @@ export type DocumentProcessingStage =
   | "completed"
   | "failed";
 
+export type ProcessingActivityState =
+  | "active"
+  | "queued"
+  | "waiting_for_worker"
+  | "paused"
+  | "completed"
+  | "completed_with_gaps"
+  | "failed"
+  | "unavailable";
+
 export type DocumentProcessingStatus = {
   documentId: string;
   fileName: string;

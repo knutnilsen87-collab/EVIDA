@@ -4,6 +4,10 @@ import { NextAction } from "./NextAction";
 interface SourcePanelProps {
   selectedCase?: CaseSummary;
   coverage: number;
+  totalPages: number;
+  processedPages: number;
+  pagesWithSources: number;
+  pagesMissingSources: number;
   ocrStatus: string;
   sourceCount: number;
   deviations: string[];
@@ -23,6 +27,10 @@ interface SourcePanelProps {
 export function SourcePanel({
   selectedCase,
   coverage,
+  totalPages,
+  processedPages,
+  pagesWithSources,
+  pagesMissingSources,
   ocrStatus,
   sourceCount,
   deviations,
@@ -36,7 +44,10 @@ export function SourcePanel({
         <span>Evaluation build · lokal behandling</span>
       </div>
       <div className="source-checklist">
-        <div>Dekning: <strong>{coverage} % av sidene kan brukes som kilde</strong></div>
+        <div>Behandling: <strong>{totalPages > 0 ? `${Math.round((processedPages / totalPages) * 100)} %` : "Beregnes"}</strong></div>
+        <div>Kildedekning: <strong>{coverage} % av sidene kan brukes som kilde</strong></div>
+        <div>Sider med kilder: <strong>{totalPages > 0 ? `${pagesWithSources} av ${totalPages}` : "Beregnes"}</strong></div>
+        <div>Sider som mangler: <strong>{totalPages > 0 ? pagesMissingSources : "Beregnes"}</strong></div>
         <div>Tekststatus: <strong>{ocrStatus}</strong></div>
         <div>Sporbare kilder: <strong>{sourceCount}</strong></div>
         <div>Avvik: <strong>{deviations.length}</strong></div>

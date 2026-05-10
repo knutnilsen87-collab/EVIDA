@@ -18,7 +18,7 @@ async function importTsModule(path) {
 }
 
 const { getCaseReadiness } = await importTsModule("../src/lib/readiness.ts");
-const { resolveSuggestedAction } = await importTsModule("../src/lib/intentParser.ts");
+const { classifyUserQuestion, resolveSuggestedAction } = await importTsModule("../src/lib/intentParser.ts");
 const {
   DOCUMENT_PROCESSING_STAGE_LABELS,
   processingStageProgress,
@@ -78,6 +78,19 @@ for (const [input, expected] of intentCases) {
   assert.equal(resolveSuggestedAction(input, actions)?.index, expected, `${input} resolves`);
 }
 
+const questionIntentCases = [
+  ["hva anbefaler du meg å gjøre?", "recommendation"],
+  ["hva bør jeg gjøre nå?", "recommendation"],
+  ["hva er neste steg?", "recommendation"],
+  ["hvor bør jeg begynne?", "recommendation"],
+  ["hva handler saken om?", "case_content"],
+  ["hvor langt er behandlingen?", "processing_status"]
+];
+
+for (const [input, expected] of questionIntentCases) {
+  assert.equal(classifyUserQuestion(input), expected, `${input} classifies as ${expected}`);
+}
+
 const expectedProgress = {
   queued: 0,
   reading_file: 10,
@@ -103,4 +116,4 @@ const failedSteps = processingStepViews("failed");
 assert.equal(failedSteps.at(-1)?.label, "Kunne ikke behandles", "failed step uses required copy");
 assert.equal(failedSteps.at(-1)?.state, "failed", "failed step has failed visual state");
 
-console.log(`handoff tests passed (${readinessCases.length + intentCases.length + Object.keys(expectedProgress).length + 6} assertions).`);
+console.log(`handoff tests passed (${readinessCases.length + intentCases.length + questionIntentCases.length + Object.keys(expectedProgress).length + 6} assertions).`);
