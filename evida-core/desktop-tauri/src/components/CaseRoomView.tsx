@@ -1304,55 +1304,57 @@ export function CaseRoomView({
           <h2>{selectedCase?.name || "Saksrom"}</h2>
           {hasDocuments ? (
           <div className="case-summary-card" ref={caseSummaryRef}>
-            <div className="mode-line">
+            <div className="case-room-status-row">
               <span className="local-pill">Sikker lokalmodus</span>
-              <span>Ekstern AI er av. Svar bygger kun på lokale kilder i saken.</span>
+              <span className="case-room-status-note">Ekstern AI er av. Svar bygger kun på lokale kilder i saken.</span>
               <span className="case-mode-chip">Arbeidsmodus: {COLLABORATION_MODE_LABELS[activeCollaborationMode]}</span>
-              <button type="button" className="button-ghost control-status-link" onClick={onOpenControl}>
+              <button type="button" className="button-ghost case-room-status-link" onClick={onOpenControl}>
                 Vis kontrollstatus
               </button>
             </div>
             {isCaseSummaryReady ? (
-              <div className="case-summary-sections">
-                <h3>{coverage >= 95 ? "Saksoppsummering" : "Foreløpig saksoppsummering"}</h3>
-                <section>
-                  <h4>Kort fortalt</h4>
-                  <p>{caseSummary.short}</p>
+              <div className="case-summary-content">
+                <h3 className="case-summary-title">{coverage >= 95 ? "Saksoppsummering" : "Foreløpig saksoppsummering"}</h3>
+                <section className="case-summary-section">
+                  <h4 className="case-summary-section-label">Kort fortalt</h4>
+                  <p className="case-summary-lead">{caseSummary.short}</p>
                 </section>
-                <section>
-                  <h4>Viktigste punkter</h4>
-                  <ul>
+                <section className="case-summary-section">
+                  <h4 className="case-summary-section-label">Viktigste punkter</h4>
+                  <ul className="case-summary-bullets">
                     {caseSummary.keyPoints.map((point) => (
                       <li key={point}>{point}</li>
                     ))}
                   </ul>
                 </section>
-                <section>
-                  <h4>Sentrale aktører</h4>
-                  <ul>
+                <section className="case-summary-section">
+                  <h4 className="case-summary-section-label">Sentrale aktører</h4>
+                  <div className="case-summary-chip-list">
                     {caseSummary.actors.map((actor) => (
-                      <li key={actor}>{actor}</li>
+                      <span className="case-summary-chip" key={actor}>{actor}</span>
                     ))}
-                  </ul>
+                  </div>
                 </section>
-                <section>
-                  <h4>Mulige hovedspor</h4>
-                  <ul>
+                <section className="case-summary-section">
+                  <h4 className="case-summary-section-label">Mulige hovedspor</h4>
+                  <div className="case-track-list">
                     {caseSummary.tracks.map((track) => (
-                      <li key={track}>{track}</li>
+                      <span className="case-track-pill" key={track}>{track}</span>
                     ))}
-                  </ul>
+                  </div>
                 </section>
-                <section>
-                  <h4>Usikkerhet / må kontrolleres</h4>
-                  <ul>
-                    {caseSummary.uncertainty.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
+                <section className="case-summary-section">
+                  <div className="case-summary-callout case-summary-callout-warning">
+                    <div className="case-summary-callout-title">Usikkerhet / må kontrolleres</div>
+                    <ul className="case-summary-callout-list">
+                      {caseSummary.uncertainty.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
                 </section>
-                <section>
-                  <h4>Anbefalte neste steg</h4>
+                <section className="case-summary-section">
+                  <h4 className="case-summary-section-label">Anbefalte neste steg</h4>
                   <div className="case-summary-actions">
                     {caseSummary.nextSteps.map((action) => (
                       <button key={action} type="button" className="button-secondary" onClick={() => void submitCaseQuestion(action)}>
