@@ -29,7 +29,11 @@ export const questionIntentTestCases = [
   ["hva er neste steg?", "recommendation"],
   ["hvor bør jeg begynne?", "recommendation"],
   ["hva handler saken om?", "case_content"],
-  ["hvor langt er behandlingen?", "processing_status"]
+  ["hvor langt er behandlingen?", "process_status"],
+  ["hva bygger du dette på?", "source_question"],
+  ["er denne saken sterk?", "risk_assessment"],
+  ["stemmer tidslinjen med forklaringene?", "timeline"],
+  ["finnes det motstrid?", "contradiction"]
 ] as const;
 
 export function runQuestionIntentTestCase(input: string) {

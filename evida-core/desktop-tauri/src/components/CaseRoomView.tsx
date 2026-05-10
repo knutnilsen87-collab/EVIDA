@@ -30,6 +30,13 @@ import {
 import type { DocumentProcessingStage, ProcessingActivityState } from "../types/processing";
 import { calculatePageProgress } from "../lib/processing";
 import { classifyUserQuestion } from "../lib/intentParser";
+import type { UserQuestionIntent } from "../lib/intentParser";
+import {
+  createSafeFallbackStructuredAnswer,
+  mainAnswerHasBlockedMetadata,
+  normalizeMainAnswerText,
+  structuredToDisplayAnswer
+} from "../lib/answerQuality";
 import { AssistantWorkState } from "./AssistantWorkState";
 
 type LegacyImportStage = "selected" | "validating" | "hashing" | "extracting" | "chunking" | "ready" | "needs_attention";
@@ -156,6 +163,30 @@ function cleanSummaryPoint(value: string) {
   return clean.length > 150 ? `${clean.slice(0, 147)}...` : clean;
 }
 
+function removeSummaryMetadataPrefix(value: string) {
+  let clean = value.replace(/\s+/g, " ").trim();
+  const topic = clean.match(/\bTema:\s*([^|.]+)/i)?.[1]?.trim();
+  if (topic) {
+    clean = topic;
+  }
+
+  clean = clean
+    .replace(/^ØKOKRIM\s*[-–]\s*/i, "")
+    .replace(/^OKOKRIM\s*[-–]\s*/i, "")
+    .replace(/^EVIDA\s+STRESSTEST\s*/i, "")
+    .replace(/^STOR\s+KOMPLEKS\s+STRAFFESAK\s*\([^)]*\)\s*Sak nr:\s*[^|.]+/i, "")
+    .replace(/^STOR\s+KOMPLEKS\s+STRAFFESAK[^|.]*/i, "")
+    .replace(/^\(?\d+\+?\s*SIDER\)?\s*Sak nr:\s*[^|.]+/i, "")
+    .replace(/\s*\|\s*Bates\b.*$/i, "")
+    .replace(/\s*\|\s*Dokumenttype\b.*$/i, "")
+    .replace(/\s*\|\s*Dokument-ID\b.*$/i, "")
+    .replace(/\s*\|\s*Kilde-ID\b.*$/i, "")
+    .replace(/^[-–|:\s]+/, "")
+    .trim();
+
+  return clean.length > 150 ? `${clean.slice(0, 147)}...` : clean;
+}
+
 function tokenize(value: string) {
   return value
     .toLowerCase()
@@ -171,6 +202,25 @@ function scoreSource(questionTerms: string[], source: SourceObjectSummary) {
 
 function unique(values: string[], limit: number) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).slice(0, limit);
+}
+
+function isNoisyActorLabel(value: string) {
+  const normalized = value.toLowerCase().trim();
+  return [
+    "sak",
+    "tema",
+    "grovt",
+    "formål",
+    "syntetisk",
+    "tester",
+    "dokument",
+    "side",
+    "evida",
+    "saksrom",
+    "bates",
+    "økokrim",
+    "okokrim"
+  ].includes(normalized) || /^evida\s+stresstest/i.test(value);
 }
 
 function extractActorsFromSources(sources: SourceObjectSummary[]) {
@@ -210,10 +260,12 @@ function buildCaseSummarySections(
 ): CaseSummarySections {
   const representativeSources = sources.slice(0, 7);
   const keyPoints = unique(
-    representativeSources.map((source) => cleanSummaryPoint(source.text_excerpt)).filter((line) => line.length > 12),
+    representativeSources
+      .map((source) => removeSummaryMetadataPrefix(cleanSummaryPoint(source.text_excerpt)))
+      .filter((line) => line.length > 12),
     6
   );
-  const actors = extractActorsFromSources(representativeSources);
+  const actors = extractActorsFromSources(representativeSources).filter((actor) => !isNoisyActorLabel(actor));
   const tracks = inferTracksFromSources(sources);
   const hasCompleteBasis = coverage >= 95 && pendingOcrPages === 0 && deviations.length === 0;
 
@@ -246,7 +298,7 @@ function formatAnswer(
   deviations: string[],
   nextActionTitle: string
 ) {
-  const answerSentences = selected.map((source) => cleanSummaryPoint(source.text_excerpt));
+  const answerSentences = selected.map((source) => removeSummaryMetadataPrefix(cleanSummaryPoint(source.text_excerpt)));
   const importantPoints = answerSentences.length > 0 ? answerSentences : ["Jeg finner ikke et tydelig kildepunkt ennå."];
   const needsCaution = coverage < 95 || pendingOcrPages > 0 || deviations.length > 0;
 
@@ -719,16 +771,80 @@ function buildAnswer(
   };
 }
 
-function parseStoredAnswer(message: CaseAiMessageDto): { question: string; result: CaseAnswer } | null {
+function safeFallbackCaseAnswer(args: {
+  intent: UserQuestionIntent;
+  sourceIds: string[];
+  nextActionTitle: string;
+}): CaseAnswer {
+  const structured = createSafeFallbackStructuredAnswer({
+    intent: args.intent,
+    allowedSourceIds: args.sourceIds,
+    nextBestStep: args.nextActionTitle
+  });
+  return {
+    answer: structuredToDisplayAnswer(structured),
+    sourceIds: structured.source_ids,
+    validatedSources: [],
+    answerStrength: {
+      level: "Lav",
+      reason: "Svaret ble stoppet av kvalitetskontroll og erstattet med trygg fallback."
+    },
+    uncertainty: structured.uncertainty,
+    missing: structured.partner_assessment,
+    nextStep: structured.next_best_step
+  };
+}
+
+function qualityGateCaseAnswer(
+  result: CaseAnswer,
+  args: {
+    intent: UserQuestionIntent;
+    allowedSourceIds: string[];
+    nextActionTitle: string;
+  }
+): CaseAnswer {
+  const cleanAnswer = normalizeMainAnswerText(normalizeAssistantAnswer(result.answer));
+  const sourceIds = result.sourceIds.filter((sourceId) => args.allowedSourceIds.includes(sourceId));
+  const hasInvalidSourceIds = result.sourceIds.some((sourceId) => !args.allowedSourceIds.includes(sourceId));
+  const invalidAnswer =
+    !cleanAnswer ||
+    cleanAnswer.length < 30 ||
+    mainAnswerHasBlockedMetadata(result.answer) ||
+    hasInvalidSourceIds;
+
+  if (invalidAnswer) {
+    return safeFallbackCaseAnswer({
+      intent: args.intent,
+      sourceIds: args.allowedSourceIds,
+      nextActionTitle: args.nextActionTitle
+    });
+  }
+
+  return {
+    ...result,
+    answer: cleanAnswer,
+    sourceIds,
+    validatedSources: result.validatedSources.filter((source) => sourceIds.includes(source.sourceId))
+  };
+}
+
+function parseStoredAnswer(
+  message: CaseAiMessageDto,
+  options?: {
+    intent?: UserQuestionIntent;
+    nextActionTitle?: string;
+    allowedSourceIds?: string[];
+  }
+): { question: string; result: CaseAnswer } | null {
   const raw = message.answer_json || message.content;
   try {
     const parsed = JSON.parse(raw) as { question?: string; result?: CaseAnswer };
     if (!parsed.question || !parsed.result) {
       return null;
     }
-    return {
-      question: parsed.question,
-      result: {
+    const sourceIds = options?.allowedSourceIds || message.sources.map((source) => source.source_id);
+    const result = qualityGateCaseAnswer(
+      {
         ...parsed.result,
         answer: normalizeAssistantAnswer(parsed.result.answer),
         validatedSources: message.sources.map((source) => ({
@@ -737,7 +853,16 @@ function parseStoredAnswer(message: CaseAiMessageDto): { question: string; resul
           pageNumber: source.page_number,
           validationStatus: source.validation_status
         }))
+      },
+      {
+        intent: options?.intent || classifyUserQuestion(parsed.question),
+        allowedSourceIds: sourceIds,
+        nextActionTitle: options?.nextActionTitle || "Åpne Kontrollstatus."
       }
+    );
+    return {
+      question: parsed.question,
+      result
     };
   } catch {
     return null;
@@ -953,7 +1078,9 @@ export function CaseRoomView({
     setActiveCollaborationMode(memory.activeCollaborationMode);
     listCaseAiMessages(selectedCase.id)
       .then((messages) => {
-        const parsed = messages.map(parseStoredAnswer).filter(Boolean) as Array<{ question: string; result: CaseAnswer }>;
+        const parsed = messages
+          .map((message) => parseStoredAnswer(message, { nextActionTitle }))
+          .filter(Boolean) as Array<{ question: string; result: CaseAnswer }>;
         setAnswers(parsed);
         setLatestSuggestedActions(memory.suggestedActions.length > 0 ? memory.suggestedActions : parsed[0]?.result.suggestedActions || []);
       })
@@ -1130,7 +1257,11 @@ export function CaseRoomView({
           promptVersion: "case_room_recommendation_v1",
           sourceIndexVersion: `sources-${sources.length}`
         });
-        const stored = parseStoredAnswer(persisted);
+        const stored = parseStoredAnswer(persisted, {
+          intent: questionIntent,
+          nextActionTitle,
+          allowedSourceIds: result.sourceIds
+        });
         setLatestSuggestedActions(nextSuggestedActions);
         await revealAnswer(stored || { question: displayQuestion, result });
         persistConversationTurn(result, nextSuggestedActions, activeMode, resolvedAction);
@@ -1194,7 +1325,11 @@ export function CaseRoomView({
           promptVersion: "case_room_command_v1",
           sourceIndexVersion: `sources-${sources.length}`
         });
-        const stored = parseStoredAnswer(persisted);
+        const stored = parseStoredAnswer(persisted, {
+          intent: questionIntent,
+          nextActionTitle,
+          allowedSourceIds: result.sourceIds
+        });
         setLatestSuggestedActions(nextSuggestedActions);
         await revealAnswer(stored || { question: displayQuestion, result });
         persistConversationTurn(result, nextSuggestedActions, activeMode, resolvedAction);
@@ -1215,7 +1350,11 @@ export function CaseRoomView({
         deviations,
         nextActionTitle
       });
-      const providerAnswer = parseStoredAnswer(providerMessage);
+      const providerAnswer = parseStoredAnswer(providerMessage, {
+        intent: questionIntent,
+        nextActionTitle,
+        allowedSourceIds: sources.map((source) => source.id)
+      });
       if (providerAnswer) {
         const nextSuggestedActions = createDefaultSuggestedActions(providerMessage.id);
         const answerWithActions = {
@@ -1261,7 +1400,11 @@ export function CaseRoomView({
       promptVersion: "case_room_safe_local_v1",
       sourceIndexVersion: `sources-${sources.length}`
     });
-    const stored = parseStoredAnswer(persisted);
+    const stored = parseStoredAnswer(persisted, {
+      intent: questionIntent,
+      nextActionTitle,
+      allowedSourceIds: result.sourceIds
+    });
     setLatestSuggestedActions(nextSuggestedActions);
     await revealAnswer(stored || { question: displayQuestion, result });
     persistConversationTurn(result, nextSuggestedActions, activeMode, resolvedAction);

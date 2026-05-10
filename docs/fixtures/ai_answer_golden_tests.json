@@ -1,0 +1,131 @@
+[
+  {
+    "question": "Hvem hadde faktisk kontroll over selskapene",
+    "expectedIntent": "case_content",
+    "mustContainAny": [
+      "kontroll",
+      "beslutninger",
+      "økonomi",
+      "disponerte",
+      "usikker"
+    ],
+    "mustNotContain": [
+      "ØKOKRIM - EVIDA STRESSTEST",
+      "EVIDA STRESSTEST",
+      "Dokument-ID:",
+      "løpenummer",
+      "Bates OKO-",
+      ".pdf"
+    ]
+  },
+  {
+    "question": "Hva bør jeg gjøre først",
+    "expectedIntent": "recommendation",
+    "mustContainAny": [
+      "jeg ville startet",
+      "først",
+      "dokumentgrunnlag",
+      "kronologi",
+      "kontroll"
+    ],
+    "mustNotContain": [
+      "Dokument-ID:",
+      "løpenummer",
+      "Bates OKO-"
+    ]
+  },
+  {
+    "question": "Hvorfor gjenstår det 87 sider",
+    "expectedIntent": "process_status",
+    "mustContainAny": [
+      "gjenstår",
+      "behandlet",
+      "kildeutdrag",
+      "dokumentbehandling",
+      "sider"
+    ],
+    "mustNotContain": [
+      "ØKOKRIM - EVIDA STRESSTEST",
+      "EVIDA STRESSTEST"
+    ]
+  },
+  {
+    "question": "Hva bygger du dette på",
+    "expectedIntent": "source_question",
+    "mustContainAny": [
+      "kilder",
+      "grunnlag",
+      "utdrag",
+      "bygger"
+    ],
+    "mustNotContain": [
+      "ØKOKRIM - EVIDA STRESSTEST",
+      "EVIDA STRESSTEST"
+    ]
+  },
+  {
+    "question": "Hvilke transaksjoner går igjen i flere dokumenter",
+    "expectedIntent": "case_content",
+    "mustContainAny": [
+      "transaksjoner",
+      "dokumenter",
+      "gjentar",
+      "går igjen",
+      "usikker"
+    ],
+    "mustNotContain": [
+      "ØKOKRIM - EVIDA STRESSTEST",
+      "Dokument-ID:",
+      "løpenummer",
+      "Bates OKO-"
+    ]
+  },
+  {
+    "question": "Er denne saken sterk",
+    "expectedIntent": "risk_assessment",
+    "mustContainAny": [
+      "sterk",
+      "svak",
+      "grunnlag",
+      "usikker",
+      "må kontrolleres"
+    ],
+    "mustNotContain": [
+      "ØKOKRIM - EVIDA STRESSTEST",
+      "Dokument-ID:",
+      "Bates OKO-"
+    ]
+  },
+  {
+    "question": "Stemmer tidslinjen med forklaringene",
+    "expectedIntent": "timeline",
+    "mustContainAny": [
+      "tidslinje",
+      "forklaring",
+      "stemmer",
+      "avvik",
+      "usikker"
+    ],
+    "mustNotContain": [
+      "ØKOKRIM - EVIDA STRESSTEST",
+      "Dokument-ID:",
+      "løpenummer"
+    ]
+  },
+  {
+    "question": "Finnes det motstrid mellom forklaring og dokumentasjon",
+    "expectedIntent": "contradiction",
+    "mustContainAny": [
+      "motstrid",
+      "forklaring",
+      "dokumentasjon",
+      "avvik",
+      "kontrollere"
+    ],
+    "mustNotContain": [
+      "ØKOKRIM - EVIDA STRESSTEST",
+      "Dokument-ID:",
+      "Bates OKO-"
+    ]
+  }
+]

@@ -2,12 +2,17 @@ import type { SuggestedAction } from "../types/chat";
 
 export type UserQuestionIntent =
   | "case_content"
-  | "processing_status"
+  | "process_status"
   | "recommendation"
+  | "source_question"
+  | "risk_assessment"
+  | "timeline"
+  | "contradiction"
+  | "evidence"
   | "app_help"
   | "legal_work_mode"
   | "settings_security"
-  | "unknown";
+  | "general";
 
 const ordinalMap: Record<string, number> = {
   forste: 1,
@@ -53,7 +58,50 @@ const processingStatusTerms = [
   "hvor langt",
   "kildedekning",
   "mangler sider",
-  "eta"
+  "eta",
+  "jobber evida",
+  "gjenstar det"
+];
+
+const sourceQuestionTerms = [
+  "hva bygger du dette pa",
+  "hva bygger du pa",
+  "hvilke kilder",
+  "hvor finner jeg dette",
+  "kildegrunnlag",
+  "vis kilder"
+];
+
+const riskAssessmentTerms = [
+  "er denne saken sterk",
+  "sterk nok",
+  "svakheten",
+  "risiko",
+  "hva er svakheten",
+  "hvor sterk"
+];
+
+const timelineTerms = [
+  "tidslinje",
+  "kronologi",
+  "hendelsesforlop",
+  "stemmer tidslinjen",
+  "datoene"
+];
+
+const contradictionTerms = [
+  "motstrid",
+  "avvik",
+  "motsier",
+  "forklaring og dokumentasjon",
+  "stemmer ikke"
+];
+
+const evidenceTerms = [
+  "bevis",
+  "finn bevis",
+  "hva dokumenterer",
+  "bevismatrise"
 ];
 
 const settingsSecurityTerms = [
@@ -81,13 +129,18 @@ const caseContentTerms = [
   "kort fortalt",
   "forklar saken",
   "hovedspor",
-  "viktigste punkter"
+  "viktigste punkter",
+  "hvem hadde",
+  "faktisk kontroll",
+  "hva skjedde",
+  "hvilke transaksjoner",
+  "transaksjoner gar igjen"
 ];
 
 export function classifyUserQuestion(input: string): UserQuestionIntent {
   const q = normalizeIntentText(input);
   if (!q) {
-    return "unknown";
+    return "general";
   }
   if (recommendationTerms.some((term) => q.includes(term))) {
     return "recommendation";
@@ -96,7 +149,22 @@ export function classifyUserQuestion(input: string): UserQuestionIntent {
     return "settings_security";
   }
   if (processingStatusTerms.some((term) => q.includes(term))) {
-    return "processing_status";
+    return "process_status";
+  }
+  if (sourceQuestionTerms.some((term) => q.includes(term))) {
+    return "source_question";
+  }
+  if (riskAssessmentTerms.some((term) => q.includes(term))) {
+    return "risk_assessment";
+  }
+  if (timelineTerms.some((term) => q.includes(term))) {
+    return "timeline";
+  }
+  if (contradictionTerms.some((term) => q.includes(term))) {
+    return "contradiction";
+  }
+  if (evidenceTerms.some((term) => q.includes(term))) {
+    return "evidence";
   }
   if (legalWorkModeTerms.some((term) => q.includes(term))) {
     return "legal_work_mode";
@@ -104,7 +172,7 @@ export function classifyUserQuestion(input: string): UserQuestionIntent {
   if (caseContentTerms.some((term) => q.includes(term))) {
     return "case_content";
   }
-  return "unknown";
+  return "general";
 }
 
 export function resolveSuggestedAction(input: string, actions: SuggestedAction[]) {
