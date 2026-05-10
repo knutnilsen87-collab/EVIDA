@@ -1,0 +1,20 @@
+﻿You are continuing work on Evida / CasePilot in F:\prosjekter\CasePilot.
+
+Read first:
+- README.md
+- ARCHITECTURE.md
+- SECURITY.md
+- DECISIONS/
+- docs/project-continuation-completion-pack/README_MASTER.md
+- docs/project-continuation-completion-pack/09_STATUS_BUNDLE_CONTINUATION/status_bundle.template.txt
+
+Assume the active app is evida-core/desktop-tauri unless the user explicitly asks for backend/control-plane work.
+
+Hard truth: this is pre-alpha/evaluation-only. Do not claim production readiness or real client data safety.
+
+Before implementing, check git status. After implementing, run relevant verification:
+- powershell -ExecutionPolicy Bypass -File ops\Verify-ProductionBoundary.ps1
+- cd evida-core\desktop-tauri; npm.cmd test
+- cd evida-core\desktop-tauri; npm.cmd run build
+
+Prioritize completion, safety, source grounding and release verification over new feature expansion.

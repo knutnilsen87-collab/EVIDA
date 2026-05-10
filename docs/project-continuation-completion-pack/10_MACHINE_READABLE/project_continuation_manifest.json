@@ -1,0 +1,33 @@
+﻿{
+  "pack_name": "Project Continuation & Completion Pack Ultimate",
+  "filled_for": "Evida / CasePilot",
+  "version": "1.0-filled",
+  "generated_date": "2026-05-10",
+  "repo_path": "F:/prosjekter/CasePilot",
+  "active_app_path": "evida-core/desktop-tauri",
+  "current_branch_at_generation": "codex/cp-p0-003-doc-engine-adaptive-foundation",
+  "last_observed_commit": "2606491 style(saksrom): improve summary readability",
+  "status": "pre-alpha technical scaffold / local evaluation build",
+  "production_ready": false,
+  "real_client_data_allowed": false,
+  "canonical_docs": [
+    "README.md",
+    "ARCHITECTURE.md",
+    "SECURITY.md",
+    "DECISIONS/"
+  ],
+  "verification_snapshot": {
+    "production_boundary": "passed",
+    "desktop_tests": "passed",
+    "desktop_build": "passed",
+    "tauri_build": "recently passed",
+    "spring_boot_tests": "not verified in this snapshot"
+  },
+  "primary_next_actions": [
+    "Add import-to-Saksrom smoke/e2e coverage",
+    "Clean deprecated FastAPI backend ownership ambiguity",
+    "Run clean-machine installer smoke test",
+    "Add security/dependency/release-signing gates",
+    "Define Spring Boot integration verification path"
+  ]
+}

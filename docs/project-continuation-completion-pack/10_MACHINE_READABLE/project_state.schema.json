@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "properties": {
+    "project_name": {
+      "type": "string"
+    },
+    "project_root": {
+      "type": "string"
+    },
+    "project_type": {
+      "type": "string"
+    },
+    "project_state_confidence": {
+      "type": "string"
+    },
+    "current_phase": {
+      "type": "string"
+    },
+    "last_action": {
+      "type": "string"
+    },
+    "last_result": {
+      "type": "string"
+    },
+    "next_action": {
+      "type": "string"
+    },
+    "verification_level": {
+      "type": "string"
+    },
+    "top_blocker": {
+      "type": "string"
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

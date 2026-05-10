@@ -1,0 +1,17 @@
+﻿{
+  "project": "Evida / CasePilot",
+  "date": "2026-05-10",
+  "stage": "pre-alpha evaluation",
+  "active_codebase": "evida-core/desktop-tauri",
+  "safe_for_real_client_data": false,
+  "build_status": "desktop frontend build passed",
+  "test_status": "desktop local tests passed",
+  "boundary_status": "production boundary verifier passed",
+  "main_blockers": [
+    "production auth/RBAC/tenant isolation missing",
+    "encrypted storage missing",
+    "audit hash-chain enforcement incomplete",
+    "AI provider policy enforcement incomplete",
+    "release signing/SBOM/clean-machine QA missing"
+  ]
+}

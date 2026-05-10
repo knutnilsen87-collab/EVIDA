@@ -1,0 +1,42 @@
+﻿STATUS BUNDLE - EVIDA / CASEPILOT
+Generated: 2026-05-10
+Repo: F:\prosjekter\CasePilot
+Branch at generation: codex/cp-p0-003-doc-engine-adaptive-foundation
+Last observed commit: 2606491 style(saksrom): improve summary readability
+
+PROJECT TRUTH
+Evida is a desktop-first, local legal workspace for document import, source-bound Saksrom dialogue and legal workrooms. It is pre-alpha/evaluation-only and not approved for real client data.
+
+ACTIVE PATHS
+- Active app: evida-core/desktop-tauri
+- Canonical root docs: README.md, ARCHITECTURE.md, SECURITY.md, DECISIONS/
+- Future enterprise/control-plane backend: evida-core/services/saksrom-api
+- Deprecated enterprise backend starter: evida-core/backend-api
+- Release scripts: ops/
+
+RECENT VERIFIED COMMANDS
+- powershell -ExecutionPolicy Bypass -File ops\Verify-ProductionBoundary.ps1: passed
+- cd evida-core\desktop-tauri; npm.cmd test: passed
+- cd evida-core\desktop-tauri; npm.cmd run build: passed
+- cd evida-core\desktop-tauri; npm.cmd run tauri:build: recently passed
+
+CURRENT PRODUCT STATUS
+Working local desktop evaluation build. Saksrom is chat-first and recently improved for readability. Document import/progress/readiness/adaptive Saksrom/legal command tests exist and pass locally.
+
+DO NOT CLAIM
+- Production readiness
+- Real client data safety
+- Complete auth/RBAC/tenant isolation
+- Encrypted storage
+- Fully enforced AI provider policy
+- Signed public release
+
+NEXT BEST WORK
+1. Add import -> Saksrom -> source -> workroom smoke/e2e coverage.
+2. Clean deprecated FastAPI backend ownership ambiguity.
+3. Run clean-machine installer smoke test.
+4. Add security/dependency/release-signing gates.
+5. Define Spring Boot integration and verification path.
+
+CODING RULES
+Preserve local-first policy, source-grounding, uncertainty language and real-data warnings. Keep changes narrow and verify with npm test/build plus boundary verifier.
