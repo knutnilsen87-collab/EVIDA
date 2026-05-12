@@ -27,6 +27,7 @@ interface SidebarProps {
   onNewCase: () => void;
   onNewCaseInNewWindow: () => void;
   onOpenCaseSwitcher: () => void;
+  isCreatingCase?: boolean;
 }
 
 function isUnlocked(unlock: UnlockLevel, hasDocuments: boolean, readinessVerdict: CaseReadinessVerdict) {
@@ -72,7 +73,8 @@ export function Sidebar({
   readinessVerdict,
   onNewCase,
   onNewCaseInNewWindow,
-  onOpenCaseSwitcher
+  onOpenCaseSwitcher,
+  isCreatingCase = false
 }: SidebarProps) {
   const visibleItems = hasDocuments
     ? items
@@ -88,7 +90,9 @@ export function Sidebar({
         </div>
       </div>
       <div className="sidebar-actions">
-        <button type="button" className="button-primary" onClick={onNewCase}>+ Ny sak</button>
+        <button type="button" className="button-primary" onClick={onNewCase} disabled={isCreatingCase}>
+          {isCreatingCase ? "Oppretter ..." : "+ Ny sak"}
+        </button>
         <button type="button" className="button-secondary" onClick={onOpenCaseSwitcher}>Bytt sak</button>
         <button type="button" className="button-ghost" onClick={onNewCaseInNewWindow}>Ny sak i nytt vindu</button>
       </div>

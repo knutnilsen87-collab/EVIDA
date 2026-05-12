@@ -177,6 +177,33 @@ interface DocumentProcessingProgressEvent {
   updatedAt: string;
 }
 
+function initialSearchParams() {
+  if (typeof window === "undefined") {
+    return new URLSearchParams();
+  }
+  return new URLSearchParams(window.location.search);
+}
+
+function hasEvaluationSession() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.localStorage.getItem(EVAL_SESSION_STORAGE_KEY) === "true";
+}
+
+function initialWorkspaceView(): ViewKey {
+  const requestedView = initialSearchParams().get("view");
+  if (requestedView && Object.prototype.hasOwnProperty.call(viewTitles, requestedView)) {
+    return requestedView as ViewKey;
+  }
+  return "caseRoom";
+}
+
+function shouldOpenWorkspaceImmediately() {
+  const params = initialSearchParams();
+  return hasEvaluationSession() || Boolean(params.get("caseId"));
+}
+
 function countLabel(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -399,14 +426,14 @@ function documentReadiness(document: DocumentSummary) {
 }
 
 export default function App() {
-  const [activeView, setActiveView] = useState<ViewKey>("caseRoom");
+  const [activeView, setActiveView] = useState<ViewKey>(() => initialWorkspaceView());
   const windowCase = useWindowCaseContext(activeView);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => shouldOpenWorkspaceImmediately());
   const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>(() => {
     if (typeof window === "undefined") {
       return "intro";
     }
-    return "intro";
+    return shouldOpenWorkspaceImmediately() ? "caseRoom" : "intro";
   });
   const [casePickerOpen, setCasePickerOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState(EVAL_LOGIN_EMAIL);
@@ -447,6 +474,8 @@ export default function App() {
   const [importNow, setImportNow] = useState(() => Date.now());
   const [processingLog, setProcessingLog] = useState<string[]>([]);
   const [importError, setImportError] = useState("");
+  const [caseCreationError, setCaseCreationError] = useState("");
+  const [isCreatingCase, setIsCreatingCase] = useState(false);
   const [showAdvancedImport, setShowAdvancedImport] = useState(false);
   const [expandedDocumentId, setExpandedDocumentId] = useState("");
   const [isDragActive, setIsDragActive] = useState(false);
@@ -827,34 +856,58 @@ export default function App() {
   }, [analyzedPages, hasActiveProcessing, hasDocuments, hasSources, needsOcr, totalPages]);
 
   async function handleCreateCase() {
-    const name =
-      startCaseNameInputRef.current?.value.trim() ||
-      panelCaseNameInputRef.current?.value.trim() ||
-      caseName.trim() ||
-      temporaryCaseTitle();
-    const created = await createCase(name, "NO");
-    setCaseName("");
-    if (startCaseNameInputRef.current) {
-      startCaseNameInputRef.current.value = "";
+    if (isCreatingCase) {
+      return;
     }
-    if (panelCaseNameInputRef.current) {
-      panelCaseNameInputRef.current.value = "";
+
+    setIsCreatingCase(true);
+    setCaseCreationError("");
+    try {
+      const name =
+        startCaseNameInputRef.current?.value.trim() ||
+        panelCaseNameInputRef.current?.value.trim() ||
+        caseName.trim() ||
+        temporaryCaseTitle();
+      const created = await createCase(name, "NO");
+      setCaseName("");
+      if (startCaseNameInputRef.current) {
+        startCaseNameInputRef.current.value = "";
+      }
+      if (panelCaseNameInputRef.current) {
+        panelCaseNameInputRef.current.value = "";
+      }
+      await refresh(created.id);
+      setOnboardingStage("caseRoom");
+      setActiveView("documents");
+    } catch (error) {
+      setCaseCreationError(`Kunne ikke opprette ny sak. ${String(error)}`);
+    } finally {
+      setIsCreatingCase(false);
     }
-    await refresh(created.id);
-    setOnboardingStage("caseRoom");
-    setActiveView("caseRoom");
   }
 
   async function handleNewCaseInNewWindow() {
-    if (!hasDesktopRuntime()) {
-      const created = await createCase(temporaryCaseTitle(), "NO");
-      await refresh(created.id);
-      setOnboardingStage("caseRoom");
-      setActiveView("caseRoom");
+    if (isCreatingCase) {
       return;
     }
-    await openNewCaseWindow();
-    await refresh(selectedCaseId);
+
+    setIsCreatingCase(true);
+    setCaseCreationError("");
+    try {
+      if (!hasDesktopRuntime()) {
+        const created = await createCase(temporaryCaseTitle(), "NO");
+        await refresh(created.id);
+        setOnboardingStage("caseRoom");
+        setActiveView("documents");
+        return;
+      }
+      await openNewCaseWindow();
+      await refresh(selectedCaseId);
+    } catch (error) {
+      setCaseCreationError(`Kunne ikke åpne ny sak i nytt vindu. ${String(error)}`);
+    } finally {
+      setIsCreatingCase(false);
+    }
   }
 
   async function handleOpenCaseInCurrentWindow(caseId: string) {
@@ -1481,13 +1534,13 @@ export default function App() {
     setLoginError("");
     setIsAuthenticated(true);
     setOnboardingStage("caseRoom");
-    setActiveView("caseRoom");
+    setActiveView(initialWorkspaceView());
   }
 
   function handleIntroComplete() {
     setOnboardingStage(isAuthenticated ? "caseRoom" : "login");
     if (isAuthenticated) {
-      setActiveView("caseRoom");
+      setActiveView(initialWorkspaceView());
     }
   }
 
@@ -2433,7 +2486,9 @@ export default function App() {
                       }
                     }}
                   />
-                  <button className="button-primary" onClick={handleCreateCase}>Ny sak</button>
+                  <button className="button-primary" onClick={handleCreateCase} disabled={isCreatingCase}>
+                    {isCreatingCase ? "Oppretter ..." : "Ny sak"}
+                  </button>
                 </div>
               </article>
               <article className="choice-card">
@@ -2640,7 +2695,9 @@ export default function App() {
               }
             }}
           />
-          <button className="button-primary" onClick={handleCreateCase}>Opprett sak</button>
+          <button className="button-primary" onClick={handleCreateCase} disabled={isCreatingCase}>
+            {isCreatingCase ? "Oppretter ..." : "Opprett sak"}
+          </button>
         </div>
       </section>
     );
@@ -3146,6 +3203,7 @@ export default function App() {
           onNewCase={() => void handleCreateCase()}
           onNewCaseInNewWindow={() => void handleNewCaseInNewWindow()}
           onOpenCaseSwitcher={() => setCasePickerOpen(true)}
+          isCreatingCase={isCreatingCase}
         />
       ) : null}
       <main className={`workspace ${!showNavigation ? "workspace--guided" : ""} ${showNavigation && isCaseRoomView ? "workspace--chat" : ""}`}>
@@ -3223,6 +3281,8 @@ export default function App() {
             )}
           </div>
         ) : null}
+
+        {caseCreationError ? <div className="error-notice" role="alert">{caseCreationError}</div> : null}
 
         {showNavigation && !isCaseRoomView ? (
           <div className="command-center-stack">

@@ -72,6 +72,10 @@ fn case_window_label(case_id: &str) -> String {
     format!("case-window-{}", case_id.replace(|value: char| !value.is_ascii_alphanumeric(), "-"))
 }
 
+fn case_documents_window_url(case_id: &str) -> String {
+    format!("index.html?caseId={}&view=documents", case_id)
+}
+
 fn open_or_focus_case_window(app: &AppHandle, case: &CaseSummary) -> Result<(), String> {
     let label = case_window_label(&case.id);
     if let Some(window) = app.get_webview_window(&label) {
@@ -79,7 +83,7 @@ fn open_or_focus_case_window(app: &AppHandle, case: &CaseSummary) -> Result<(), 
         return Ok(());
     }
 
-    let url = format!("index.html?caseId={}", case.id);
+    let url = case_documents_window_url(&case.id);
     WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
         .title(format!("Evida — {}", case.name))
         .inner_size(1600.0, 1040.0)
@@ -1639,6 +1643,16 @@ mod tests {
         });
 
         assert_eq!(extract_provider_source_ids(&provider), vec!["SRC-1", "SRC-2", "SRC-3"]);
+    }
+
+    #[test]
+    fn new_case_windows_open_directly_on_documents_route() {
+        let case_id = "CASE-123";
+
+        assert_eq!(
+            case_documents_window_url(case_id),
+            "index.html?caseId=CASE-123&view=documents"
+        );
     }
 
     #[test]
