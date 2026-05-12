@@ -33,7 +33,7 @@ export function ContradictionsView({
           onAction={onFind}
         />
       ) : (
-        <div className="work-table contradictions-table">
+        <div className="work-table contradictions-table work-table--conflict">
           <div>Tema</div>
           <div>Kilde A</div>
           <div>Kilde B</div>

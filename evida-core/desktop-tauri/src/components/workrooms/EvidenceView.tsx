@@ -28,7 +28,7 @@ export function EvidenceView({ rows, sourcesById, onBuild, onOpenSource }: Evide
           onAction={onBuild}
         />
       ) : (
-        <div className="work-table evidence-table">
+        <div className="work-table evidence-table work-table--evidence">
           <div>Påstand</div>
           <div>Støttende kilder</div>
           <div>Svekkende kilder</div>
@@ -39,7 +39,7 @@ export function EvidenceView({ rows, sourcesById, onBuild, onOpenSource }: Evide
               <strong>{row.claim}</strong>
               <SourceButtonList ids={row.supporting} sourcesById={sourcesById} onOpenSource={onOpenSource} />
               <SourceButtonList ids={row.weakening} sourcesById={sourcesById} onOpenSource={onOpenSource} />
-              <span>{row.strength}</span>
+              <span className={`strength-badge strength-badge--${row.strength.toLowerCase()}`}>{row.strength}</span>
               <span>{row.status}</span>
             </div>
           ))}

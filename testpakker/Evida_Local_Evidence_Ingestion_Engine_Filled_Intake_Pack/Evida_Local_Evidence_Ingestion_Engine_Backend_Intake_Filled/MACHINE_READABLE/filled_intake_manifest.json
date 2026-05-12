@@ -1,0 +1,41 @@
+{
+  "title": "Evida Local Evidence Ingestion Engine - Filled Backend Intake Pack",
+  "project_type": "backend_api_project/local_desktop_engine",
+  "purpose": "Developer-ready intake and implementation foundation for Evida's local evidence/document ingestion engine.",
+  "selected_template": "03_BACKEND_API_PROJECT_INTAKE_PACK",
+  "why_selected": "The engine is a local backend/domain-heavy system with durable state, APIs/commands, queue, data integrity, verification, and observability requirements.",
+  "required_files_filled": [
+    "PROJECT_BRIEF.md",
+    "USERS_AND_PERSONAS.md",
+    "MVP_SCOPE.md",
+    "FEATURE_INVENTORY.md",
+    "UX_UI_DIRECTION.md",
+    "TECH_DIRECTION.md",
+    "DATA_API_REQUIREMENTS.md",
+    "OPERATIONS_AND_HANDOFF.md",
+    "RISKS_AND_UNKNOWNS.md",
+    "DELIVERY_HANDOFF.md",
+    "GPT_STARTER_PROMPT.txt",
+    "DOMAIN_MODEL.md",
+    "INTEGRATIONS_AND_EXTERNAL_SYSTEMS.md",
+    "OBSERVABILITY_AND_OPERATIONS.md",
+    "status_bundle.template.txt"
+  ],
+  "additional_files": [
+    "ARCHITECTURE_DECISIONS.md",
+    "STATE_MACHINE_AND_INVARIANTS.md",
+    "MANUAL_REVIEW_WORKFLOW.md",
+    "TEST_AND_BENCHMARK_PLAN.md",
+    "FAILURE_CODE_CATALOG.md"
+  ],
+  "critical_invariants": [
+    "No discovered file without status",
+    "Hash required for verified readable file",
+    "Source provenance required for AI use",
+    "Safety before archive extraction",
+    "Low-confidence OCR is not high-confidence source",
+    "Manual review distinct from machine-readable",
+    "Complete status requires verification"
+  ],
+  "recommended_next_action": "Create ADR + canonical schemas + state machine before parser/OCR/UI implementation."
+}

@@ -162,6 +162,205 @@ export interface DocumentIngestionReport {
   warnings: string[];
 }
 
+export type ImportItemStatus =
+  | "queued"
+  | "validating"
+  | "hashing"
+  | "extracting_text"
+  | "ocr_required"
+  | "ocr_running"
+  | "chunking"
+  | "indexed"
+  | "ready"
+  | "partial"
+  | "duplicate"
+  | "unsupported"
+  | "failed"
+  | "cancelled";
+
+export type ImportIssueCode =
+  | "OCR_REQUIRED"
+  | "UNSUPPORTED_FILE_TYPE"
+  | "TYPE_MISMATCH"
+  | "FILE_PERMISSION_DENIED"
+  | "ARCHIVE_PATH_TRAVERSAL_BLOCKED"
+  | "ARCHIVE_BOMB_RISK"
+  | "CORRUPT_FILE"
+  | "ZERO_BYTE_FILE"
+  | "DUPLICATE_FILE"
+  | "TEXT_EXTRACTION_FAILED"
+  | "PARTIAL_TEXT_EXTRACTION"
+  | "PASSWORD_PROTECTED"
+  | "FILE_TOO_LARGE"
+  | "PATH_NOT_FILE"
+  | "UNKNOWN_ERROR";
+
+export interface ImportSession {
+  id: string;
+  case_id: string;
+  started_at: string;
+  completed_at?: string | null;
+  total_files_seen: number;
+  files_ready: number;
+  files_partial: number;
+  files_requires_ocr: number;
+  files_duplicate: number;
+  files_unsupported: number;
+  files_failed: number;
+  pages_total: number;
+  pages_with_text: number;
+  pages_requires_ocr: number;
+  source_objects_created: number;
+  source_coverage_percent: number;
+  status: string;
+}
+
+export interface ImportItem {
+  id: string;
+  import_session_id: string;
+  case_id: string;
+  original_path: string;
+  original_name: string;
+  extension?: string | null;
+  detected_mime_type?: string | null;
+  file_size?: number | null;
+  sha256?: string | null;
+  status: ImportItemStatus;
+  issue_code?: ImportIssueCode | null;
+  issue_severity?: "info" | "warning" | "error" | null;
+  user_message: string;
+  technical_message?: string | null;
+  recommended_action: string;
+  can_retry: boolean;
+  can_continue: boolean;
+  page_count: number;
+  pages_with_text: number;
+  pages_requires_ocr: number;
+  source_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ImportHealthSummary {
+  case_id: string;
+  latest_session?: ImportSession | null;
+  items: ImportItem[];
+  overall_status: "processing" | "incomplete" | "ready" | string;
+  status_title: string;
+  reason: string;
+  consequence: string;
+  recommended_action: string;
+  can_open_preliminary: boolean;
+  source_coverage_percent: number;
+  missing_files_count: number;
+  missing_pages_count: number;
+  verification?: ImportVerificationResult | null;
+  readiness?: CaseReadinessReport | null;
+}
+
+export interface ImportVerificationResult {
+  id: string;
+  import_session_id: string;
+  case_id: string;
+  status: string;
+  total_items: number;
+  terminal_items: number;
+  processing_items: number;
+  exception_items: number;
+  invariant_failures_json: string;
+  created_at: string;
+}
+
+export interface CaseReadinessReport {
+  id: string;
+  case_id: string;
+  import_session_id?: string | null;
+  readiness_state: string;
+  source_coverage_percent: number;
+  missing_files_count: number;
+  missing_pages_count: number;
+  can_open_preliminary: boolean;
+  banner_message: string;
+  recommended_action: string;
+  created_at: string;
+}
+
+export interface ImportControlResult {
+  session: ImportSession;
+  message: string;
+}
+
+export interface SourceSearchResult {
+  source_id: string;
+  case_id: string;
+  document_id: string;
+  document_name: string;
+  page_start: number;
+  page_end: number;
+  snippet: string;
+  score: number;
+}
+
+export interface OcrResult {
+  id: string;
+  case_id: string;
+  import_item_id?: string | null;
+  document_id?: string | null;
+  page_id?: string | null;
+  page_number?: number | null;
+  engine: string;
+  status: string;
+  confidence?: number | null;
+  issue_code?: string | null;
+  user_message: string;
+  technical_message?: string | null;
+  recommended_action: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManualReviewItem {
+  id: string;
+  case_id: string;
+  import_session_id?: string | null;
+  import_item_id?: string | null;
+  document_id?: string | null;
+  page_id?: string | null;
+  review_type: string;
+  severity: string;
+  status: string;
+  reason: string;
+  recommended_action: string;
+  ai_usable: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManualReviewAction {
+  id: string;
+  review_item_id: string;
+  case_id: string;
+  action: string;
+  note?: string | null;
+  actor: string;
+  created_at: string;
+}
+
+export interface EvidenceQualityReport {
+  case_id: string;
+  total_documents: number;
+  duplicate_groups: number;
+  duplicate_documents: number;
+  attachment_like_documents: number;
+  citation_checks: number;
+  citation_failures: number;
+  source_map_rows: number;
+  chain_of_custody_rows: number;
+  warnings: string[];
+  recommended_action: string;
+  generated_at: string;
+}
+
 export interface ReindexReport {
   documents_processed: number;
   sources_created: number;

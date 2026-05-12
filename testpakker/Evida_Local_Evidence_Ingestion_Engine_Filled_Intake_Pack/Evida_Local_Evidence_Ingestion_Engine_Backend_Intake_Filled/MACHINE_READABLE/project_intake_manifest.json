@@ -1,0 +1,23 @@
+{
+  "title": "Backend API Project Intake Pack",
+  "project_type": "backend_api_project",
+  "purpose": "For API-first services, backend systems, domain/data-heavy services, and integration-heavy backends.",
+  "required_files": [
+    "PROJECT_BRIEF.md",
+    "USERS_AND_PERSONAS.md",
+    "MVP_SCOPE.md",
+    "FEATURE_INVENTORY.md",
+    "UX_UI_DIRECTION.md",
+    "TECH_DIRECTION.md",
+    "DATA_API_REQUIREMENTS.md",
+    "OPERATIONS_AND_HANDOFF.md",
+    "RISKS_AND_UNKNOWNS.md",
+    "DELIVERY_HANDOFF.md",
+    "status_bundle.template.txt",
+    "bootstrap_status_bundle.ps1",
+    "GPT_STARTER_PROMPT.txt",
+    "DOMAIN_MODEL.md",
+    "INTEGRATIONS_AND_EXTERNAL_SYSTEMS.md",
+    "OBSERVABILITY_AND_OPERATIONS.md"
+  ]
+}

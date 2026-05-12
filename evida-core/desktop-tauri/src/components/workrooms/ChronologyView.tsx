@@ -28,7 +28,7 @@ export function ChronologyView({ items, sourcesById, onBuild, onOpenSource }: Ch
           onAction={onBuild}
         />
       ) : (
-        <div className="work-table chronology-table">
+        <div className="work-table chronology-table work-table--timeline">
           <div>Dato</div>
           <div>Hendelse</div>
           <div>Kilde</div>
@@ -36,7 +36,7 @@ export function ChronologyView({ items, sourcesById, onBuild, onOpenSource }: Ch
           <div>Usikkerhet</div>
           {items.map((item) => (
             <div className="work-row" key={item.id}>
-              <span>{item.date}</span>
+              <span className="timeline-date">{item.date}</span>
               <strong>{item.event}</strong>
               <button className="link-button" onClick={() => onOpenSource(item.sourceId)}>
                 {sourceTitle(sourcesById.get(item.sourceId))}

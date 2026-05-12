@@ -5,6 +5,7 @@ type Props = {
   onNewCaseWindow: () => void;
   onOpenCaseSwitcher: () => void;
   onImportDocuments: () => void;
+  onImportFolder?: () => void;
   onExport: () => void;
   onCloseCase: () => void;
   onToggleTheme: () => void;
@@ -28,6 +29,7 @@ export function DesktopMenuBar({
   onNewCaseWindow,
   onOpenCaseSwitcher,
   onImportDocuments,
+  onImportFolder,
   onExport,
   onCloseCase,
   onToggleTheme,
@@ -74,6 +76,7 @@ export function DesktopMenuBar({
         { label: "Ny sak i nytt vindu", shortcut: "Ctrl+Shift+N", action: onNewCaseWindow },
         { label: "Åpne tidligere sak", shortcut: "Ctrl+O", action: onOpenCaseSwitcher },
         { label: "Importer dokumenter", shortcut: "Ctrl+I", action: onImportDocuments },
+        { label: "Importer saksmappe", action: onImportFolder || onImportDocuments },
         { label: "Lagre", action: disabled },
         { label: "Eksporter", action: onExport },
         { label: "Lukk sak", action: onCloseCase }

@@ -77,6 +77,183 @@ pub struct DocumentIngestionReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportSession {
+    pub id: String,
+    pub case_id: String,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+    pub total_files_seen: i64,
+    pub files_ready: i64,
+    pub files_partial: i64,
+    pub files_requires_ocr: i64,
+    pub files_duplicate: i64,
+    pub files_unsupported: i64,
+    pub files_failed: i64,
+    pub pages_total: i64,
+    pub pages_with_text: i64,
+    pub pages_requires_ocr: i64,
+    pub source_objects_created: i64,
+    pub source_coverage_percent: f64,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportItem {
+    pub id: String,
+    pub import_session_id: String,
+    pub case_id: String,
+    pub original_path: String,
+    pub original_name: String,
+    pub extension: Option<String>,
+    pub detected_mime_type: Option<String>,
+    pub file_size: Option<i64>,
+    pub sha256: Option<String>,
+    pub status: String,
+    pub issue_code: Option<String>,
+    pub issue_severity: Option<String>,
+    pub user_message: String,
+    pub technical_message: Option<String>,
+    pub recommended_action: String,
+    pub can_retry: bool,
+    pub can_continue: bool,
+    pub page_count: i64,
+    pub pages_with_text: i64,
+    pub pages_requires_ocr: i64,
+    pub source_count: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportHealthSummary {
+    pub case_id: String,
+    pub latest_session: Option<ImportSession>,
+    pub items: Vec<ImportItem>,
+    pub overall_status: String,
+    pub status_title: String,
+    pub reason: String,
+    pub consequence: String,
+    pub recommended_action: String,
+    pub can_open_preliminary: bool,
+    pub source_coverage_percent: f64,
+    pub missing_files_count: i64,
+    pub missing_pages_count: i64,
+    pub verification: Option<ImportVerificationResult>,
+    pub readiness: Option<CaseReadinessReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportVerificationResult {
+    pub id: String,
+    pub import_session_id: String,
+    pub case_id: String,
+    pub status: String,
+    pub total_items: i64,
+    pub terminal_items: i64,
+    pub processing_items: i64,
+    pub exception_items: i64,
+    pub invariant_failures_json: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaseReadinessReport {
+    pub id: String,
+    pub case_id: String,
+    pub import_session_id: Option<String>,
+    pub readiness_state: String,
+    pub source_coverage_percent: f64,
+    pub missing_files_count: i64,
+    pub missing_pages_count: i64,
+    pub can_open_preliminary: bool,
+    pub banner_message: String,
+    pub recommended_action: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportControlResult {
+    pub session: ImportSession,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceSearchResult {
+    pub source_id: String,
+    pub case_id: String,
+    pub document_id: String,
+    pub document_name: String,
+    pub page_start: i64,
+    pub page_end: i64,
+    pub snippet: String,
+    pub score: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OcrResult {
+    pub id: String,
+    pub case_id: String,
+    pub import_item_id: Option<String>,
+    pub document_id: Option<String>,
+    pub page_id: Option<String>,
+    pub page_number: Option<i64>,
+    pub engine: String,
+    pub status: String,
+    pub confidence: Option<f64>,
+    pub issue_code: Option<String>,
+    pub user_message: String,
+    pub technical_message: Option<String>,
+    pub recommended_action: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManualReviewItem {
+    pub id: String,
+    pub case_id: String,
+    pub import_session_id: Option<String>,
+    pub import_item_id: Option<String>,
+    pub document_id: Option<String>,
+    pub page_id: Option<String>,
+    pub review_type: String,
+    pub severity: String,
+    pub status: String,
+    pub reason: String,
+    pub recommended_action: String,
+    pub ai_usable: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManualReviewAction {
+    pub id: String,
+    pub review_item_id: String,
+    pub case_id: String,
+    pub action: String,
+    pub note: Option<String>,
+    pub actor: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvidenceQualityReport {
+    pub case_id: String,
+    pub total_documents: i64,
+    pub duplicate_groups: i64,
+    pub duplicate_documents: i64,
+    pub attachment_like_documents: i64,
+    pub citation_checks: i64,
+    pub citation_failures: i64,
+    pub source_map_rows: i64,
+    pub chain_of_custody_rows: i64,
+    pub warnings: Vec<String>,
+    pub recommended_action: String,
+    pub generated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReindexReport {
     pub documents_processed: i64,
     pub sources_created: i64,

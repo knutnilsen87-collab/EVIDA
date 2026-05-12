@@ -1,4 +1,5 @@
 import type { SourceObjectSummary } from "../../types";
+import { EvidenceChip } from "../EvidenceChip";
 
 interface SourceButtonListProps {
   ids: string[];
@@ -21,9 +22,16 @@ export function SourceButtonList({ ids, sourcesById, onOpenSource }: SourceButto
   return (
     <div className="source-chip-list">
       {ids.map((id) => (
-        <button key={id} className="source-chip" onClick={() => onOpenSource(id)}>
-          {sourceTitle(sourcesById.get(id))}
-        </button>
+        <EvidenceChip
+          key={id}
+          sourceId={id}
+          documentLabel={sourcesById.get(id)?.document_id}
+          page={sourcesById.get(id)?.page_start}
+          excerpt={sourcesById.get(id)?.text_excerpt}
+          confidence="medium"
+          status="verified"
+          onClick={() => onOpenSource(id)}
+        />
       ))}
     </div>
   );

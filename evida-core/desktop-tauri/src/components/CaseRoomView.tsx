@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
-import type { CaseAiMessageDto, CaseSummary, DocumentSummary, SourceObjectSummary } from "../types";
+import type { CaseAiMessageDto, CaseSummary, DocumentSummary, ImportItemStatus, SourceObjectSummary } from "../types";
 import { askCaseAi, listCaseAiMessages, recordCaseAiExchange } from "../lib/api";
 import type { ReadinessResult } from "../features/readiness/caseReadiness";
 import {
@@ -59,12 +59,14 @@ interface CaseRoomViewProps {
   coverage: number;
   deviations: string[];
   readiness: ReadinessResult;
+  preliminaryBanner?: string;
   nextActionTitle: string;
   onOpenSource: (sourceId: string) => void;
   onOpenControl: () => void;
   onOpenSimulation: () => void;
   onRunCommand: (input: string) => Promise<string>;
   onChooseDocuments: () => void;
+  onChooseFolder: () => void;
   onImportPaths: (paths: string[]) => void;
   onSaveCaseName: (name: string) => Promise<void>;
 }
@@ -72,7 +74,7 @@ interface CaseRoomViewProps {
 interface CaseRoomImportItem {
   path: string;
   name: string;
-  status: DocumentProcessingStage | LegacyImportStage;
+  status: DocumentProcessingStage | LegacyImportStage | ImportItemStatus;
   detail: string;
   pages?: number;
   pagesProcessed?: number;
@@ -100,7 +102,7 @@ interface CaseAnswer {
   suggestedActions?: SuggestedAction[];
 }
 
-function toProcessingStage(stage: DocumentProcessingStage | LegacyImportStage | undefined): DocumentProcessingStage | undefined {
+function toProcessingStage(stage: DocumentProcessingStage | LegacyImportStage | ImportItemStatus | undefined): DocumentProcessingStage | undefined {
   switch (stage) {
     case "selected":
       return "queued";
@@ -113,7 +115,15 @@ function toProcessingStage(stage: DocumentProcessingStage | LegacyImportStage | 
     case "chunking":
       return "finding_source_points";
     case "ready":
+    case "partial":
+    case "duplicate":
       return "completed";
+    case "ocr_required":
+    case "unsupported":
+    case "cancelled":
+    case "ocr_running":
+    case "indexed":
+      return "failed";
     case "needs_attention":
       return "failed";
     default:
@@ -467,7 +477,7 @@ function importLiveProgressPercent(item: CaseRoomImportItem | undefined, nowMs: 
   */
 }
 
-function activeIntakeWorkState(stage: DocumentProcessingStage | LegacyImportStage | undefined) {
+function activeIntakeWorkState(stage: DocumentProcessingStage | LegacyImportStage | ImportItemStatus | undefined) {
   const stepViews = processingStepViews(toProcessingStage(stage));
   return {
     states: stepViews.map((step) => step.label),
@@ -895,12 +905,14 @@ export function CaseRoomView({
   coverage,
   deviations,
   readiness,
+  preliminaryBanner,
   nextActionTitle,
   onOpenSource,
   onOpenControl,
   onOpenSimulation,
   onRunCommand,
   onChooseDocuments,
+  onChooseFolder,
   onImportPaths,
   onSaveCaseName
 }: CaseRoomViewProps) {
@@ -1483,6 +1495,9 @@ export function CaseRoomView({
                 Vis kontrollstatus
               </button>
             </div>
+            {preliminaryBanner ? (
+              <div className="warning-notice case-room-preliminary-banner">{preliminaryBanner}</div>
+            ) : null}
             {isCaseSummaryReady ? (
               <div className="case-summary-content">
                 <h3 className="case-summary-title">{coverage >= 95 ? "Saksoppsummering" : "Foreløpig saksoppsummering"}</h3>
@@ -1760,9 +1775,14 @@ export function CaseRoomView({
                   : "Still spørsmål om dokumentene. Svar viser kilder, usikkerhet og hva som mangler."}
               </p>
               {!hasDocuments ? (
-                <button type="button" className="button-primary" onClick={onChooseDocuments}>
-                  Velg dokumenter
-                </button>
+                <div className="case-summary-actions">
+                  <button type="button" className="button-primary" onClick={onChooseDocuments}>
+                    Velg dokumenter
+                  </button>
+                  <button type="button" className="button-secondary" onClick={onChooseFolder}>
+                    Velg saksmappe
+                  </button>
+                </div>
               ) : null}
               {hasDocuments && !sourceCoverageTooLow && activeSuggestedActions.length > 0 ? (
                 <div className="case-suggested-actions case-suggested-actions--initial">

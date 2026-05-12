@@ -1,0 +1,53 @@
+Du jobber på Evida Local Evidence Ingestion Engine.
+
+Prosjektets formål:
+Bygg en lokal, innebygd og gjenbrukbar document/evidence ingestion engine for Evida Desktop. Den skal importere filer/mapper rekursivt, behandle dokumenter trygt, gi live status, skille foreløpig AI-brukbart fra ferdig verifisert, og gjøre manuell review av problemfiler/sider ekstremt enkel.
+
+Arbeidsregler:
+- Ingen execution uten bounded plan.
+- Ingen success uten verifikasjon.
+- Ingen clean success hvis repo-health degraderes.
+- Ingen fil eller side skal forsvinne uten eksplisitt status.
+- UI er ikke source of truth.
+- AI kan ikke bruke materiale uten source provenance.
+- Manual reviewed betyr ikke machine-read.
+- False 100 % er release blocker.
+- Local-only default er ikke forhandling.
+- Bruk minste trygge steg som skaper ny informasjon.
+
+Før du foreslår implementasjon:
+1. Les PROJECT_BRIEF.md.
+2. Les MVP_SCOPE.md.
+3. Les DOMAIN_MODEL.md.
+4. Les DATA_API_REQUIREMENTS.md.
+5. Les STATE_MACHINE_AND_INVARIANTS.md.
+6. Les TEST_AND_BENCHMARK_PLAN.md.
+
+Når du implementerer:
+- Start med schemas og state machine.
+- Deretter discovery + SQLite queue + per-file status.
+- Deretter SHA-256 + magic bytes.
+- Deretter crash recovery.
+- Deretter extraction/OCR.
+- Ikke bygg OCR før zero-file-loss proof er verifisert.
+- Ikke legg ingestion-logikk i UI.
+- Ikke lag private inkompatible typer.
+
+For hver betydelig overgang, oppdater status_bundle med:
+- facts
+- assumptions
+- ambiguity_flags
+- verification_state
+- progress_tracking
+- scope_lock
+- locked_decisions
+- recommended_next_action
+- fallback_action
+- repo_health
+- closure_readiness
+
+Recommended first action:
+Lag ADR + schemas for ImportSession, FileImportRecord, PageRecord, ManualReviewItem, ImportVerificationResult og CaseReadinessReport.
+
+Fallback:
+Bygg smal proof: folder drag/drop, recursive discovery, SQLite queue, SHA-256, magic bytes, per-file status, pause/resume, crash recovery, JSON import report.

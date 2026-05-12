@@ -6,15 +6,18 @@ mod db_key;
 mod domain;
 mod hash;
 mod ingestion;
+mod ingestion_core;
 
 use tauri::{Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewWindow};
 
-const STARTUP_WINDOW_WIDTH: u32 = 1600;
-const STARTUP_WINDOW_HEIGHT: u32 = 1040;
-const STARTUP_MIN_WIDTH: u32 = 1200;
-const STARTUP_MIN_HEIGHT: u32 = 820;
-const WINDOW_MARGIN_X: u32 = 64;
-const WINDOW_MARGIN_Y: u32 = 24;
+const STARTUP_MAX_WIDTH: u32 = 1840;
+const STARTUP_MAX_HEIGHT: u32 = 1160;
+const STARTUP_MIN_WIDTH: u32 = 1100;
+const STARTUP_MIN_HEIGHT: u32 = 760;
+const STARTUP_WIDTH_PERCENT: u32 = 92;
+const STARTUP_HEIGHT_PERCENT: u32 = 90;
+const WINDOW_MARGIN_X: u32 = 96;
+const WINDOW_MARGIN_Y: u32 = 36;
 
 fn apply_preferred_window_size(window: &WebviewWindow) -> tauri::Result<()> {
     let Some(monitor) = window.current_monitor()?.or(window.primary_monitor()?) else {
@@ -26,8 +29,16 @@ fn apply_preferred_window_size(window: &WebviewWindow) -> tauri::Result<()> {
     let available_height = work_area.size.height.saturating_sub(WINDOW_MARGIN_Y);
     let min_width = STARTUP_MIN_WIDTH.min(available_width.max(1));
     let min_height = STARTUP_MIN_HEIGHT.min(available_height.max(1));
-    let width = STARTUP_WINDOW_WIDTH.min(available_width).max(min_width);
-    let height = STARTUP_WINDOW_HEIGHT.min(available_height).max(min_height);
+    let preferred_width = work_area.size.width.saturating_mul(STARTUP_WIDTH_PERCENT) / 100;
+    let preferred_height = work_area.size.height.saturating_mul(STARTUP_HEIGHT_PERCENT) / 100;
+    let width = preferred_width
+        .min(STARTUP_MAX_WIDTH)
+        .min(available_width)
+        .max(min_width);
+    let height = preferred_height
+        .min(STARTUP_MAX_HEIGHT)
+        .min(available_height)
+        .max(min_height);
     let x_offset = ((work_area.size.width as i32 - width as i32) / 2).max(0);
     let y_offset = ((work_area.size.height as i32 - height as i32) / 2).max(8);
 
@@ -62,8 +73,26 @@ pub fn run() {
             commands::set_current_window_title,
             commands::list_cases,
             commands::soft_delete_case,
+            commands::start_import_session,
+            commands::complete_import_session,
+            commands::pause_import_session,
+            commands::resume_import_session,
+            commands::cancel_import_session,
+            commands::get_import_health,
+            commands::list_import_items,
+            commands::search_sources,
+            commands::list_ocr_results,
+            commands::run_ocr_for_import_item,
+            commands::list_manual_review_items,
+            commands::apply_manual_review_action,
+            commands::refresh_evidence_quality,
+            commands::export_evidence_quality_package,
+            commands::remove_import_item_from_case,
+            commands::register_document_in_session,
             commands::register_document,
             commands::choose_document_paths,
+            commands::choose_document_folder_paths,
+            commands::expand_import_paths,
             commands::reindex_case_documents,
             commands::get_case_coverage_audit,
             commands::get_document_engine_status,
@@ -73,7 +102,9 @@ pub fn run() {
             commands::list_source_objects,
             commands::reset_test_data,
             commands::open_local_data_folder,
+            commands::open_original_folder,
             commands::export_diagnostics,
+            commands::export_import_diagnostics,
             commands::get_database_security_status,
             commands::list_work_items,
             commands::build_chronology,

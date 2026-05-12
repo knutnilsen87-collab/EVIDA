@@ -4,6 +4,8 @@ Evida is a desktop-first, local legal workspace for document import, source-boun
 
 Status: pre-alpha technical scaffold. Evida is not production-ready and is not approved for real client data.
 
+Current implementation status and release boundaries are tracked in `CURRENT_STATUS.md`.
+
 ## Production boundary
 
 Canonical architecture and security documents:
@@ -112,6 +114,9 @@ docs\PILOT_EVALUATION_PLAN.md
 docs\ACCEPTANCE_SMOKE_TEST.md
 docs\RELEASE_CHECKLIST.md
 docs\IMPLEMENTATION_PLAN.md
+docs\SPRING_BOOT_VERIFICATION.md
+docs\WINDOWS_BUILD_PREREQUISITES.md
+docs\CLEAN_MACHINE_SMOKE_RESULT.md
 ```
 
 ## Boundary verification
@@ -120,4 +125,10 @@ Check the production-boundary documentation contract:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ops\Verify-ProductionBoundary.ps1
+```
+
+Run the current hardening gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ops\Test-EvidaHardening.ps1
 ```

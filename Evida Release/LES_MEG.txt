@@ -1,0 +1,20 @@
+﻿Evida Release
+==============
+
+Dobbeltklikk Evida.exe for å starte programmet direkte.
+
+Status:
+- PRE-ALPHA / evaluation build
+- Bruk testdata
+- Ikke bruk ekte klientdata uten skriftlig avtale og verifisert sikkerhetsoppsett
+
+Installerfiler:
+- Evida installer.exe  (anbefalt Windows-installer)
+- Evida installer.msi  (MSI-pakke)
+
+Kontrollfiler:
+- SHA256SUMS.txt
+- release-manifest.json
+
+Rotmappen har én startfil:
+- Start Evida.bat

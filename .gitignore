@@ -1,6 +1,8 @@
 # Archives and extracted analysis
 *.zip
 archives/
+.pack-staging*/
+.cargo-target-test/
 Evida Release/
 legacy/partial-evida-core-delete-me/
 legacy/zip-analysis/

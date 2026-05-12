@@ -8,9 +8,18 @@ import type {
   CaseCoverageAudit,
   DocumentEngineStatus,
   DocumentSummary,
+  ImportHealthSummary,
+  ImportItem,
+  ImportControlResult,
+  ImportSession,
+  EvidenceQualityReport,
   MaintenanceReport,
+  ManualReviewAction,
+  ManualReviewItem,
+  OcrResult,
   ReindexReport,
   SourceObjectSummary,
+  SourceSearchResult,
   WorkItemsDto,
   ChronologyEventDto,
   EvidenceItemDto,
@@ -359,11 +368,280 @@ export async function registerDocument(
   }
 }
 
+export async function startImportSession(caseId: string, totalFilesSeen: number): Promise<ImportSession> {
+  try {
+    return await callTauri<ImportSession>("start_import_session", { caseId, totalFilesSeen });
+  } catch {
+    const started = now();
+    return {
+      id: id("IMP"),
+      case_id: caseId,
+      started_at: started,
+      completed_at: null,
+      total_files_seen: totalFilesSeen,
+      files_ready: 0,
+      files_partial: 0,
+      files_requires_ocr: 0,
+      files_duplicate: 0,
+      files_unsupported: 0,
+      files_failed: 0,
+      pages_total: 0,
+      pages_with_text: 0,
+      pages_requires_ocr: 0,
+      source_objects_created: 0,
+      source_coverage_percent: 0,
+      status: "running"
+    };
+  }
+}
+
+export async function completeImportSession(importSessionId: string): Promise<ImportSession> {
+  try {
+    return await callTauri<ImportSession>("complete_import_session", { importSessionId });
+  } catch {
+    return {
+      id: importSessionId,
+      case_id: "",
+      started_at: now(),
+      completed_at: now(),
+      total_files_seen: 0,
+      files_ready: 0,
+      files_partial: 0,
+      files_requires_ocr: 0,
+      files_duplicate: 0,
+      files_unsupported: 0,
+      files_failed: 0,
+      pages_total: 0,
+      pages_with_text: 0,
+      pages_requires_ocr: 0,
+      source_objects_created: 0,
+      source_coverage_percent: 0,
+      status: "completed"
+    };
+  }
+}
+
+export async function registerDocumentInSession(
+  importSessionId: string,
+  caseId: string,
+  path: string
+): Promise<ImportItem> {
+  try {
+    return await callTauri<ImportItem>("register_document_in_session", { importSessionId, caseId, path });
+  } catch (error) {
+    const report = await registerDocument(caseId, path);
+    return {
+      id: id("IMI"),
+      import_session_id: importSessionId,
+      case_id: caseId,
+      original_path: path,
+      original_name: path.split(/[\\/]/).pop() || "ukjent-dokument",
+      extension: path.split(".").pop() || null,
+      detected_mime_type: report.document.mime_type,
+      file_size: null,
+      sha256: report.document.sha256,
+      status: report.sources_created > 0 ? "ready" : "failed",
+      issue_code: report.sources_created > 0 ? null : "TEXT_EXTRACTION_FAILED",
+      issue_severity: report.sources_created > 0 ? null : "error",
+      user_message:
+        report.sources_created > 0
+          ? "Klar - filen er importert med sporbare kilder."
+          : `Feilet - dokumentet kunne ikke brukes som kilde. ${String(error)}`,
+      technical_message: report.warnings.join(" | "),
+      recommended_action: report.sources_created > 0 ? "Ingen handling nødvendig." : "Last opp en ny kopi eller kjør OCR.",
+      can_retry: report.sources_created === 0,
+      can_continue: report.sources_created > 0,
+      page_count: report.pages_created,
+      pages_with_text: report.sources_created,
+      pages_requires_ocr: report.document.pending_ocr_page_count || 0,
+      source_count: report.sources_created,
+      created_at: now(),
+      updated_at: now()
+    };
+  }
+}
+
+export async function getImportHealth(caseId: string): Promise<ImportHealthSummary> {
+  try {
+    return await callTauri<ImportHealthSummary>("get_import_health", { caseId });
+  } catch {
+    const audit = await getCaseCoverageAudit(caseId);
+    return {
+      case_id: caseId,
+      latest_session: null,
+      items: [],
+      overall_status: audit.source_coverage_percent >= 100 ? "ready" : "incomplete",
+      status_title:
+        audit.source_coverage_percent >= 100
+          ? "Importen er komplett"
+          : "Importjobb ferdig, men dokumentgrunnlaget er ikke komplett.",
+      reason: "Webmodus har begrenset tilgang til importloggen.",
+      consequence: "Kontroller dokumentlisten og kildegrunnlaget.",
+      recommended_action: "Kjør desktopversjonen for full importdiagnostikk.",
+      can_open_preliminary: audit.source_count > 0,
+      source_coverage_percent: audit.source_coverage_percent,
+      missing_files_count: audit.failed_documents,
+      missing_pages_count: audit.pending_text_recognition_pages + audit.pages_missing_sources,
+      verification: null,
+      readiness: {
+        id: id("READY"),
+        case_id: caseId,
+        import_session_id: null,
+        readiness_state: audit.source_coverage_percent >= 100 ? "ready" : audit.source_count > 0 ? "preliminary" : "not_ready",
+        source_coverage_percent: audit.source_coverage_percent,
+        missing_files_count: audit.failed_documents,
+        missing_pages_count: audit.pending_text_recognition_pages + audit.pages_missing_sources,
+        can_open_preliminary: audit.source_count > 0,
+        banner_message:
+          audit.source_count > 0
+            ? `Saksrom kan brukes foreløpig basert på ${Math.round(audit.source_coverage_percent)} % av dokumentgrunnlaget. ${audit.pending_text_recognition_pages + audit.pages_missing_sources} sider er ikke lesbare ennå.`
+            : "Saksrom venter på lesbart dokumentgrunnlag.",
+        recommended_action: "Kjør desktopversjonen for full importdiagnostikk.",
+        created_at: now()
+      }
+    };
+  }
+}
+
+export async function pauseImportSession(importSessionId: string): Promise<ImportControlResult> {
+  return await callTauri<ImportControlResult>("pause_import_session", { importSessionId });
+}
+
+export async function resumeImportSession(importSessionId: string): Promise<ImportControlResult> {
+  return await callTauri<ImportControlResult>("resume_import_session", { importSessionId });
+}
+
+export async function cancelImportSession(importSessionId: string): Promise<ImportControlResult> {
+  return await callTauri<ImportControlResult>("cancel_import_session", { importSessionId });
+}
+
+export async function searchSources(caseId: string, query: string, limit = 20): Promise<SourceSearchResult[]> {
+  try {
+    return await callTauri<SourceSearchResult[]>("search_sources", { caseId, query, limit });
+  } catch {
+    const sources = await listSourceObjects(caseId);
+    const terms = query
+      .toLowerCase()
+      .split(/[^a-z0-9æøå]+/i)
+      .filter((term) => term.length > 2);
+    return sources
+      .map((source) => {
+        const haystack = source.text_excerpt.toLowerCase();
+        const score = terms.filter((term) => haystack.includes(term)).length;
+        return {
+          source_id: source.id,
+          case_id: source.case_id,
+          document_id: source.document_id,
+          document_name: source.document_id,
+          page_start: source.page_start,
+          page_end: source.page_end,
+          snippet: source.text_excerpt.slice(0, 260),
+          score
+        };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+  }
+}
+
+export async function listOcrResults(caseId: string): Promise<OcrResult[]> {
+  try {
+    return await callTauri<OcrResult[]>("list_ocr_results", { caseId });
+  } catch {
+    return [];
+  }
+}
+
+export async function runOcrForImportItem(importItemId: string): Promise<OcrResult[]> {
+  return await callTauri<OcrResult[]>("run_ocr_for_import_item", { importItemId });
+}
+
+export async function listManualReviewItems(caseId: string): Promise<ManualReviewItem[]> {
+  try {
+    return await callTauri<ManualReviewItem[]>("list_manual_review_items", { caseId });
+  } catch {
+    return [];
+  }
+}
+
+export async function applyManualReviewAction(
+  reviewItemId: string,
+  action: string,
+  note?: string
+): Promise<ManualReviewAction> {
+  return await callTauri<ManualReviewAction>("apply_manual_review_action", { reviewItemId, action, note });
+}
+
+export async function refreshEvidenceQuality(caseId: string): Promise<EvidenceQualityReport> {
+  try {
+    return await callTauri<EvidenceQualityReport>("refresh_evidence_quality", { caseId });
+  } catch {
+    const [documents, sources] = await Promise.all([listDocuments(caseId), listSourceObjects(caseId)]);
+    return {
+      case_id: caseId,
+      total_documents: documents.length,
+      duplicate_groups: 0,
+      duplicate_documents: 0,
+      attachment_like_documents: documents.filter((document) =>
+        /vedlegg|attachment|bilag/i.test(document.original_name)
+      ).length,
+      citation_checks: sources.length,
+      citation_failures: 0,
+      source_map_rows: sources.length,
+      chain_of_custody_rows: documents.filter((document) => document.sha256).length,
+      warnings: ["Evidence quality er begrenset i webmodus."],
+      recommended_action: "Kjør desktopversjonen for full lokal evidence quality-rapport.",
+      generated_at: now()
+    };
+  }
+}
+
+export async function exportEvidenceQualityPackage(caseId: string): Promise<MaintenanceReport> {
+  try {
+    return await callTauri<MaintenanceReport>("export_evidence_quality_package", { caseId });
+  } catch {
+    return { message: "Evidence quality export krever desktop-appen." };
+  }
+}
+
+export async function listImportItems(caseId: string): Promise<ImportItem[]> {
+  try {
+    return await callTauri<ImportItem[]>("list_import_items", { caseId });
+  } catch {
+    return (await getImportHealth(caseId)).items;
+  }
+}
+
+export async function removeImportItemFromCase(importItemId: string): Promise<ImportItem> {
+  try {
+    return await callTauri<ImportItem>("remove_import_item_from_case", { importItemId });
+  } catch {
+    throw new Error("Remove from case krever desktop-appen.");
+  }
+}
+
 export async function chooseDocumentPaths(): Promise<string[]> {
   try {
     return await callTauri<string[]>("choose_document_paths");
   } catch {
     return [];
+  }
+}
+
+export async function chooseDocumentFolderPaths(): Promise<string[]> {
+  try {
+    return await callTauri<string[]>("choose_document_folder_paths");
+  } catch {
+    return [];
+  }
+}
+
+export async function expandImportPaths(paths: string[]): Promise<string[]> {
+  try {
+    return await callTauri<string[]>("expand_import_paths", { paths });
+  } catch {
+    return paths;
   }
 }
 
@@ -716,6 +994,14 @@ export async function openLocalDataFolder(): Promise<MaintenanceReport> {
   }
 }
 
+export async function openOriginalFolder(path: string): Promise<MaintenanceReport> {
+  try {
+    return await callTauri<MaintenanceReport>("open_original_folder", { path });
+  } catch {
+    return { message: "Originalmappe kan bare åpnes fra desktop-appen.", path };
+  }
+}
+
 export async function exportDiagnostics(): Promise<MaintenanceReport> {
   try {
     return await callTauri<MaintenanceReport>("export_diagnostics");
@@ -733,5 +1019,17 @@ export async function exportDiagnostics(): Promise<MaintenanceReport> {
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
     return { message: "Diagnosepakke åpnet i ny fane for browser-store." };
+  }
+}
+
+export async function exportImportDiagnostics(caseId: string): Promise<MaintenanceReport> {
+  try {
+    return await callTauri<MaintenanceReport>("export_import_diagnostics", { caseId });
+  } catch {
+    const health = await getImportHealth(caseId);
+    const blob = new Blob([JSON.stringify(health, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    return { message: "Importdiagnostikk åpnet i ny fane for browser-store." };
   }
 }

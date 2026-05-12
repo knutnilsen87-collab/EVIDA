@@ -6,6 +6,8 @@ Spring Boot (`../services/saksrom-api`) is the authoritative enterprise control 
 
 Python remains allowed only as a local AI/document processing worker or prototype adapter until this folder is removed or moved to a legacy area.
 
+See `DEPRECATED.md` in this folder before adding or changing code here.
+
 See the canonical root ADR:
 
 ```text

@@ -28,7 +28,7 @@ export const DOCUMENT_PROCESSING_LABELS: Record<DocumentProcessingState, string>
   checking_coverage: "Kontrollerer dekning",
   completed: "Klar",
   completed_partial: "Delvis klar",
-  failed: "Kunne ikke behandles automatisk"
+  failed: "Feilet - se årsak og neste handling"
 };
 
 export interface ReadinessInput {

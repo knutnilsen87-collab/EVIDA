@@ -82,7 +82,7 @@ export const DOCUMENT_PROCESSING_STAGE_LABELS: Record<DocumentProcessingStage, s
   building_case_basis: "Bygger saksgrunnlag",
   checking_coverage: "Kontrollerer dekning",
   completed: "Klar",
-  failed: "Kunne ikke behandles"
+  failed: "Feilet - se årsak og neste handling"
 };
 
 export const DOCUMENT_PROCESSING_STAGE_PROGRESS: Record<DocumentProcessingStage, number> = {

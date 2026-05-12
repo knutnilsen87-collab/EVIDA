@@ -1,0 +1,107 @@
+status_bundle: Evida Local Evidence Ingestion Engine
+
+facts:
+- Evida is a local desktop application.
+- The ingestion engine must run locally inside Evida.
+- The engine must be architecturally separate and reusable.
+- Documentation imported into Evida may be decisive for a case.
+- All discovered files/pages must receive explicit status.
+- Users need live counts, ETA, remaining documents/pages and readiness.
+- Users need a simple manual review queue for unreadable/problem files/pages.
+- AI must distinguish partial usable material from complete verified case material.
+- Manual review does not equal machine-readable OCR/text extraction.
+
+assumptions:
+- SQLite WAL is acceptable for local persistence.
+- Local-only is default.
+- OCR can be local in MVP or implemented behind adapter.
+- Evida has or will have a desktop UI capable of showing import dashboard and previews.
+- Exact desktop framework is not yet locked.
+
+ambiguity_flags:
+- desktop_stack_unknown
+- ocr_engine_unknown
+- pdf_parser_unknown
+- original_copy_vs_reference_unknown
+- local_db_encryption_requirement_unknown
+- eml_msg_mvp_requirement_unknown
+
+verification_state:
+  status: not_started
+  must_check:
+    - zero_file_loss_test
+    - crash_recovery_test
+    - source_provenance_guard
+    - false_complete_guard
+    - manual_review_flow
+    - corrupt_file_isolation
+  maybe_check:
+    - performance_on_10000_files
+    - scanned_pdf_ocr_quality
+    - zip_safety_suite
+  defer_if_reversible:
+    - advanced_bates
+    - semantic_search
+    - near_duplicate_detection
+
+progress_tracking:
+  phase: intake_completed
+  percent: 15
+  blocker: implementation_not_started
+
+scope_lock:
+- Build local embedded ingestion core for Evida Desktop.
+- MVP includes discovery, queue, hash, type detection, basic extraction, OCR queue, manual review, readiness and reports.
+- Advanced legal classification and semantic retrieval are deferred.
+
+locked_decisions:
+- Local-first processing.
+- UI is not source of truth.
+- Ingestion core separate from Evida case logic.
+- Manual review is first-class.
+- Source provenance required for AI use.
+- False 100 percent status is forbidden.
+- Complete status requires verification.
+
+recommended_next_action:
+Create ADR + canonical schemas + state machine before UI/parser implementation.
+
+fallback_action:
+Build zero-file-loss proof: drag/drop folder, recursive discovery, SQLite records, SHA-256, magic bytes, per-file status, pause/resume, crash recovery and JSON import report.
+
+stop_path_signal:
+Stop broad feature work if any critical invariant cannot be represented in schemas or state transitions.
+
+restart_layer:
+architecture_and_schema_foundation
+
+execution_contract:
+  next_action_type: design_patch
+  next_action_target: docs/adr + packages/schemas
+  next_action_instruction: Define Local Evidence Ingestion Engine ADR and schemas for ImportSession, FileImportRecord, PageRecord, ManualReviewItem, ImportVerificationResult and CaseReadinessReport.
+  success_condition_for_next_action: Schemas compile/validate and state machine can represent all MVP statuses.
+  verification_for_next_action: schema tests + transition table review + invariant mapping.
+
+causal_bridge:
+The main risk is not slow import alone; it is Evida producing analysis from incomplete or falsely complete evidence. Therefore the engine must prioritize explicit status, provenance, progressive readiness and manual review.
+
+closure_readiness:
+  can_claim_success: false
+  blocked_by:
+    - no implementation yet
+    - critical schemas not created
+    - state machine not implemented
+    - verification tests not run
+
+repo_health:
+  status: planned
+  structure_fit: Use separate local-ingestion-core package with Evida adapter.
+  ownership_fit: Ingestion core owns import truth; Evida case domain owns legal workflow; UI owns presentation only.
+  duplication_risk: Medium until canonical schemas are created.
+  boundary_violation_risk: High if import logic is placed in UI.
+  temporary_mess_introduced: none yet
+  cleanup_performed: none
+  follow_up_required:
+    - ADR
+    - schema package update
+    - package ownership decision

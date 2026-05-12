@@ -4,33 +4,47 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Download, FolderOpen, Moon, RotateCcw, Sun, Trash2 } from "lucide-react";
 import {
+  chooseDocumentFolderPaths,
   chooseDocumentPaths,
+  applyManualReviewAction,
   createCase,
   assessRisk as assessRiskApi,
   buildChronology as buildChronologyApi,
   buildEvidenceMatrix,
   createArgumentItem,
   exportDiagnostics,
+  exportEvidenceQualityPackage,
+  exportImportDiagnostics,
+  expandImportPaths,
   findContradictions as findContradictionsApi,
   getAppStatus,
   getCaseCoverageAudit,
   getDatabaseSecurityStatus,
   getDocumentEngineStatus,
+  getImportHealth,
   hasDesktopRuntime,
+  listManualReviewItems,
+  listOcrResults,
   listAuditEvents,
   listCases,
   listDocuments,
+  listImportItems,
   listSourceObjects,
   listWorkItems,
   markCaseOpened,
   openCaseWindow,
   openLocalDataFolder,
+  openOriginalFolder,
   openNewCaseWindow,
   reindexCaseDocuments,
-  registerDocument,
+  registerDocumentInSession,
+  refreshEvidenceQuality,
+  removeImportItemFromCase,
   renameCase,
   resetTestData,
-  softDeleteCase
+  softDeleteCase,
+  startImportSession,
+  completeImportSession
 } from "./lib/api";
 import type {
   AuditEvent,
@@ -39,6 +53,11 @@ import type {
   DatabaseSecurityStatus,
   DocumentEngineStatus,
   DocumentSummary,
+  EvidenceQualityReport,
+  ImportHealthSummary,
+  ImportItem,
+  ManualReviewItem,
+  OcrResult,
   SourceObjectSummary,
   ViewKey
 } from "./types";
@@ -51,6 +70,8 @@ import { SourcePanel } from "./components/SourcePanel";
 import { SourcePreviewDrawer } from "./components/SourcePreviewDrawer";
 import { StatusCard } from "./components/StatusCard";
 import { CaseRoomView } from "./components/CaseRoomView";
+import { CaseVitalityBar } from "./components/CaseVitalityBar";
+import { WorkroomHeader } from "./components/WorkroomHeader";
 import { SettingsView } from "./components/settings/SettingsView";
 import { ArgumentsView } from "./components/workrooms/ArgumentsView";
 import { ChronologyView } from "./components/workrooms/ChronologyView";
@@ -86,6 +107,7 @@ import {
 import type { LegalCommand } from "./features/legalCommands/legalCommands";
 import { useWindowCaseContext } from "./lib/windowCaseContext";
 import { useEvidaShortcuts } from "./lib/shortcuts";
+import { workroomKeyForView } from "./lib/workroomTheme";
 
 const viewTitles: Record<ViewKey, string> = {
   overview: "Saksoversikt",
@@ -103,15 +125,18 @@ const viewTitles: Record<ViewKey, string> = {
 };
 
 const THEME_STORAGE_KEY = "evida-theme";
+const VISUAL_MODE_STORAGE_KEY = "evida-visual-mode";
 const AI_TRUST_STORAGE_KEY = "evida-ai-trust-seen";
 const EVAL_SESSION_STORAGE_KEY = "evida-eval-session";
 const EVAL_LOGIN_EMAIL = "eval@evida.local";
 const EVAL_LOGIN_PASSWORD = "eval-2026";
 
 type ThemeMode = "light" | "dark";
+type VisualMode = "calm" | "standard" | "focusPlus";
 type OnboardingStage = "intro" | "login" | "start" | "import" | "caseRoom";
 type ImportQueueStatus =
   | DocumentProcessingStage
+  | ImportItem["status"]
   | "selected"
   | "validating"
   | "hashing"
@@ -123,8 +148,14 @@ type ImportQueueStatus =
 interface ImportQueueItem {
   path: string;
   name: string;
-  status: DocumentProcessingStage;
+  status: ImportQueueStatus;
   detail: string;
+  issueCode?: string;
+  userMessage?: string;
+  recommendedAction?: string;
+  technicalMessage?: string;
+  canRetry?: boolean;
+  canContinue?: boolean;
   pages?: number;
   pagesProcessed?: number;
   pagesTotal?: number;
@@ -184,8 +215,21 @@ function nextUiTick() {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
-function importProgressPercent(status: DocumentProcessingStage) {
-  return processingStageProgress(status);
+function importProgressPercent(status: ImportQueueStatus) {
+  const healthProgress: Partial<Record<ImportQueueStatus, number>> = {
+    validating: 12,
+    hashing: 22,
+    extracting: 42,
+    chunking: 72,
+    indexed: 88,
+    ready: 100,
+    partial: 100,
+    duplicate: 100,
+    unsupported: 100,
+    ocr_required: 100,
+    cancelled: 100
+  };
+  return healthProgress[status] ?? processingStageProgress(status as DocumentProcessingStage);
 }
 
 function formatDuration(ms: number) {
@@ -236,6 +280,20 @@ function importStatusLabel(status: ImportQueueStatus) {
     return processingStageLabel(status);
   }
 
+  const healthLabels: Partial<Record<ImportQueueStatus, string>> = {
+    ocr_required: "Krever OCR",
+    ocr_running: "OCR kjører",
+    partial: "Delvis behandlet",
+    duplicate: "Duplikat",
+    unsupported: "Filtype støttes ikke",
+    cancelled: "Avbrutt",
+    indexed: "Indeksert",
+    failed: "Feilet - se årsak og neste handling"
+  };
+  if (healthLabels[status]) {
+    return healthLabels[status];
+  }
+
   switch (status) {
     case "selected":
       return "Venter på automatisk behandling";
@@ -252,7 +310,7 @@ function importStatusLabel(status: ImportQueueStatus) {
     case "needs_attention":
       return "Venter på dokumentmotor";
     case "failed":
-      return "Kunne ikke behandles automatisk";
+      return "Feilet - se årsak og neste handling";
   }
 }
 
@@ -272,6 +330,20 @@ function importProcessingLabel(status: ImportQueueStatus) {
     status === "completed"
   ) {
     return processingStageLabel(status);
+  }
+
+  const healthLabels: Partial<Record<ImportQueueStatus, string>> = {
+    ocr_required: "Krever OCR",
+    ocr_running: "OCR kjører",
+    partial: "Delvis behandlet",
+    duplicate: "Duplikat",
+    unsupported: "Filtype støttes ikke",
+    cancelled: "Avbrutt",
+    indexed: "Indeksert",
+    failed: "Feilet - se importdetaljer"
+  };
+  if (healthLabels[status]) {
+    return healthLabels[status];
   }
 
   switch (status) {
@@ -346,6 +418,13 @@ export default function App() {
     }
     return window.localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
   });
+  const [visualMode, setVisualMode] = useState<VisualMode>(() => {
+    if (typeof window === "undefined") {
+      return "standard";
+    }
+    const stored = window.localStorage.getItem(VISUAL_MODE_STORAGE_KEY);
+    return stored === "calm" || stored === "standard" || stored === "focusPlus" ? stored : "standard";
+  });
   const [status, setStatus] = useState("Starter ...");
   const [dbSecurity, setDbSecurity] = useState<DatabaseSecurityStatus | null>(null);
   const [documentEngineStatus, setDocumentEngineStatus] = useState<DocumentEngineStatus | null>(null);
@@ -353,6 +432,12 @@ export default function App() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [sources, setSources] = useState<SourceObjectSummary[]>([]);
   const [coverageAudit, setCoverageAudit] = useState<CaseCoverageAudit | null>(null);
+  const [importHealth, setImportHealth] = useState<ImportHealthSummary | null>(null);
+  const [importItems, setImportItems] = useState<ImportItem[]>([]);
+  const [ocrResults, setOcrResults] = useState<OcrResult[]>([]);
+  const [manualReviewItems, setManualReviewItems] = useState<ManualReviewItem[]>([]);
+  const [evidenceQuality, setEvidenceQuality] = useState<EvidenceQualityReport | null>(null);
+  const [showImportCompletion, setShowImportCompletion] = useState(false);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState<string>(windowCase.context.caseId || "");
   const [caseName, setCaseName] = useState("Ny prosessak");
@@ -413,17 +498,38 @@ export default function App() {
     }
 
     if (activeCaseId) {
-      const [nextDocuments, nextSources, nextAudit, nextWorkItems, nextCoverageAudit] = await Promise.all([
+      const [
+        nextDocuments,
+        nextSources,
+        nextAudit,
+        nextWorkItems,
+        nextCoverageAudit,
+        nextImportHealth,
+        nextImportItems,
+        nextOcrResults,
+        nextManualReviewItems,
+        nextEvidenceQuality
+      ] = await Promise.all([
         listDocuments(activeCaseId),
         listSourceObjects(activeCaseId),
         listAuditEvents(activeCaseId),
         listWorkItems(activeCaseId),
-        getCaseCoverageAudit(activeCaseId)
+        getCaseCoverageAudit(activeCaseId),
+        getImportHealth(activeCaseId),
+        listImportItems(activeCaseId),
+        listOcrResults(activeCaseId),
+        listManualReviewItems(activeCaseId),
+        refreshEvidenceQuality(activeCaseId)
       ]);
       setDocuments(nextDocuments);
       setSources(nextSources);
       setAudit(nextAudit);
       setCoverageAudit(nextCoverageAudit);
+      setImportHealth(nextImportHealth);
+      setImportItems(nextImportItems);
+      setOcrResults(nextOcrResults);
+      setManualReviewItems(nextManualReviewItems);
+      setEvidenceQuality(nextEvidenceQuality);
       setTimelineItems(nextWorkItems.chronology.map((item) => ({
         id: item.id,
         date: item.date_text,
@@ -470,6 +576,11 @@ export default function App() {
       setSources([]);
       setAudit([]);
       setCoverageAudit(null);
+      setImportHealth(null);
+      setImportItems([]);
+      setOcrResults([]);
+      setManualReviewItems([]);
+      setEvidenceQuality(null);
       const empty = emptyWorkState();
       setTimelineItems(empty.chronology);
       setEvidenceRows(empty.evidence);
@@ -486,6 +597,10 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    window.localStorage.setItem(VISUAL_MODE_STORAGE_KEY, visualMode);
+  }, [visualMode]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -553,6 +668,10 @@ export default function App() {
     totalPages,
     pagesWithSources
   });
+  const caseScopedSourceCoveragePercent = Math.min(
+    sourceCoveragePercent,
+    importHealth?.source_coverage_percent ?? sourceCoveragePercent
+  );
   const pagesMissingSources =
     coverageAudit?.pages_missing_sources ?? (totalPages > 0 ? Math.max(0, totalPages - pagesWithSources) : 0);
   const processedDocuments = documents.filter(
@@ -564,16 +683,18 @@ export default function App() {
   const failedDocuments = documents.filter((document) =>
     ["failed", "empty", "unsupported_file_type"].includes(document.ocr_status)
   );
-  const importFailures = importQueue.filter((item) => item.status === "failed").length;
+  const importFailures =
+    importHealth?.missing_files_count ??
+    importQueue.filter((item) => ["failed", "partial", "ocr_required", "unsupported"].includes(item.status)).length;
   const hasActiveProcessing =
     isImporting ||
     Boolean(coverageAudit?.has_active_processing) ||
     importQueue.some((item) =>
-      ["queued", "reading_file", "counting_pages", "extracting_text", "finding_source_points", "building_case_basis", "checking_coverage"].includes(item.status)
+      ["queued", "validating", "hashing", "reading_file", "counting_pages", "extracting_text", "finding_source_points", "building_case_basis", "checking_coverage", "ocr_running", "chunking", "indexed"].includes(item.status)
     ) ||
     documents.some((document) => document.ocr_status === "running");
   const activeImportItem = importQueue.find((item) =>
-    ["queued", "reading_file", "counting_pages", "extracting_text", "finding_source_points", "building_case_basis", "checking_coverage"].includes(item.status)
+    ["queued", "validating", "hashing", "reading_file", "counting_pages", "extracting_text", "finding_source_points", "building_case_basis", "checking_coverage", "ocr_running", "chunking", "indexed"].includes(item.status)
   );
   const caseCoverage: CaseCoverageSummary = {
     totalDocuments: documents.length,
@@ -585,7 +706,7 @@ export default function App() {
     pagesMissingSources,
     failedDocuments: coverageAudit?.failed_documents ?? failedDocuments.length,
     documentsRequiringAttention: coverageAudit?.documents_requiring_attention ?? documentsRequiringAttention.length,
-    sourceCoveragePercent,
+    sourceCoveragePercent: caseScopedSourceCoveragePercent,
     currentlyProcessingLabel: hasActiveProcessing
       ? activeImportItem
         ? importProcessingLabel(activeImportItem.status)
@@ -616,6 +737,11 @@ export default function App() {
     caseReadiness.verdict === "ready_for_preliminary_analysis" ||
     caseReadiness.verdict === "ready_for_draft_control";
   const canUseDraftControl = caseReadiness.verdict === "ready_for_draft_control";
+  const ocrCoveragePercent = totalPages > 0 ? Math.round(((totalPages - pendingOcrPages) / totalPages) * 100) : undefined;
+  const preliminarySaksromBanner =
+    hasDocuments && (caseScopedSourceCoveragePercent < 100 || pendingOcrPages > 0 || importFailures > 0)
+      ? `Saksrom kan brukes foreløpig basert på ${Math.round(caseScopedSourceCoveragePercent)} % av dokumentgrunnlaget. ${pendingOcrPages} sider er ikke lesbare ennå.`
+      : undefined;
   const isWorkspaceUnlocked = isAuthenticated && onboardingStage === "caseRoom";
 
   const legacyCoverageRepairNeeded =
@@ -673,7 +799,7 @@ export default function App() {
     ? Array.from(new Set(documents.map((document) => document.ocr_status))).join(", ")
     : "ikke startet";
 
-  const coveragePercent = sourceCoveragePercent;
+  const coveragePercent = caseScopedSourceCoveragePercent;
   const userCoverageExplanation = hasDocuments
     ? `${coveragePercent} % av sidene kan brukes som kilde ennå. ${
         coveragePercent < 80
@@ -1036,10 +1162,24 @@ export default function App() {
     buildEvidence
   ]);
 
+  const caseVitality = {
+    sourceCoveragePct: hasDocuments ? caseScopedSourceCoveragePercent : undefined,
+    ocrCoveragePct: ocrCoveragePercent,
+    indexedDocumentCount: hasDocuments ? caseCoverage.processedDocuments : undefined,
+    totalDocumentCount: hasDocuments ? caseCoverage.totalDocuments : undefined,
+    unresolvedConflictCount: conflictRows.length,
+    riskLevel: selectedCase?.risk_level || "unknown",
+    nextBestAction: nextAction.title
+  };
+
   const importDocuments = useCallback(
     async (paths: string[]) => {
-      const cleanPaths = paths.map((path) => path.trim()).filter(Boolean);
+      const rawPaths = paths.map((path) => path.trim()).filter(Boolean);
+      const cleanPaths = await expandImportPaths(rawPaths);
       if (cleanPaths.length === 0) {
+        if (rawPaths.length > 0) {
+          setImportError("Fant ingen støttede dokumenter i valget. Støttede filtyper er PDF, DOCX, TXT, MD, PNG, JPG og TIFF.");
+        }
         return;
       }
 
@@ -1080,6 +1220,7 @@ export default function App() {
           setProcessingLog((current) => [...current, "Opprettet midlertidig saksprosjekt automatisk"]);
         }
 
+        const session = await startImportSession(activeCaseId, cleanPaths.length);
         const reports = [];
         for (const path of cleanPaths) {
           const name = fileNameFromPath(path);
@@ -1090,12 +1231,30 @@ export default function App() {
           setProcessingLog((current) => [...current, `Sikrer dokumentreferanse for ${name}`]);
           updateQueueItem(path, { status: "extracting_text", detail: processingStageLabel("extracting_text") });
           await nextUiTick();
-          const report = await registerDocument(activeCaseId, path);
+          const item = await registerDocumentInSession(session.id, activeCaseId, path);
+          const report = {
+            pages_created: item.page_count,
+            sources_created: item.source_count,
+            pages_with_text: item.pages_with_text,
+            status: item.status,
+            user_message: item.user_message,
+            issue_code: item.issue_code,
+            recommended_action: item.recommended_action,
+            technical_message: item.technical_message,
+            can_retry: item.can_retry,
+            can_continue: item.can_continue
+          };
           updateQueueItem(path, {
-            status: "finding_source_points",
-            detail: processingStageLabel("finding_source_points"),
+            status: report.sources_created > 0 ? "finding_source_points" : report.status,
+            detail: report.sources_created > 0 ? processingStageLabel("finding_source_points") : report.user_message,
             pages: report.pages_created,
-            sources: report.sources_created
+            sources: report.sources_created,
+            issueCode: report.issue_code || undefined,
+            userMessage: report.user_message,
+            recommendedAction: report.recommended_action,
+            technicalMessage: report.technical_message || undefined,
+            canRetry: report.can_retry,
+            canContinue: report.can_continue
           });
           await nextUiTick();
           updateQueueItem(path, { status: "building_case_basis", detail: processingStageLabel("building_case_basis") });
@@ -1104,21 +1263,25 @@ export default function App() {
           await nextUiTick();
           reports.push(report);
           updateQueueItem(path, {
-            status: report.sources_created > 0 ? "completed" : "failed",
-            detail:
-              report.sources_created > 0
-                ? processingStageLabel("completed")
-                : processingStageLabel("failed"),
+            status: report.status === "ready" ? "completed" : report.status,
+            detail: report.user_message,
             pages: report.pages_created,
-            sources: report.sources_created
+            sources: report.sources_created,
+            issueCode: report.issue_code || undefined,
+            userMessage: report.user_message,
+            recommendedAction: report.recommended_action,
+            technicalMessage: report.technical_message || undefined,
+            canRetry: report.can_retry,
+            canContinue: report.can_continue
           });
         }
+        const completedSession = await completeImportSession(session.id);
         setDocumentPath("");
         const pageCount = reports.reduce((sum, report) => sum + report.pages_created, 0);
         const sourceCount = reports.reduce((sum, report) => sum + report.sources_created, 0);
         const estimatedCoverage = calculateSourceCoveragePercent({
           totalPages: pageCount,
-          pagesWithSources: sourceCount
+          pagesWithSources: reports.reduce((sum, report) => sum + report.pages_with_text, 0)
         });
         setLastImport(
           `${countLabel(reports.length, "dokument", "dokumenter")} importert: ${countLabel(
@@ -1128,16 +1291,20 @@ export default function App() {
           )}, ${countLabel(sourceCount, "kildeutdrag", "kildeutdrag")}`
         );
         await refresh(activeCaseId);
+        const nextHealth = await getImportHealth(activeCaseId);
+        setImportHealth(nextHealth);
+        setImportItems(nextHealth.items);
+        setShowImportCompletion(true);
         setProcessingLog((current) => [
           ...current,
-          estimatedCoverage >= 80
+          completedSession.source_coverage_percent >= 100 && nextHealth.overall_status === "ready"
             ? "Saksrom kan åpnes. Foreløpig analyse fortsetter i bakgrunnen."
             : "Dokumentene må kontrolleres før analyse"
         ]);
         setOnboardingStage("caseRoom");
         setActiveView("caseRoom");
         if (estimatedCoverage >= 80 && sourceCount > 0) {
-          void runAutomaticAnalysis(activeCaseId, sourceCount, estimatedCoverage)
+          void runAutomaticAnalysis(activeCaseId, sourceCount, Math.min(estimatedCoverage, nextHealth.source_coverage_percent))
             .then(() => refresh(activeCaseId))
             .catch((error) => {
               setReindexStatus(`Automatisk analyse stoppet: ${String(error)}`);
@@ -1147,7 +1314,7 @@ export default function App() {
         setImportError(`Import feilet: ${String(error)}`);
         setImportQueue((current) =>
           current.map((item) =>
-            item.status === "completed" || item.status === "failed"
+            ["completed", "failed", "partial", "ocr_required", "unsupported", "duplicate"].includes(item.status)
               ? item
               : { ...item, status: "failed", detail: String(error) }
           )
@@ -1159,6 +1326,35 @@ export default function App() {
     },
     [selectedCaseId]
   );
+
+  useEffect(() => {
+    if (!hasDesktopRuntime()) {
+      return;
+    }
+
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen<{ paths?: string[] } | string[]>("tauri://drag-drop", (event) => {
+      const payload = event.payload;
+      const paths = Array.isArray(payload) ? payload : payload.paths || [];
+      if (paths.length > 0) {
+        void importDocuments(paths);
+      }
+    })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+        } else {
+          unlisten = nextUnlisten;
+        }
+      })
+      .catch((error) => setImportError(`Drag/drop kunne ikke startes: ${String(error)}`));
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [importDocuments]);
 
   useEffect(() => {
     if (!hasDesktopRuntime()) {
@@ -1260,6 +1456,17 @@ export default function App() {
     const paths = await chooseDocumentPaths();
     if (paths.length === 0 && !hasDesktopRuntime()) {
       fileInputRef.current?.click();
+      return;
+    }
+    await importDocuments(paths);
+  }
+
+  async function handleChooseFolder() {
+    const paths = await chooseDocumentFolderPaths();
+    if (paths.length === 0) {
+      if (!hasDesktopRuntime()) {
+        setImportError("Mappeimport krever desktop-appen. Bruk Velg filer i nettlesermodus.");
+      }
       return;
     }
     await importDocuments(paths);
@@ -1615,11 +1822,11 @@ export default function App() {
       !caseCoverage.hasActiveProcessing && recoveryCount > 0
         ? attentionDetailsOpen
           ? "Skjul dokumenter som ikke kunne behandles"
-          : "Se dokumenter som ikke kunne behandles"
+          : "Se hva som mangler"
         : caseReadiness.primaryAction;
     const handlePrimaryAction = () => {
       if (!caseCoverage.hasActiveProcessing && recoveryCount > 0) {
-        setAttentionDetailsOpen((current) => !current);
+        setActiveView("control");
         return;
       }
       setActiveView("control");
@@ -1705,6 +1912,290 @@ export default function App() {
         ) : null}
         {caseReadiness.testDataWarning ? <div className="warning-notice">{caseReadiness.testDataWarning}</div> : null}
       </section>
+    );
+  }
+
+  const missingImportGroups = useMemo(() => {
+    const groups = [
+      { key: "ocr_required", title: "Krever OCR", items: importItems.filter((item) => item.status === "ocr_required") },
+      { key: "failed", title: "Feilet", items: importItems.filter((item) => item.status === "failed") },
+      { key: "unsupported", title: "Unsupported", items: importItems.filter((item) => item.status === "unsupported") },
+      { key: "duplicate", title: "Duplikat", items: importItems.filter((item) => item.status === "duplicate") },
+      { key: "partial", title: "Delvis behandlet", items: importItems.filter((item) => item.status === "partial") }
+    ];
+    return groups;
+  }, [importItems]);
+
+  async function handleExportImportDiagnostics() {
+    if (!selectedCaseId) {
+      return;
+    }
+    const report = await exportImportDiagnostics(selectedCaseId);
+    setMaintenanceStatus(report.path ? `${report.message} ${report.path}` : report.message);
+  }
+
+  async function handleExportEvidenceQuality() {
+    if (!selectedCaseId) {
+      return;
+    }
+    const report = await exportEvidenceQualityPackage(selectedCaseId);
+    setMaintenanceStatus(report.path ? `${report.message} ${report.path}` : report.message);
+  }
+
+  async function handleOpenOriginalFolder(item: ImportItem) {
+    const report = await openOriginalFolder(item.original_path);
+    setMaintenanceStatus(report.message);
+  }
+
+  async function handleReplaceImportItem(item: ImportItem) {
+    const paths = await chooseDocumentPaths();
+    if (paths.length > 0) {
+      await importDocuments(paths.slice(0, 1));
+      setMaintenanceStatus(`Erstatningsfil valgt for ${item.original_name}.`);
+    }
+  }
+
+  async function handleRemoveImportItem(item: ImportItem) {
+    const updated = await removeImportItemFromCase(item.id);
+    setImportItems((current) => current.map((candidate) => (candidate.id === updated.id ? updated : candidate)));
+    if (selectedCaseId) {
+      await refresh(selectedCaseId);
+    }
+    setMaintenanceStatus(`${item.original_name} er fjernet fra saken.`);
+  }
+
+  async function handleManualReviewAction(item: ManualReviewItem, action: string) {
+    await applyManualReviewAction(item.id, action);
+    if (selectedCaseId) {
+      await refresh(selectedCaseId);
+    }
+    setMaintenanceStatus(`Manual review oppdatert: ${item.review_type}.`);
+  }
+
+  function ImportItemCard({ item, technical = false }: { item: ImportItem; technical?: boolean }) {
+    return (
+      <article className={`import-health-item import-health-item--${item.status}`}>
+        <div>
+          <strong>{item.original_name}</strong>
+          <span>{importStatusLabel(item.status)}</span>
+        </div>
+        <p>{item.user_message}</p>
+        <p><strong>Konsekvens:</strong> {item.can_continue ? "Kan brukes foreløpig der tekst finnes." : "Er ikke brukt som kildegrunnlag."}</p>
+        <p><strong>Anbefalt handling:</strong> {item.recommended_action}</p>
+        <div className="import-health-item__meta">
+          <span>{item.page_count} sider</span>
+          <span>{item.pages_with_text} med tekst</span>
+          <span>{item.pages_requires_ocr} krever OCR</span>
+          {item.issue_code ? <span>{item.issue_code}</span> : null}
+        </div>
+        <div className="panel-actions">
+          {item.can_retry ? (
+            <button className="button-secondary" type="button" onClick={() => void importDocuments([item.original_path])}>Retry</button>
+          ) : null}
+          <button className="button-secondary" type="button" onClick={() => void handleRemoveImportItem(item)}>Remove from case</button>
+          <button className="button-secondary" type="button" onClick={() => void handleReplaceImportItem(item)}>Replace file</button>
+          <button className="button-secondary" type="button" onClick={() => void handleOpenOriginalFolder(item)}>Open original folder</button>
+          <button className="button-secondary" type="button" onClick={() => setExpandedDocumentId(expandedDocumentId === item.id ? "" : item.id)}>
+            View technical details
+          </button>
+        </div>
+        {technical || expandedDocumentId === item.id ? (
+          <pre className="technical-details">{JSON.stringify(item, null, 2)}</pre>
+        ) : null}
+      </article>
+    );
+  }
+
+  function ImportHealthCenter() {
+    const readyItems = importItems.filter((item) => item.status === "ready");
+    const partialItems = importItems.filter((item) => item.status === "partial");
+    const ocrItems = importItems.filter((item) => item.status === "ocr_required");
+    const failedItems = importItems.filter((item) => item.status === "failed");
+    const unsupportedItems = importItems.filter((item) => item.status === "unsupported");
+    const duplicateItems = importItems.filter((item) => item.status === "duplicate");
+    const healthTitle = importHealth?.status_title || "Importjobb ferdig, men dokumentgrunnlaget er ikke komplett.";
+    const openManualReviewItems = manualReviewItems.filter((item) => item.status === "open" || item.status === "needs_follow_up");
+    const failedOcrResults = ocrResults.filter((item) => item.status === "failed");
+
+    return (
+      <section className="panel import-health-center">
+        <div className="panel-header">
+          <div>
+            <div className="eyebrow">Import Health Center</div>
+            <h2>{healthTitle}</h2>
+            <p>{importHealth?.reason || "Importer dokumenter for å se komplett status per fil."}</p>
+          </div>
+          <div className="panel-actions">
+            <button className="button-primary" type="button" onClick={() => setActiveView("caseRoom")}>Open preliminary Saksrom</button>
+            <button className="button-secondary" type="button" onClick={handleReindex}>Run OCR</button>
+            <button className="button-secondary" type="button" onClick={() => void handleExportImportDiagnostics()}>Export JSON/CSV</button>
+          </div>
+        </div>
+        <div className="import-health-overview">
+          <StatusCard label="Ready documents" value={readyItems.length} detail="klare filer" />
+          <StatusCard label="Requires OCR" value={ocrItems.length} detail={`${pendingOcrPages} sider`} tone={ocrItems.length ? "warn" : "ok"} />
+          <StatusCard label="Failed files" value={failedItems.length} detail="må vurderes" tone={failedItems.length ? "warn" : "ok"} />
+          <StatusCard label="Source coverage" value={`${Math.round(importHealth?.source_coverage_percent ?? caseScopedSourceCoveragePercent)} %`} detail="case-scoped import summary" tone={(importHealth?.source_coverage_percent ?? 0) < 100 ? "warn" : "ok"} />
+          <StatusCard label="Manual review" value={openManualReviewItems.length} detail="åpne punkter" tone={openManualReviewItems.length ? "warn" : "ok"} />
+          <StatusCard label="Evidence quality" value={evidenceQuality?.citation_failures ?? 0} detail="citation failures" tone={evidenceQuality?.citation_failures ? "warn" : "ok"} />
+        </div>
+        {importHealth && importHealth.overall_status !== "ready" ? (
+          <div className="warning-notice">
+            <strong>{importHealth.status_title}</strong> {importHealth.consequence} {importHealth.recommended_action}
+          </div>
+        ) : null}
+        <section className="import-health-section">
+          <h3>Se hva som mangler</h3>
+          <div className="import-health-groups">
+            {missingImportGroups.map((group) => (
+              <article key={group.key} className="import-health-group">
+                <strong>{group.title}</strong>
+                <span>{group.items.length} filer</span>
+              </article>
+            ))}
+          </div>
+        </section>
+        {[
+          ["Ready documents", readyItems],
+          ["Requires OCR", ocrItems],
+          ["Failed files", failedItems],
+          ["Unsupported files", unsupportedItems],
+          ["Duplicates", duplicateItems],
+          ["Partial documents", partialItems]
+        ].map(([title, items]) => (
+          <section key={title as string} className="import-health-section">
+            <h3>{title as string}</h3>
+            {(items as ImportItem[]).length > 0 ? (
+              <div className="import-health-list">
+                {(items as ImportItem[]).map((item) => <ImportItemCard key={item.id} item={item} />)}
+              </div>
+            ) : (
+              <p className="muted">Ingen filer i denne gruppen.</p>
+            )}
+          </section>
+        ))}
+        <section className="import-health-section">
+          <h3>OCR pipeline</h3>
+          <div className="import-health-groups">
+            <article className="import-health-group">
+              <strong>OCR-kø</strong>
+              <span>{ocrResults.filter((item) => item.status === "queued").length} sider</span>
+            </article>
+            <article className="import-health-group">
+              <strong>OCR-feil</strong>
+              <span>{failedOcrResults.length} sider</span>
+            </article>
+            <article className="import-health-group">
+              <strong>OCR-resultater</strong>
+              <span>{ocrResults.length} registrert</span>
+            </article>
+          </div>
+          {failedOcrResults.length ? (
+            <div className="import-health-list">
+              {failedOcrResults.slice(0, 6).map((item) => (
+                <article key={item.id} className="import-item-card">
+                  <strong>{item.user_message}</strong>
+                  <p>{item.recommended_action}</p>
+                  <span className="muted">{item.issue_code || item.status}</span>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </section>
+        <section className="import-health-section">
+          <h3>Manual review</h3>
+          {manualReviewItems.length > 0 ? (
+            <div className="import-health-list">
+              {manualReviewItems.slice(0, 10).map((item) => (
+                <article key={item.id} className="import-item-card">
+                  <div className="import-item-card__header">
+                    <strong>{item.review_type}</strong>
+                    <span>{item.severity}</span>
+                  </div>
+                  <p>{item.reason}</p>
+                  <p><strong>Next action:</strong> {item.recommended_action}</p>
+                  <div className="import-item-card__meta">
+                    <span>Status {item.status}</span>
+                    <span>{item.ai_usable ? "AI-usable after review" : "Not AI-usable"}</span>
+                  </div>
+                  <div className="panel-actions">
+                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "mark_reviewed")}>Mark reviewed</button>
+                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "requires_follow_up")}>Follow up</button>
+                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "exclude_from_ai")}>Exclude from AI</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">Ingen manuelle review-punkter.</p>
+          )}
+        </section>
+        <section className="import-health-section">
+          <h3>Legal/evidence quality</h3>
+          <div className="import-health-groups">
+            <article className="import-health-group">
+              <strong>Duplikatgrupper</strong>
+              <span>{evidenceQuality?.duplicate_groups ?? 0}</span>
+            </article>
+            <article className="import-health-group">
+              <strong>Vedlegg/bilag</strong>
+              <span>{evidenceQuality?.attachment_like_documents ?? 0}</span>
+            </article>
+            <article className="import-health-group">
+              <strong>Source map</strong>
+              <span>{evidenceQuality?.source_map_rows ?? 0} rader</span>
+            </article>
+            <article className="import-health-group">
+              <strong>Chain of custody</strong>
+              <span>{evidenceQuality?.chain_of_custody_rows ?? 0} dokumenter</span>
+            </article>
+          </div>
+          {evidenceQuality?.warnings.length ? (
+            <div className="warning-notice">{evidenceQuality.recommended_action}</div>
+          ) : null}
+          <div className="panel-actions">
+            <button className="button-secondary" type="button" onClick={() => void handleExportEvidenceQuality()}>Export source map</button>
+          </div>
+        </section>
+        <section className="import-health-section">
+          <h3>Technical details</h3>
+          <pre className="technical-details">{JSON.stringify(importHealth, null, 2)}</pre>
+        </section>
+      </section>
+    );
+  }
+
+  function ImportCompletionModal() {
+    if (!showImportCompletion || !importHealth?.latest_session) {
+      return null;
+    }
+    const session = importHealth.latest_session;
+    return (
+      <div className="modal-backdrop" role="presentation">
+        <section className="modal-panel import-completion-modal" role="dialog" aria-modal="true" aria-label="Import fullført">
+          <div className="panel-header">
+            <div>
+              <div className="eyebrow">Import fullført</div>
+              <h2>{importHealth.status_title}</h2>
+              <p>{importHealth.recommended_action}</p>
+            </div>
+            <button className="button-ghost" type="button" onClick={() => setShowImportCompletion(false)}>Lukk</button>
+          </div>
+          <div className="import-health-overview">
+            <StatusCard label="Files imported" value={session.files_ready + session.files_partial} detail="klar eller delvis" />
+            <StatusCard label="Requiring OCR" value={session.files_requires_ocr} detail={`${session.pages_requires_ocr} sider`} tone={session.files_requires_ocr ? "warn" : "ok"} />
+            <StatusCard label="Failed" value={session.files_failed} detail="ikke brukt som kilde" tone={session.files_failed ? "warn" : "ok"} />
+            <StatusCard label="Duplicates" value={session.files_duplicate} detail="ikke importert på nytt" />
+            <StatusCard label="Source coverage" value={`${Math.round(importHealth.source_coverage_percent)} %`} detail="case-scoped" tone={importHealth.source_coverage_percent < 100 ? "warn" : "ok"} />
+          </div>
+          <p className="warning-notice">{importHealth.consequence}</p>
+          <div className="panel-actions">
+            <button className="button-primary" type="button" onClick={() => { setShowImportCompletion(false); setActiveView("control"); }}>View details</button>
+            <button className="button-secondary" type="button" onClick={() => { setShowImportCompletion(false); void handleReindex(); }}>Run OCR</button>
+            <button className="button-secondary" type="button" onClick={() => { setShowImportCompletion(false); setActiveView("caseRoom"); }}>Open preliminary Saksrom</button>
+          </div>
+        </section>
+      </div>
     );
   }
 
@@ -2013,7 +2504,7 @@ export default function App() {
         <div className="panel-header">
           <div>
             <h2>Dokumentimport</h2>
-            <p>Velg filer eller dra dokumenter inn. Sporbare kildeutdrag er tekst vi kan vise tilbake til originaldokumentet.</p>
+            <p>Velg flere filer, velg en hel saksmappe, eller dra dokumenter inn. Sporbare kildeutdrag er tekst vi kan vise tilbake til originaldokumentet.</p>
           </div>
         </div>
         <div className="import-helper">
@@ -2031,6 +2522,9 @@ export default function App() {
           </select>
           <button className="button-primary" disabled={isImporting} onClick={handleChooseFiles}>
             Velg filer
+          </button>
+          <button className="button-secondary" disabled={isImporting || !hasDesktopRuntime()} onClick={() => void handleChooseFolder()}>
+            Velg mappe
           </button>
           <input
             ref={fileInputRef}
@@ -2069,7 +2563,7 @@ export default function App() {
           onKeyDown={handleDropZoneKeyDown}
         >
           <strong>{isDragActive ? "Slipp dokumentene her" : "Dra dokumenter hit"}</strong>
-          <span>Du kan slippe flere filer samtidig. Bruk Velg filer hvis drag/drop ikke passer.</span>
+          <span>Du kan slippe flere filer samtidig. Bruk Velg mappe for å hente en hel saksmappe rekursivt.</span>
         </div>
         {importQueue.length > 0 ? (
           <div className="import-queue" aria-live="polite">
@@ -2347,10 +2841,11 @@ export default function App() {
       <>
         <section className="status-grid control-status-grid">
           <StatusCard label="Saker" value={totals.cases} detail="lokal database" />
-          <StatusCard label="Dokumenter" value={totals.documents} detail="registrert" />
-          <StatusCard label="Sider" value={totals.pages} detail="registrert" />
-          <StatusCard label="Sporbare kilder" value={totals.sources} detail="kan vises tilbake til sider" tone="warn" />
+          <StatusCard label="Dokumenter" value={caseCoverage.totalDocuments} detail="denne saken" />
+          <StatusCard label="Sider" value={caseCoverage.totalPages} detail="denne saken" />
+          <StatusCard label="Sporbare kilder" value={coverageAudit?.source_count ?? sources.length} detail="denne saken" tone="warn" />
         </section>
+        <ImportHealthCenter />
         <section className="panel">
           <div className="panel-header">
             <div>
@@ -2521,12 +3016,14 @@ export default function App() {
               coverage={coveragePercent}
               deviations={deviations}
               readiness={caseReadiness}
+              preliminaryBanner={preliminarySaksromBanner}
               nextActionTitle={nextAction.title}
               onOpenSource={openSource}
               onOpenControl={() => setActiveView("control")}
               onOpenSimulation={() => setActiveView("litigationSimulation")}
               onRunCommand={executeLegalCommandInput}
               onChooseDocuments={handleChooseFiles}
+              onChooseFolder={handleChooseFolder}
               onImportPaths={(paths) => void importDocuments(paths)}
               onSaveCaseName={handleRenameCase}
             />
@@ -2629,6 +3126,7 @@ export default function App() {
   }
 
   const isCaseRoomView = activeView === "caseRoom";
+  const activeWorkroom = workroomKeyForView(activeView);
   const showNavigation = isWorkspaceUnlocked;
   const shellClassName = [
     "app-shell",
@@ -2638,7 +3136,7 @@ export default function App() {
   ].filter(Boolean).join(" ");
 
   return (
-    <div className={shellClassName} data-theme={theme}>
+    <div className={shellClassName} data-theme={theme} data-visual-mode={visualMode}>
       {showNavigation ? (
         <Sidebar
           activeView={activeView}
@@ -2657,6 +3155,7 @@ export default function App() {
             onNewCaseWindow={() => void handleNewCaseInNewWindow()}
             onOpenCaseSwitcher={() => setCasePickerOpen(true)}
             onImportDocuments={() => void handleChooseFiles()}
+            onImportFolder={() => void handleChooseFolder()}
             onExport={() => setActiveView("export")}
             onCloseCase={handleCloseCase}
             onToggleTheme={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
@@ -2701,6 +3200,14 @@ export default function App() {
               <button className="command-button button-secondary" onClick={() => setCommandPaletteOpen(true)}>
                 Ctrl + K · Sakspilot
               </button>
+              <label className="visual-mode-switcher">
+                <span>Visuell modus</span>
+                <select value={visualMode} onChange={(event) => setVisualMode(event.target.value as VisualMode)}>
+                  <option value="calm">Calm</option>
+                  <option value="standard">Standard</option>
+                  <option value="focusPlus">Focus+</option>
+                </select>
+              </label>
             </div>
           </header>
         ) : null}
@@ -2715,6 +3222,23 @@ export default function App() {
               <span>Kryptering ikke verifisert for ekte klientdata.</span>
             )}
           </div>
+        ) : null}
+
+        {showNavigation && !isCaseRoomView ? (
+          <div className="command-center-stack">
+            <WorkroomHeader
+              workroom={activeWorkroom}
+              stats={[
+                { label: "Kildedekning", value: hasDocuments ? `${Math.round(caseScopedSourceCoveragePercent)} %` : "Ukjent", tone: caseScopedSourceCoveragePercent >= 95 ? "ok" : "warn" },
+                { label: "OCR", value: ocrCoveragePercent === undefined ? "Ukjent" : `${ocrCoveragePercent} %`, tone: pendingOcrPages > 0 ? "warn" : "ok" },
+                { label: "Avvik", value: deviations.length, tone: deviations.length > 0 ? "warn" : "ok" }
+              ]}
+            />
+            <CaseVitalityBar vitality={caseVitality} />
+          </div>
+        ) : null}
+        {showNavigation && isCaseRoomView ? (
+          <CaseVitalityBar vitality={caseVitality} compact />
         ) : null}
 
         {renderView()}
@@ -2734,6 +3258,7 @@ export default function App() {
         />
       ) : null}
       <SourcePreviewDrawer source={activeSource} onClose={() => setActiveSource(undefined)} />
+      <ImportCompletionModal />
       <CaseSwitcher
         open={casePickerOpen && showNavigation}
         cases={cases}

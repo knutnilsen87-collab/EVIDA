@@ -1,0 +1,174 @@
+ØKOKRIM - Syntetisk stress-test: Orion Nettverk-saken
+Sak: OKO-STRESS-2026-10K
+EDGE-TXT-002 - Norsk filnavn
+--------------------------------------------------------------------------------
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000001: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0001, intern side 1.
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000002: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0002, intern side 2.
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000003: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0003, intern side 3.
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000004: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0004, intern side 4.
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000005: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0005, intern side 5.
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000006: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0006, intern side 6.
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000007: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0007, intern side 7.
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000008: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0008, intern side 8.
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000009: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0009, intern side 9.
+Sammendrag
+Saken gjelder et omfattende økonomisk nettverk med flere selskaper, mistenkt for systematisk bedrageri og hvitvasking over flere år.
+Transaksjonslogg
+Transaksjon ID TX-TXT-0000010: Overføring mellom kontoer i ulike jurisdiksjoner. Flere transaksjoner er splittet opp for å unngå rapporteringsplikt.
+E-postkorrespondanse
+Intern kommunikasjon antyder bevisst skjuling av midler. Enkelte e-poster er delvis slettet.
+Regnskapsutdrag
+Avvik mellom bokført og faktisk balanse. Manipulerte fakturaer og kunstige kostnader.
+Vitneforklaring
+Tidligere ansatt hevder ledelsen instruerte om å opprette stråselskaper.
+Teknisk analyse
+IP-adresser og serverlogger peker mot flere land. Bruk av VPN og anonymisering.
+Bankanalyse
+Midler flyttet gjennom flere ledd før uttak. Mønster tilsvarer layering i hvitvasking.
+Avhør
+Mistenkte gir motstridende forklaringer om eierskap og kontroll av kontoer.
+Dokumentreferanse: EDGE-TXT-002, Bates: TXT-EDGE-TXT-002-0010, intern side 10.

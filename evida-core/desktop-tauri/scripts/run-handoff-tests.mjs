@@ -117,7 +117,7 @@ assert.equal(extractingSteps.find((step) => step.stage === "finding_source_point
 assert.equal(DOCUMENT_PROCESSING_STAGE_LABELS.extracting_text, "Henter tekst", "current step label matches required copy");
 
 const failedSteps = processingStepViews("failed");
-assert.equal(failedSteps.at(-1)?.label, "Kunne ikke behandles", "failed step uses required copy");
+assert.equal(failedSteps.at(-1)?.label, "Feilet - se årsak og neste handling", "failed step uses actionable copy");
 assert.equal(failedSteps.at(-1)?.state, "failed", "failed step has failed visual state");
 
 console.log(`handoff tests passed (${readinessCases.length + intentCases.length + questionIntentCases.length + Object.keys(expectedProgress).length + 6} assertions).`);

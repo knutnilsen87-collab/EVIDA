@@ -24,7 +24,7 @@ export function RiskView({ rows, onAssess }: RiskViewProps) {
           onAction={onAssess}
         />
       ) : (
-        <div className="work-table risk-table">
+        <div className="work-table risk-table work-table--risk">
           <div>Risiko</div>
           <div>Alvorlighet</div>
           <div>Berørte anførsler</div>
@@ -33,7 +33,7 @@ export function RiskView({ rows, onAssess }: RiskViewProps) {
           {rows.map((row) => (
             <div className="work-row" key={row.id}>
               <strong>{row.risk}</strong>
-              <span>{row.severity}</span>
+              <span className={`risk-badge risk-badge--${row.severity.toLowerCase()}`}>{row.severity || "Ukjent"}</span>
               <span>{row.affectedArguments}</span>
               <span>{row.sourceBasis}</span>
               <span>{row.recommendedAction}</span>

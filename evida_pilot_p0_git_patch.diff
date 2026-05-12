@@ -1,0 +1,355 @@
+diff --git a/evida-core/desktop-tauri/src/lib/api.ts b/evida-core/desktop-tauri/src/lib/api.ts
+index 123ebc9..fe6a535 100644
+--- a/evida-core/desktop-tauri/src/lib/api.ts
++++ b/evida-core/desktop-tauri/src/lib/api.ts
+@@ -47,7 +47,16 @@ async function callTauri<T>(command: string, args?: Record<string, unknown>): Pr
+   return invoke<T>(command, args);
+ }
+ 
++function assertDevFallbackAllowed() {
++  if (hasTauriRuntime()) {
++    throw new Error(
++      "Desktopkommando feilet. Browser-dev fallback er deaktivert i desktopmodus for å unngå falsk suksess."
++    );
++  }
++}
++
+ function readStore(): DevStore {
++  assertDevFallbackAllowed();
+   const raw = window.localStorage.getItem(STORE_KEY);
+   if (!raw) {
+     return { cases: [], documents: [], sources: [], audit: [], workItems: {}, aiMessages: {} };
+@@ -64,6 +73,7 @@ function readStore(): DevStore {
+ }
+ 
+ function writeStore(store: DevStore) {
++  assertDevFallbackAllowed();
+   window.localStorage.setItem(STORE_KEY, JSON.stringify(store));
+ }
+ 
+@@ -100,7 +110,10 @@ function appendAudit(
+ export async function getAppStatus(): Promise<string> {
+   try {
+     return await callTauri<string>("get_app_status");
+-  } catch {
++  } catch (error) {
++    if (hasTauriRuntime()) {
++      throw error;
++    }
+     return "Dev webmodus: Tauri ikke aktiv, bruker lokal browser-store.";
+   }
+ }
+@@ -108,7 +121,10 @@ export async function getAppStatus(): Promise<string> {
+ export async function getDatabaseSecurityStatus(): Promise<DatabaseSecurityStatus> {
+   try {
+     return await callTauri<DatabaseSecurityStatus>("get_database_security_status");
+-  } catch {
++  } catch (error) {
++    if (hasTauriRuntime()) {
++      throw error;
++    }
+     return {
+       encrypted_at_rest: false,
+       cipher: "browser-dev-store",
+@@ -200,11 +216,13 @@ export async function setCurrentWindowTitle(windowLabel: string, title: string):
+ }
+ 
+ function readSettingsStore(): Record<string, AppSetting> {
++  assertDevFallbackAllowed();
+   const raw = window.localStorage.getItem(SETTINGS_STORE_KEY);
+   return raw ? JSON.parse(raw) : {};
+ }
+ 
+ function writeSettingsStore(settings: Record<string, AppSetting>) {
++  assertDevFallbackAllowed();
+   window.localStorage.setItem(SETTINGS_STORE_KEY, JSON.stringify(settings));
+ }
+ 
+diff --git a/ops/New-EvidaRelease.ps1 b/ops/New-EvidaRelease.ps1
+new file mode 100644
+index 0000000..87a2c92
+--- /dev/null
++++ b/ops/New-EvidaRelease.ps1
+@@ -0,0 +1,99 @@
++param(
++    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
++    [switch]$SkipBuild
++)
++
++$ErrorActionPreference = "Stop"
++
++$desktop = Join-Path $Root "evida-core\desktop-tauri"
++$release = Join-Path $Root "Evida Release"
++$target = Join-Path $desktop "src-tauri\target\release"
++$exe = Join-Path $target "evida-desktop.exe"
++$nsis = Join-Path $target "bundle\nsis\Evida_0.1.0_x64-setup.exe"
++$msi = Join-Path $target "bundle\msi\Evida_0.1.0_x64_en-US.msi"
++
++if (-not (Test-Path $desktop)) {
++    throw "Desktop folder not found: $desktop"
++}
++
++if (-not $SkipBuild) {
++    Push-Location $desktop
++    try {
++        npm.cmd run tauri:build
++    } finally {
++        Pop-Location
++    }
++}
++
++New-Item -ItemType Directory -Force -Path $release | Out-Null
++
++$artifacts = @(
++    @{ Source = $exe; Destination = (Join-Path $release "Evida.exe"); Required = $true },
++    @{ Source = $nsis; Destination = (Join-Path $release "Evida installer.exe"); Required = $false },
++    @{ Source = $msi; Destination = (Join-Path $release "Evida installer.msi"); Required = $false }
++)
++
++$copied = @()
++foreach ($artifact in $artifacts) {
++    if (Test-Path -LiteralPath $artifact.Source) {
++        Copy-Item -LiteralPath $artifact.Source -Destination $artifact.Destination -Force
++        $copied += Get-Item -LiteralPath $artifact.Destination
++    } elseif ($artifact.Required) {
++        throw "Missing required release artifact: $($artifact.Source)"
++    } else {
++        Write-Warning "Optional installer artifact missing: $($artifact.Source)"
++    }
++}
++
++if ($copied.Count -eq 0) {
++    throw "No release artifacts copied."
++}
++
++$checksumPath = Join-Path $release "SHA256SUMS.txt"
++$manifestPath = Join-Path $release "release-manifest.json"
++$readmePath = Join-Path $release "LES_MEG.txt"
++
++$checksums = foreach ($file in Get-ChildItem -LiteralPath $release -File | Where-Object { $_.Name -match '^Evida' }) {
++    $hash = Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256
++    [pscustomobject]@{
++        file = $file.Name
++        sha256 = $hash.Hash.ToLowerInvariant()
++        bytes = $file.Length
++        updated_at = $file.LastWriteTimeUtc.ToString("o")
++    }
++}
++
++$checksums | ForEach-Object { "$($_.sha256)  $($_.file)" } | Set-Content -LiteralPath $checksumPath -Encoding UTF8
++
++[pscustomobject]@{
++    product = "Evida"
++    version = "0.1.0-alpha"
++    status = "pre-alpha evaluation build"
++    generated_at = (Get-Date).ToUniversalTime().ToString("o")
++    local_processing = $true
++    real_client_data_allowed = $false
++    artifacts = $checksums
++} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
++
++@"
++Evida Release
++==============
++
++Dobbeltklikk Evida.exe for å starte programmet direkte.
++
++Status:
++- PRE-ALPHA / evaluation build
++- Bruk testdata
++- Ikke bruk ekte klientdata uten skriftlig avtale og verifisert sikkerhetsoppsett
++
++Kontrollfiler:
++- SHA256SUMS.txt
++- release-manifest.json
++
++Rotmappen har én startfil:
++- Start Evida.bat
++"@ | Set-Content -LiteralPath $readmePath -Encoding UTF8
++
++Write-Host "Evida release prepared:" $release
++Write-Host "Checksums:" $checksumPath
++Write-Host "Manifest:" $manifestPath
+diff --git a/ops/Test-EvidaHardening.ps1 b/ops/Test-EvidaHardening.ps1
+new file mode 100644
+index 0000000..7f4fe89
+--- /dev/null
++++ b/ops/Test-EvidaHardening.ps1
+@@ -0,0 +1,27 @@
++param(
++    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
++)
++
++$ErrorActionPreference = "Stop"
++
++& (Join-Path $PSScriptRoot "Verify-ProductionBoundary.ps1") -Root $Root
++& (Join-Path $PSScriptRoot "Test-EvidaSmokePreflight.ps1") -Root $Root
++
++$capabilityPath = Join-Path $Root "evida-core\desktop-tauri\src-tauri\capabilities\default.json"
++if (-not (Test-Path -LiteralPath $capabilityPath)) {
++    throw "Missing Tauri capability file: $capabilityPath"
++}
++$capability = Get-Content -Raw -LiteralPath $capabilityPath
++if ($capability -match "shell:|fs:|\*") {
++    throw "Capability file contains shell/fs/wildcard permission. Review before pilot."
++}
++
++$settings = Get-Content -Raw -LiteralPath (Join-Path $Root "evida-core\desktop-tauri\src\components\settings\SettingsView.tsx")
++if ($settings -notmatch "external_ai_enabled:\s*false") {
++    throw "External AI must default to false for pilot."
++}
++if ($settings -notmatch "allow_source_excerpt_sending:\s*false") {
++    throw "Source excerpt sending must default to false for pilot."
++}
++
++Write-Host "Hardening preflight passed."
+diff --git a/ops/Test-EvidaRelease.ps1 b/ops/Test-EvidaRelease.ps1
+new file mode 100644
+index 0000000..d8f6b67
+--- /dev/null
++++ b/ops/Test-EvidaRelease.ps1
+@@ -0,0 +1,60 @@
++param(
++    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
++)
++
++$ErrorActionPreference = "Stop"
++
++$release = Join-Path $Root "Evida Release"
++$required = @(
++    "Evida.exe",
++    "SHA256SUMS.txt",
++    "release-manifest.json",
++    "LES_MEG.txt"
++)
++
++foreach ($name in $required) {
++    $path = Join-Path $release $name
++    if (-not (Test-Path -LiteralPath $path)) {
++        throw "Missing release file: $path"
++    }
++}
++
++$checksumLines = Get-Content -LiteralPath (Join-Path $release "SHA256SUMS.txt")
++if ($checksumLines.Count -eq 0) {
++    throw "SHA256SUMS.txt is empty"
++}
++
++foreach ($line in $checksumLines) {
++    if ($line -notmatch '^([a-f0-9]{64})\s\s(.+)$') {
++        throw "Invalid checksum line: $line"
++    }
++    $expected = $Matches[1]
++    $fileName = $Matches[2]
++    $filePath = Join-Path $release $fileName
++    if (-not (Test-Path -LiteralPath $filePath)) {
++        throw "Checksum references missing file: $fileName"
++    }
++    $actual = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant()
++    if ($actual -ne $expected) {
++        throw "Checksum mismatch for $fileName"
++    }
++}
++
++$manifest = Get-Content -Raw -LiteralPath (Join-Path $release "release-manifest.json") | ConvertFrom-Json
++if ($manifest.product -ne "Evida") {
++    throw "Manifest product must be Evida"
++}
++if ($manifest.real_client_data_allowed -ne $false) {
++    throw "Manifest must mark real_client_data_allowed=false for evaluation builds"
++}
++
++$launcher = Join-Path $Root "Start Evida.bat"
++if (-not (Test-Path -LiteralPath $launcher)) {
++    throw "Missing launcher: $launcher"
++}
++$launcherText = Get-Content -Raw -LiteralPath $launcher
++if ($launcherText.IndexOf('Evida Release\Evida.exe') -lt 0) {
++    throw "Launcher does not reference Evida Release\Evida.exe"
++}
++
++Write-Host "Evida release verification passed."
+diff --git a/ops/Test-EvidaSmokePreflight.ps1 b/ops/Test-EvidaSmokePreflight.ps1
+new file mode 100644
+index 0000000..aa538be
+--- /dev/null
++++ b/ops/Test-EvidaSmokePreflight.ps1
+@@ -0,0 +1,43 @@
++param(
++    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
++)
++
++$ErrorActionPreference = "Stop"
++
++$requiredFiles = @(
++    "Start Evida.bat",
++    "CURRENT_STATUS.md",
++    "docs\ACCEPTANCE_SMOKE_TEST.md",
++    "docs\PILOT_EVALUATION_PLAN.md",
++    "docs\CLEAN_MACHINE_SMOKE_RESULT.md",
++    "evida-core\desktop-tauri\package.json",
++    "evida-core\desktop-tauri\src\App.tsx",
++    "evida-core\desktop-tauri\src\components\CaseRoomView.tsx"
++)
++
++foreach ($relative in $requiredFiles) {
++    $path = Join-Path $Root $relative
++    if (-not (Test-Path -LiteralPath $path)) {
++        throw "Missing preflight file: $relative"
++    }
++}
++
++$package = Get-Content -Raw -LiteralPath (Join-Path $Root "evida-core\desktop-tauri\package.json") | ConvertFrom-Json
++foreach ($script in @("test", "build", "tauri:build")) {
++    if (-not $package.scripts.PSObject.Properties.Name.Contains($script)) {
++        throw "package.json is missing script: $script"
++    }
++}
++
++$launcher = Get-Content -Raw -LiteralPath (Join-Path $Root "Start Evida.bat")
++$releaseIndex = $launcher.IndexOf('Evida Release\Evida.exe')
++$devIndex = $launcher.IndexOf('target\release\evida-desktop.exe')
++if ($releaseIndex -lt 0) { throw "Launcher does not reference Evida Release\Evida.exe" }
++if ($devIndex -ge 0 -and $releaseIndex -gt $devIndex) { throw "Launcher must prefer Evida Release before repo target build" }
++
++$api = Get-Content -Raw -LiteralPath (Join-Path $Root "evida-core\desktop-tauri\src\lib\api.ts")
++if ($api -notmatch "assertDevFallbackAllowed") {
++    throw "api.ts must block browser-dev fallback inside desktop runtime."
++}
++
++Write-Host "Smoke preflight passed. Manual GUI smoke still required."
+diff --git a/ops/Verify-ProductionBoundary.ps1 b/ops/Verify-ProductionBoundary.ps1
+new file mode 100644
+index 0000000..d95d488
+--- /dev/null
++++ b/ops/Verify-ProductionBoundary.ps1
+@@ -0,0 +1,29 @@
++param(
++    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
++)
++
++$ErrorActionPreference = "Stop"
++
++function Assert-Contains {
++    param([string]$Path, [string]$Pattern, [string]$Message)
++    if (-not (Test-Path -LiteralPath $Path)) {
++        throw "Missing file: $Path"
++    }
++    $text = Get-Content -Raw -LiteralPath $Path
++    if ($text -notmatch $Pattern) {
++        throw $Message
++    }
++}
++
++Assert-Contains (Join-Path $Root "README.md") "not production-ready|pre-alpha" "README must state pre-alpha/not production-ready boundary."
++Assert-Contains (Join-Path $Root "CURRENT_STATUS.md") "test data only|testdata" "CURRENT_STATUS must state testdata-only boundary."
++Assert-Contains (Join-Path $Root "SECURITY.md") "real client data|client data" "SECURITY.md must state real-data boundary."
++Assert-Contains (Join-Path $Root "DECISIONS\ADR-001-backend-ownership.md") "Spring Boot" "ADR-001 must define Spring Boot backend ownership."
++Assert-Contains (Join-Path $Root "evida-core\backend-api\DEPRECATED.md") "deprecated" "FastAPI backend must remain marked deprecated."
++
++$tauriConfig = Get-Content -Raw -LiteralPath (Join-Path $Root "evida-core\desktop-tauri\src-tauri\tauri.conf.json") | ConvertFrom-Json
++if ($null -eq $tauriConfig.app.security.csp -or $tauriConfig.app.security.csp.Trim().Length -eq 0) {
++    throw "Tauri CSP must be configured."
++}
++
++Write-Host "Production boundary verification passed."

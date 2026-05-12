@@ -1,5 +1,7 @@
 import type { ViewKey } from "../types";
 import type { CaseReadinessVerdict } from "../features/readiness/caseReadiness";
+import { WORKROOM_THEME, workroomKeyForView, workroomStyle } from "../lib/workroomTheme";
+import { WorkroomIcon } from "./WorkroomIcon";
 
 type UnlockLevel = "base" | "documents" | "analysis" | "simulation" | "draft";
 
@@ -93,14 +95,23 @@ export function Sidebar({
       <ul>
         {visibleItems.map((item) => {
           const unlocked = isUnlocked(item.unlock, hasDocuments, readinessVerdict);
+          const themeKey = workroomKeyForView(item.key);
+          const theme = WORKROOM_THEME[themeKey];
+          const active = item.key === activeView;
           return (
             <li key={item.key} title={unlocked ? item.label : lockedReason(item.unlock)}>
               <button
-                className={`${item.key === activeView ? "active" : ""} ${!unlocked ? "locked" : ""}`}
+                className={`sidebar-item ${active ? "sidebar-item--active active" : ""} ${!unlocked ? "locked" : ""}`}
+                style={workroomStyle(themeKey)}
                 onClick={() => unlocked && onNavigate(item.key)}
                 disabled={!unlocked}
+                aria-current={active ? "page" : undefined}
               >
-                {item.label}
+                <span className="sidebar-item__marker" aria-hidden="true" />
+                <span className="sidebar-item__icon">
+                  <WorkroomIcon name={theme.icon} size={17} />
+                </span>
+                <span className="sidebar-item__label">{theme.label}</span>
               </button>
             </li>
           );

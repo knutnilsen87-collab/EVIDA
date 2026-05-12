@@ -10,10 +10,13 @@ Pilot kan ha begrensede features, men ikke lavere tillitsnivå.
 
 ```text
 [ ] npm.cmd run build passes.
+[ ] cargo test --manifest-path src-tauri\Cargo.toml passes.
 [ ] Tauri app starts successfully.
 [ ] No blocking TypeScript errors.
 [ ] No blocking Rust build errors.
 [ ] No known crash in normal case workflow.
+[ ] Dependency/SBOM gate has run.
+[ ] Release signing decision is explicit.
 ```
 
 ## AI answer gates
@@ -37,6 +40,8 @@ Pilot kan ha begrensede features, men ikke lavere tillitsnivå.
 [ ] Pending/OCR pages are visible.
 [ ] Evida does not claim 100% if pages are missing.
 [ ] User can see whether documents are still being processed.
+[ ] User can import several documents in one selection.
+[ ] User can import a folder of case documents recursively.
 [ ] Source objects can be opened/inspected.
 [ ] Raw source data is not mutated by AI excerpt cleaning.
 ```
@@ -52,6 +57,9 @@ Pilot kan ha begrensede features, men ikke lavere tillitsnivå.
 [ ] Logs do not include sensitive chat content by default.
 [ ] Export without control is disabled by default.
 [ ] Database security status is visible.
+[ ] Audit hash-chain verification passes.
+[ ] Provider policy gate blocks external AI by default.
+[ ] Full database encryption gap is either closed or blocks production sign-off.
 ```
 
 ## Desktop workspace gates
@@ -103,4 +111,6 @@ Do not release if:
 [ ] Golden tests passed.
 [ ] Build passed.
 [ ] Known blockers closed or explicitly accepted.
+[ ] `ops\Test-EvidaReleaseHardening.ps1` passed.
+[ ] `docs/RUST_TEST_EXECUTION_STATUS.md` reviewed; Cargo tests passed in CI or on a permitted machine.
 ```
