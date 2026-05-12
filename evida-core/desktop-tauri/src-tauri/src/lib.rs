@@ -85,6 +85,7 @@ pub fn run() {
             commands::run_ocr_for_import_item,
             commands::list_manual_review_items,
             commands::apply_manual_review_action,
+            commands::record_document_control_action,
             commands::refresh_evidence_quality,
             commands::export_evidence_quality_package,
             commands::remove_import_item_from_case,

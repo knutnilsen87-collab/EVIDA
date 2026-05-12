@@ -570,7 +570,42 @@ export async function applyManualReviewAction(
   action: string,
   note?: string
 ): Promise<ManualReviewAction> {
-  return await callTauri<ManualReviewAction>("apply_manual_review_action", { reviewItemId, action, note });
+  try {
+    return await callTauri<ManualReviewAction>("apply_manual_review_action", { reviewItemId, action, note });
+  } catch {
+    throw new Error("Manual review kan bare lagres fra desktop-appen.");
+  }
+}
+
+export async function recordDocumentControlAction(params: {
+  caseId: string;
+  documentId: string;
+  action: "preview" | "approve_for_ai" | "reject_for_ai";
+  note?: string;
+}): Promise<MaintenanceReport> {
+  try {
+    return await callTauri<MaintenanceReport>("record_document_control_action", {
+      caseId: params.caseId,
+      documentId: params.documentId,
+      action: params.action,
+      note: params.note
+    });
+  } catch {
+    const store = readStore();
+    const actionMap = {
+      preview: "DOCUMENT_PREVIEW_OPENED",
+      approve_for_ai: "DOCUMENT_APPROVED_FOR_AI",
+      reject_for_ai: "DOCUMENT_REJECTED_FOR_AI"
+    };
+    appendAudit(store, {
+      case_id: params.caseId,
+      action: actionMap[params.action],
+      target_type: "document",
+      target_id: params.documentId
+    });
+    writeStore(store);
+    return { message: "Dokumentkontroll lagret i browser-store." };
+  }
 }
 
 export async function refreshEvidenceQuality(caseId: string): Promise<EvidenceQualityReport> {

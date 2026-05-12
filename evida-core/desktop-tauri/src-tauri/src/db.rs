@@ -2931,6 +2931,64 @@ pub fn apply_manual_review_action(
     })
 }
 
+pub fn record_document_control_action(
+    conn: &Connection,
+    case_id: &str,
+    document_id: &str,
+    action: &str,
+    note: Option<&str>,
+) -> Result<()> {
+    let (document_name, sha256): (String, String) = conn.query_row(
+        "SELECT original_name, sha256 FROM documents WHERE id = ?1 AND case_id = ?2",
+        params![document_id, case_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let normalized_action = match action {
+        "preview" => "DOCUMENT_PREVIEW_OPENED",
+        "approve_for_ai" => "DOCUMENT_APPROVED_FOR_AI",
+        "reject_from_ai" => "DOCUMENT_REJECTED_FOR_AI",
+        "reject_for_ai" => "DOCUMENT_REJECTED_FOR_AI",
+        other => other,
+    };
+    let result = if normalized_action == "DOCUMENT_REJECTED_FOR_AI" { "WARN" } else { "PASS" };
+    let details = serde_json::json!({
+        "document_name": document_name,
+        "sha256": sha256,
+        "note": note
+    });
+    crate::audit::append_audit_event(
+        conn,
+        Some(case_id),
+        "local-user",
+        normalized_action,
+        "document",
+        document_id,
+        result,
+        Some(&details.to_string()),
+    )?;
+    if normalized_action == "DOCUMENT_APPROVED_FOR_AI" || normalized_action == "DOCUMENT_REJECTED_FOR_AI" {
+        let status = if normalized_action == "DOCUMENT_APPROVED_FOR_AI" {
+            "reviewed"
+        } else {
+            "excluded_from_ai"
+        };
+        let ai_usable = normalized_action == "DOCUMENT_APPROVED_FOR_AI";
+        conn.execute(
+            "UPDATE manual_review_items
+             SET status = ?1, ai_usable = ?2, updated_at = ?3
+             WHERE case_id = ?4 AND document_id = ?5 AND status IN ('open', 'needs_follow_up')",
+            params![
+                status,
+                if ai_usable { 1 } else { 0 },
+                Utc::now().to_rfc3339(),
+                case_id,
+                document_id
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 fn manual_review_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManualReviewItem> {
     Ok(ManualReviewItem {
         id: row.get(0)?,

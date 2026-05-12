@@ -409,6 +409,25 @@ pub fn apply_manual_review_action(
 }
 
 #[tauri::command]
+pub fn record_document_control_action(
+    case_id: String,
+    document_id: String,
+    action: String,
+    note: Option<String>,
+) -> Result<MaintenanceReport, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::record_document_control_action(&conn, &case_id, &document_id, &action, note.as_deref())
+        .map_err(|error| error.to_string())?;
+    Ok(MaintenanceReport {
+        message: "Dokumentkontroll lagret i audit trail.".to_string(),
+        path: None,
+        cases_deleted: None,
+        documents_deleted: None,
+        sources_deleted: None,
+    })
+}
+
+#[tauri::command]
 pub fn refresh_evidence_quality(case_id: String) -> Result<EvidenceQualityReport, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
     crate::db::refresh_evidence_quality(&conn, &case_id).map_err(|error| error.to_string())
@@ -1442,7 +1461,7 @@ fn provider_answer_text(value: &Value, default_uncertainty: &str, default_next_s
         "Kort svar".to_string(),
         direct_answer,
         "".to_string(),
-        "Min vurdering".to_string(),
+        "Viktigste vurdering".to_string(),
         partner_assessment,
     ];
     if !reasoning_points.is_empty() {
@@ -1451,10 +1470,10 @@ fn provider_answer_text(value: &Value, default_uncertainty: &str, default_next_s
     }
     sections.extend([
         "".to_string(),
-        "Usikkerhet".to_string(),
+        "Usikkerhet / mangler".to_string(),
         uncertainty,
         "".to_string(),
-        "Neste beste steg".to_string(),
+        "Neste anbefalte handling".to_string(),
         next_step,
     ]);
     if !followups.is_empty() {
@@ -1487,7 +1506,7 @@ fn contains_blocked_answer_metadata(value: &str) -> bool {
 
 fn safe_ai_fallback_text(next_step: &str) -> String {
     format!(
-        "Kort svar\nJeg klarte ikke å lage et godt nok saksbasert svar på dette spørsmålet akkurat nå.\n\nMin vurdering\nKildegrunnlaget som ble hentet ser ut til å være for preget av dokumentmetadata eller mangler tydelig saksinnhold. Jeg viser derfor ikke rått AI-svar.\n\nUsikkerhet\nHøy. Svaret ble stoppet av kvalitetskontroll.\n\nNeste beste steg\n{}",
+        "Kort svar\nJeg klarte ikke å lage et godt nok saksbasert svar på dette spørsmålet akkurat nå.\n\nViktigste vurdering\nKildegrunnlaget som ble hentet ser ut til å være for preget av dokumentmetadata eller mangler tydelig saksinnhold. Jeg viser derfor ikke rått AI-svar.\n\nUsikkerhet / mangler\nHøy. Svaret ble stoppet av kvalitetskontroll.\n\nNeste anbefalte handling\n{}",
         next_step
     )
 }
@@ -1630,6 +1649,9 @@ mod tests {
         let answer = provider_answer_text(&provider, "Høy", "Åpne kontrollstatus.");
 
         assert!(answer.contains("Jeg klarte ikke å lage et godt nok saksbasert svar"));
+        assert!(answer.contains("Viktigste vurdering"));
+        assert!(answer.contains("Usikkerhet / mangler"));
+        assert!(answer.contains("Neste anbefalte handling"));
         assert!(!answer.contains("Bates OKO-0001"));
         assert!(!answer.contains("Dette bør ikke vises."));
     }
@@ -1660,6 +1682,8 @@ mod tests {
         let fallback = safe_ai_fallback_text("Åpne Kontrollstatus.");
 
         assert!(fallback.contains("Jeg viser derfor ikke rått AI-svar"));
+        assert!(fallback.contains("Viktigste vurdering"));
+        assert!(fallback.contains("Neste anbefalte handling"));
         assert!(fallback.contains("Åpne Kontrollstatus."));
         assert!(!fallback.contains("OPENAI_API_KEY"));
         assert!(!fallback.contains("provider"));

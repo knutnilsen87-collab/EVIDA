@@ -316,12 +316,8 @@ function formatAnswer(
     "Kort svar",
     `Basert på kildene som er klare, er det viktigste jeg finner: ${importantPoints[0]}`,
     "",
-    "Viktigste punkter",
+    "Viktigste vurdering",
     ...importantPoints.slice(0, 4).map((point) => `- ${point}`),
-    "",
-    "Hva dette bygger på",
-    `- ${selected.length} sporbare kildeutdrag fra valgt sak.`,
-    "- Kildene er hentet lokalt og kan åpnes under svaret.",
     "",
     "Usikkerhet / mangler",
     needsCaution
@@ -329,7 +325,7 @@ function formatAnswer(
       : "- Grunnlaget ser klart ut for foreløpig saksarbeid, men må kontrolleres faglig.",
     deviations.length > 0 ? `- Kontrollavvik: ${deviations.join(" ")}` : "- Ingen særskilte kontrollavvik vises i dette svaret.",
     "",
-    "Neste spor å undersøke",
+    "Neste anbefalte handling",
     `- ${nextActionTitle}`
   ].join("\n");
 }
@@ -727,16 +723,13 @@ function buildAnswer(
         "Kort svar",
         "Jeg finner ingen sporbare kilder å svare fra ennå.",
         "",
-        "Viktigste punkter",
+        "Viktigste vurdering",
         "- Saksrom trenger minst ett kildeutdrag før svaret kan bli etterprøvbart.",
-        "",
-        "Hva dette bygger på",
-        "- Ingen lokale kilder er tilgjengelige.",
         "",
         "Usikkerhet / mangler",
         "- Kildegrunnlag mangler.",
         "",
-        "Neste spor å undersøke",
+        "Neste anbefalte handling",
         "- Importer dokumenter eller oppdater kildene."
       ].join("\n"),
       sourceIds: [],
@@ -1766,7 +1759,7 @@ export function CaseRoomView({
           ) : null}
           {visibleAnswers.length === 0 ? (
             <div className="case-empty-chat">
-              <h3>{!hasDocuments ? "Start med dokumentene" : isBlocked || sourceCoverageTooLow ? "Saken klargjøres" : "Spør saken"}</h3>
+              <h3>{!hasDocuments ? "Last opp dokumenter først" : isBlocked || sourceCoverageTooLow ? "Saken klargjøres" : "Spør saken"}</h3>
               <p>
                 {!hasDocuments
                   ? "Dra dokumenter hit, eller trykk + ved meldingsfeltet for å laste opp. Evida leser dokumentene, lager sporbare kilder og viser en saksoppsummering når grunnlaget er klart."

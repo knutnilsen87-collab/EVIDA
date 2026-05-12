@@ -36,6 +36,7 @@ import {
   openLocalDataFolder,
   openOriginalFolder,
   openNewCaseWindow,
+  recordDocumentControlAction,
   reindexCaseDocuments,
   registerDocumentInSession,
   refreshEvidenceQuality,
@@ -108,6 +109,10 @@ import type { LegalCommand } from "./features/legalCommands/legalCommands";
 import { useWindowCaseContext } from "./lib/windowCaseContext";
 import { useEvidaShortcuts } from "./lib/shortcuts";
 import { workroomKeyForView } from "./lib/workroomTheme";
+import {
+  deriveDocumentBasisSummary,
+  type DocumentBasisRow
+} from "./features/documents/documentBasis";
 
 const viewTitles: Record<ViewKey, string> = {
   overview: "Saksoversikt",
@@ -762,6 +767,17 @@ export default function App() {
     automaticTextRecognitionAvailable,
     dbEncryptionVerified: dbSecurity?.encrypted_at_rest ?? false
   });
+  const documentBasis = useMemo(
+    () =>
+      deriveDocumentBasisSummary({
+        documents,
+        importItems,
+        manualReviewItems,
+        audit,
+        hasActiveProcessing
+      }),
+    [documents, importItems, manualReviewItems, audit, hasActiveProcessing]
+  );
   const canUsePreliminaryAnalysis =
     caseReadiness.verdict === "ready_for_preliminary_analysis" ||
     caseReadiness.verdict === "ready_for_draft_control";
@@ -2025,6 +2041,36 @@ export default function App() {
     setMaintenanceStatus(`Manual review oppdatert: ${item.review_type}.`);
   }
 
+  async function handlePreviewDocument(row: DocumentBasisRow) {
+    const document = documents.find((item) => item.id === row.id);
+    if (!document) {
+      return;
+    }
+    const report = await openOriginalFolder(document.local_path);
+    await recordDocumentControlAction({ caseId: row.caseId, documentId: row.id, action: "preview" });
+    if (selectedCaseId) {
+      await refresh(selectedCaseId);
+    }
+    setMaintenanceStatus(`${row.name}: ${report.message}`);
+  }
+
+  async function handleDocumentApproval(row: DocumentBasisRow, action: "approve_for_ai" | "reject_for_ai") {
+    const note =
+      action === "approve_for_ai"
+        ? "Bruker har forhåndsvist dokumentet og godkjent dokumentgrunnlaget for AI-svar."
+        : "Bruker har forhåndsvist dokumentet og avvist dokumentet fra AI-grunnlaget.";
+    const report = await recordDocumentControlAction({
+      caseId: row.caseId,
+      documentId: row.id,
+      action,
+      note
+    });
+    if (selectedCaseId) {
+      await refresh(selectedCaseId);
+    }
+    setMaintenanceStatus(`${row.name}: ${report.message}`);
+  }
+
   function ImportItemCard({ item, technical = false }: { item: ImportItem; technical?: boolean }) {
     return (
       <article className={`import-health-item import-health-item--${item.status}`}>
@@ -2360,16 +2406,8 @@ export default function App() {
   }
 
   function GuidedExperience() {
-    const steps = [
-      { label: "Intro", done: onboardingStage !== "intro" },
-      { label: "Innlogging", done: isAuthenticated },
-      { label: "Sak", done: Boolean(selectedCase) },
-      { label: "Dokumenter", done: hasDocuments },
-      { label: "Saksrom", done: onboardingStage === "caseRoom" }
-    ];
-
     return (
-      <section className={`guided-shell ${onboardingStage === "intro" ? "guided-shell--intro" : ""}`}>
+      <section className={`guided-shell ${onboardingStage === "intro" ? "guided-shell--intro" : ""} ${onboardingStage === "login" ? "guided-shell--login" : ""}`}>
         {onboardingStage !== "intro" ? (
           <>
         <header className="guided-header">
@@ -2399,14 +2437,6 @@ export default function App() {
           </div>
         </header>
 
-        <div className="guided-stepper" aria-label="Oppstartsflyt">
-          {steps.map((step, index) => (
-            <div key={step.label} className={`guided-step ${step.done ? "guided-step--done" : ""}`}>
-              <span>{step.done ? "✓" : index + 1}</span>
-              <strong>{step.label}</strong>
-            </div>
-          ))}
-        </div>
           </>
         ) : null}
 
@@ -2883,6 +2913,69 @@ export default function App() {
     );
   }
 
+  function DocumentBasisGroup({
+    title,
+    rows,
+    emptyText
+  }: {
+    title: string;
+    rows: DocumentBasisRow[];
+    emptyText: string;
+  }) {
+    return (
+      <section className="document-basis-group">
+        <div className="document-basis-group__header">
+          <h3>{title}</h3>
+          <span>{countLabel(rows.length, "dokument", "dokumenter")}</span>
+        </div>
+        {rows.length === 0 ? (
+          <p className="muted">{emptyText}</p>
+        ) : (
+          <div className="document-basis-list">
+            {rows.map((row) => (
+              <article key={row.id} className={`document-basis-row document-basis-row--${row.state}`}>
+                <div className="document-basis-row__main">
+                  <div className="document-primary">
+                    <strong>{row.name}</strong>
+                    <span className={row.canUseInAnswer ? "status-chip status-chip--ok" : "status-chip status-chip--warn"}>
+                      {row.label}
+                    </span>
+                  </div>
+                  <p>{row.reason}</p>
+                  <div className="case-row__meta">
+                    <span>{countLabel(row.pageCount, "side", "sider")}</span>
+                    <span>{row.analyzedPages} analysert</span>
+                    <span>{row.pendingOcrPages} venter på tekst</span>
+                    <span>{row.sourceCount} kildeutdrag</span>
+                    <span>{row.sourceCoveragePercent} % kildeklar</span>
+                    <span>Hash {row.hash.slice(0, 12)}</span>
+                  </div>
+                  {row.approvedAt ? <small>Godkjent av {row.approvedBy || "local-user"} {row.approvedAt}</small> : null}
+                  {row.rejectedAt ? <small>Avvist av {row.rejectedBy || "local-user"} {row.rejectedAt}</small> : null}
+                </div>
+                <div className="document-basis-row__actions">
+                  <button className="button-secondary" type="button" onClick={() => void handlePreviewDocument(row)} disabled={!row.canPreview}>
+                    Forhåndsvis
+                  </button>
+                  {row.canApprove ? (
+                    <button className="button-primary" type="button" onClick={() => void handleDocumentApproval(row, "approve_for_ai")}>
+                      Sett og godkjent
+                    </button>
+                  ) : null}
+                  {row.canReject ? (
+                    <button className="button-secondary" type="button" onClick={() => void handleDocumentApproval(row, "reject_for_ai")}>
+                      Avvis fra AI
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function ControlView() {
     const checks = [
       { label: "Sak valgt", ok: Boolean(selectedCase), detail: selectedCase?.name || "Ingen sak" },
@@ -2922,6 +3015,29 @@ export default function App() {
                 <p>{check.detail}</p>
               </article>
             ))}
+          </div>
+          <div className="document-basis-overview">
+            <StatusCard label="Dokumentstatus" value={documentBasis.primaryStatusLabel} detail={documentBasis.etaLabel} tone={documentBasis.readyCount === documentBasis.totalCount && documentBasis.totalCount > 0 ? "ok" : "warn"} />
+            <StatusCard label="Klare dokumenter" value={documentBasis.readyCount} detail={`av ${documentBasis.totalCount}`} tone={documentBasis.readyCount > 0 ? "ok" : "warn"} />
+            <StatusCard label="Trenger kontroll" value={documentBasis.needsReviewDocuments.length} detail="OCR eller tekst" tone={documentBasis.needsReviewDocuments.length ? "warn" : "ok"} />
+            <StatusCard label="Ikke lesbare" value={documentBasis.unreadableDocuments.length} detail="brukerhandling" tone={documentBasis.unreadableDocuments.length ? "warn" : "ok"} />
+          </div>
+          <div className="document-basis-board">
+            <DocumentBasisGroup
+              title="Klare dokumenter"
+              rows={documentBasis.readyDocuments}
+              emptyText="Ingen dokumenter er klare for Saksrom ennå."
+            />
+            <DocumentBasisGroup
+              title="Trenger OCR eller tekstkontroll"
+              rows={documentBasis.needsReviewDocuments}
+              emptyText="Ingen dokumenter venter på OCR eller manuell tekstkontroll."
+            />
+            <DocumentBasisGroup
+              title="Kan ikke leses / trenger brukerhandling"
+              rows={documentBasis.unreadableDocuments}
+              emptyText="Ingen dokumenter er blokkert av lesefeil."
+            />
           </div>
           {coverageAudit ? (
             <section className="coverage-audit">
@@ -3289,8 +3405,8 @@ export default function App() {
             <WorkroomHeader
               workroom={activeWorkroom}
               stats={[
-                { label: "Kildedekning", value: hasDocuments ? `${Math.round(caseScopedSourceCoveragePercent)} %` : "Ukjent", tone: caseScopedSourceCoveragePercent >= 95 ? "ok" : "warn" },
-                { label: "OCR", value: ocrCoveragePercent === undefined ? "Ukjent" : `${ocrCoveragePercent} %`, tone: pendingOcrPages > 0 ? "warn" : "ok" },
+                { label: "Kildedekning", value: hasDocuments ? `${Math.round(caseScopedSourceCoveragePercent)} %` : "Venter på dokumenter", tone: caseScopedSourceCoveragePercent >= 95 ? "ok" : "warn" },
+                { label: "OCR", value: ocrCoveragePercent === undefined ? documentBasis.etaLabel : `${ocrCoveragePercent} %`, tone: pendingOcrPages > 0 ? "warn" : "ok" },
                 { label: "Avvik", value: deviations.length, tone: deviations.length > 0 ? "warn" : "ok" }
               ]}
             />

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
-    "test": "node scripts/run-case-readiness-tests.mjs && node scripts/run-processing-tests.mjs && node scripts/run-adaptive-saksrom-tests.mjs && node scripts/run-legal-command-tests.mjs && node scripts/run-handoff-tests.mjs && node scripts/run-answer-quality-tests.mjs && node scripts/run-smoke-path-tests.mjs && node scripts/run-case-flow-tests.mjs && node scripts/run-phase-hardening-tests.mjs",
+    "test": "node scripts/run-case-readiness-tests.mjs && node scripts/run-document-basis-tests.mjs && node scripts/run-processing-tests.mjs && node scripts/run-adaptive-saksrom-tests.mjs && node scripts/run-legal-command-tests.mjs && node scripts/run-handoff-tests.mjs && node scripts/run-answer-quality-tests.mjs && node scripts/run-smoke-path-tests.mjs && node scripts/run-case-flow-tests.mjs && node scripts/run-phase-hardening-tests.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

@@ -29,15 +29,27 @@ assert.ok(app.includes("expandImportPaths"), "app expands raw import paths befor
 assert.ok(app.includes("tauri://drag-drop"), "app listens for native Tauri drag/drop paths");
 assert.ok(app.includes("Velg mappe"), "import panel exposes folder import");
 assert.ok(caseRoom.includes("Velg saksmappe"), "Saksrom empty state exposes folder import");
+assert.ok(caseRoom.includes("Last opp dokumenter først"), "Saksrom gives an empty document-first state");
+assert.ok(caseRoom.includes("Viktigste vurdering"), "Saksrom answers lead with colleague-style assessment headings");
+assert.ok(caseRoom.includes("Neste anbefalte handling"), "Saksrom answers use recommended-action wording");
+assert.ok(caseRoom.includes("Kilder, usikkerhet og neste steg"), "Saksrom keeps sources in secondary details");
 assert.ok(api.includes("choose_document_folder_paths"), "frontend API calls folder import command");
 assert.ok(api.includes("expand_import_paths"), "frontend API calls import path expansion command");
+assert.ok(api.includes("record_document_control_action"), "frontend API calls document control audit command");
 assert.ok(app.includes("ImportHealthCenter"), "app renders Import Health Center");
+assert.ok(app.includes("deriveDocumentBasisSummary"), "app derives canonical document basis groups");
+assert.ok(app.includes("Trenger OCR eller tekstkontroll"), "control view names the OCR/manual text-control bucket");
+assert.ok(app.includes("Kan ikke leses / trenger brukerhandling"), "control view names the unreadable/user-action bucket");
+assert.ok(app.includes("Sett og godkjent"), "control view can approve a previewed document for AI use");
+assert.ok(app.includes("recordDocumentControlAction"), "frontend records document approval/rejection audit events");
+assert.ok(!app.includes("guided-stepper"), "guided login no longer shows the onboarding stepper");
 assert.ok(app.includes("Se hva som mangler"), "app exposes a missing-documents view");
 assert.ok(app.includes("Importjobb ferdig, men dokumentgrunnlaget er ikke komplett."), "app protects against false 100 percent complete");
 assert.ok(api.includes("register_document_in_session"), "frontend API uses import-session document registration");
 assert.ok(commands.includes("register_document_in_session"), "Rust command records per-file import health");
 assert.ok(commands.includes("remove_import_item_from_case"), "Rust command can remove import items from a case");
 assert.ok(lib.includes("get_import_health"), "Import Health command is registered with Tauri");
+assert.ok(lib.includes("record_document_control_action"), "document control audit command is registered with Tauri");
 for (const workroom of ["caseRoom", "documents", "chronology", "evidence", "arguments", "contradictions", "risk", "control", "export"]) {
   assert.ok(workroomTheme.includes(`${workroom}:`), `WORKROOM_THEME contains ${workroom}`);
 }
@@ -65,4 +77,4 @@ assert.ok(smokeDoc.includes("import -> Saksrom -> source -> workroom"), "manual 
 assert.ok(smokeDoc.includes("Source opens in drawer/modal"), "manual smoke doc requires source opening");
 assert.ok(smokeDoc.includes("Workroom opens with the same active case"), "manual smoke doc requires workroom continuity");
 
-console.log("smoke path tests passed (57 assertions).");
+console.log("smoke path tests passed.");
