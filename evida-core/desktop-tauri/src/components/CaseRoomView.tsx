@@ -1733,7 +1733,7 @@ export function CaseRoomView({
                   </>
                 ) : null}
               </div>
-              {importQueue.length > 0 ? (
+              {false && importQueue.length > 0 ? (
                 <div className="case-import-file-list">
                   {importQueue.map((item) => (
                     <div key={item.path} className={`case-import-file case-import-file--${item.status}`}>

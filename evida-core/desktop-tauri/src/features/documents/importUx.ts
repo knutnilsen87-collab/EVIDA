@@ -13,6 +13,8 @@ export interface ImportUxQueueItem {
   startedAt?: number;
   pagesProcessed?: number;
   pagesTotal?: number;
+  pages?: number;
+  sources?: number;
 }
 
 export interface ControlNextStepInput {
@@ -41,17 +43,159 @@ export interface ControlNextStep {
 const TERMINAL_IMPORT_STATUSES = new Set([
   "completed",
   "ready",
+  "needs_attention",
   "partial",
   "duplicate",
+  "skipped",
   "unsupported",
+  "unsupported_file_type",
   "ocr_required",
   "cancelled",
   "failed",
-  "indexed"
+  "security_blocked",
+  "manual_review_required",
+  "manually_approved",
+  "rejected"
 ]);
 
 export function isImportTerminalStatus(status: string) {
   return TERMINAL_IMPORT_STATUSES.has(status);
+}
+
+export type ImportProgressPhase =
+  | "selected"
+  | "validating"
+  | "hashing"
+  | "importing"
+  | "extracting"
+  | "ocr"
+  | "chunking"
+  | "indexing"
+  | "finalizing"
+  | "complete"
+  | "needs_attention"
+  | "failed";
+
+export type ImportProgressState = "processing" | "complete" | "complete_with_attention" | "complete_with_errors";
+
+export interface ImportProgressSummaryData {
+  title: string;
+  state: ImportProgressState;
+  totalDocuments: number;
+  terminalDocuments: number;
+  processingDocuments: number;
+  remainingDocuments: number;
+  failedDocuments: number;
+  attentionDocuments: number;
+  skippedDocuments: number;
+  importedDocuments: number;
+  processedDocuments: number;
+  currentPhase: ImportProgressPhase;
+  currentPhaseLabel: string;
+  progressPercent: number;
+  etaSeconds: number | null;
+  etaLabel: string;
+  primaryLine: string;
+  secondaryLine: string;
+  totalPagesEstimate: number;
+  processedPages: number;
+  sourcesCreated: number;
+}
+
+const PHASE_WEIGHTS: Record<ImportProgressPhase, number> = {
+  selected: 0.02,
+  validating: 0.08,
+  hashing: 0.15,
+  importing: 0.25,
+  extracting: 0.45,
+  ocr: 0.65,
+  chunking: 0.8,
+  indexing: 0.92,
+  finalizing: 0.98,
+  complete: 1,
+  needs_attention: 1,
+  failed: 1
+};
+
+export const IMPORT_PHASE_LABELS: Record<ImportProgressPhase, string> = {
+  selected: "Dokumenter valgt",
+  validating: "Validerer filtype og størrelse",
+  hashing: "Sikrer hash og sjekker duplikater",
+  importing: "Importerer dokumenter",
+  extracting: "Leser tekst og bygger kildegrunnlag",
+  ocr: "OCR og bygging av kildegrunnlag",
+  chunking: "Deler tekst i kildeutdrag",
+  indexing: "Indekserer kildeutdrag",
+  finalizing: "Fullfører kildekontroll",
+  complete: "Ferdig",
+  needs_attention: "Kontroll kreves",
+  failed: "Feil under import"
+};
+
+const ATTENTION_STATUSES = new Set([
+  "needs_attention",
+  "partial",
+  "ocr_required",
+  "unsupported",
+  "unsupported_file_type",
+  "duplicate",
+  "manual_review_required",
+  "security_blocked"
+]);
+
+const FAILED_STATUSES = new Set(["failed", "security_blocked"]);
+const SKIPPED_STATUSES = new Set(["skipped", "duplicate", "cancelled", "unsupported", "unsupported_file_type"]);
+
+export function normalizeImportPhase(status: string | undefined): ImportProgressPhase {
+  switch (status) {
+    case "selected":
+    case "queued":
+      return "selected";
+    case "validating":
+    case "reading_file":
+    case "type_detecting":
+    case "safety_pending":
+      return "validating";
+    case "hashing":
+    case "counting_pages":
+      return "hashing";
+    case "importing":
+    case "stored":
+      return "importing";
+    case "extracting":
+    case "extracting_text":
+      return "extracting";
+    case "ocr":
+    case "ocr_running":
+      return "ocr";
+    case "chunking":
+    case "finding_source_points":
+      return "chunking";
+    case "indexing":
+    case "indexed":
+      return "indexing";
+    case "finalizing":
+    case "building_case_basis":
+    case "checking_coverage":
+      return "finalizing";
+    case "ready":
+    case "completed":
+    case "manually_approved":
+      return "complete";
+    case "failed":
+    case "security_blocked":
+      return "failed";
+    case "needs_attention":
+    case "partial":
+    case "ocr_required":
+    case "unsupported":
+    case "unsupported_file_type":
+    case "duplicate":
+    case "manual_review_required":
+      return "needs_attention";
+    default:
+      return "selected";
+  }
 }
 
 export function getReviewDocuments(documentBasis: Pick<DocumentBasisSummary, "needsReviewDocuments">) {
@@ -73,35 +217,7 @@ export function deriveImportProgressLabel(items: ImportUxQueueItem[], totalFallb
 }
 
 export function deriveImportEtaLabel(items: ImportUxQueueItem[], nowMs: number) {
-  if (items.length === 0) {
-    return "ETA beregnes";
-  }
-  if (items.every((item) => isImportTerminalStatus(item.status))) {
-    return "Ferdig";
-  }
-
-  const active = items.find((item) => !isImportTerminalStatus(item.status));
-  if (!active?.startedAt) {
-    return "ETA beregnes";
-  }
-
-  if (
-    typeof active.pagesProcessed === "number" &&
-    typeof active.pagesTotal === "number" &&
-    active.pagesProcessed > 0 &&
-    active.pagesTotal > active.pagesProcessed
-  ) {
-    const elapsedSeconds = Math.max(1, (nowMs - active.startedAt) / 1000);
-    const pagesPerSecond = active.pagesProcessed / elapsedSeconds;
-    const remainingSeconds = Math.round((active.pagesTotal - active.pagesProcessed) / pagesPerSecond);
-    return etaBucket(remainingSeconds);
-  }
-
-  const elapsedSeconds = Math.max(1, Math.round((nowMs - active.startedAt) / 1000));
-  if (elapsedSeconds < 20) {
-    return "ETA beregnes";
-  }
-  return "Omtrent under 1 minutt igjen";
+  return summarizeImportProgress({ items, nowMs }).etaLabel;
 }
 
 export function deriveControlNextStep(input: ControlNextStepInput): ControlNextStep {
@@ -169,10 +285,18 @@ export function deriveImportUxSummary(args: {
     canOpenPreliminary: args.canOpenPreliminary,
     canOpenFinal: args.canOpenFinal
   });
+  const progress = summarizeImportProgress({
+    items: args.queue,
+    nowMs: args.nowMs,
+    totalDocuments: args.totalDocuments,
+    attentionDocumentsFallback: args.documentBasis.needsReviewDocuments.length,
+    failedDocumentsFallback: args.documentBasis.unreadableDocuments.length
+  });
 
   return {
-    progressLabel: deriveImportProgressLabel(args.queue, args.totalDocuments),
-    etaLabel: deriveImportEtaLabel(args.queue, args.nowMs),
+    progressLabel: progress.primaryLine,
+    etaLabel: progress.etaLabel,
+    progress,
     gapMessages: deriveImportGapMessages({
       needsReviewCount: args.documentBasis.needsReviewDocuments.length,
       notUsedCount: args.documentBasis.unreadableDocuments.length,
@@ -180,6 +304,152 @@ export function deriveImportUxSummary(args: {
     }),
     nextStep: controlStep
   };
+}
+
+export function summarizeImportProgress(args: {
+  items: ImportUxQueueItem[];
+  nowMs: number;
+  totalDocuments?: number;
+  importStartedAt?: number | null;
+  totalPagesEstimate?: number;
+  processedPages?: number;
+  sourcesCreated?: number;
+  attentionDocumentsFallback?: number;
+  failedDocumentsFallback?: number;
+}) {
+  const totalDocuments = Math.max(args.totalDocuments ?? 0, args.items.length);
+  const terminalDocuments = args.items.filter((item) => isImportTerminalStatus(item.status)).length;
+  const processingDocuments = Math.max(0, args.items.filter((item) => !isImportTerminalStatus(item.status)).length);
+  const remainingDocuments = Math.max(0, totalDocuments - terminalDocuments);
+  const failedDocuments =
+    args.items.filter((item) => FAILED_STATUSES.has(item.status)).length + (args.failedDocumentsFallback ?? 0);
+  const attentionDocuments =
+    args.items.filter((item) => ATTENTION_STATUSES.has(item.status)).length + (args.attentionDocumentsFallback ?? 0);
+  const skippedDocuments = args.items.filter((item) => SKIPPED_STATUSES.has(item.status)).length;
+  const hasNonTerminal = processingDocuments > 0 || remainingDocuments > 0;
+  const allTerminal = totalDocuments > 0 && !hasNonTerminal;
+  const state: ImportProgressState = hasNonTerminal
+    ? "processing"
+    : failedDocuments > 0
+      ? "complete_with_errors"
+      : attentionDocuments > 0
+        ? "complete_with_attention"
+        : "complete";
+  const title =
+    state === "processing"
+      ? "Behandler dokumenter"
+      : state === "complete_with_errors"
+        ? "Import ferdig med feil"
+        : state === "complete_with_attention"
+          ? "Import ferdig – kontroll kreves"
+          : "Import fullført";
+  const activeItem = args.items.find((item) => !isImportTerminalStatus(item.status));
+  const currentPhase = hasNonTerminal
+    ? normalizeImportPhase(activeItem?.status)
+    : state === "complete_with_errors"
+      ? "failed"
+      : state === "complete_with_attention"
+        ? "needs_attention"
+        : "complete";
+  const progressPercent = calculateWeightedProgress(args.items, totalDocuments, allTerminal);
+  const startedAt = args.importStartedAt ?? earliestStart(args.items);
+  const etaSeconds =
+    state === "processing" && startedAt
+      ? calculateWeightedEtaSeconds({
+          items: args.items,
+          nowMs: args.nowMs,
+          startedAt,
+          progressPercent,
+          terminalDocuments,
+          totalDocuments
+        })
+      : null;
+  return {
+    title,
+    state,
+    totalDocuments,
+    terminalDocuments,
+    processingDocuments,
+    remainingDocuments,
+    failedDocuments,
+    attentionDocuments,
+    skippedDocuments,
+    importedDocuments: terminalDocuments,
+    processedDocuments: terminalDocuments,
+    currentPhase,
+    currentPhaseLabel: IMPORT_PHASE_LABELS[currentPhase],
+    progressPercent,
+    etaSeconds,
+    etaLabel: state === "processing" ? formatEtaLabel(etaSeconds) : "Ferdig",
+    primaryLine: `${terminalDocuments} av ${totalDocuments} dokumenter behandlet`,
+    secondaryLine: `${remainingDocuments} ${remainingDocuments === 1 ? "dokument gjenstår" : "dokumenter gjenstår"}`,
+    totalPagesEstimate:
+      args.totalPagesEstimate ?? args.items.reduce((sum, item) => sum + (item.pagesTotal || item.pages || 0), 0),
+    processedPages:
+      args.processedPages ??
+      args.items.reduce((sum, item) => sum + (item.pagesProcessed || (isImportTerminalStatus(item.status) ? item.pages || 0 : 0)), 0),
+    sourcesCreated: args.sourcesCreated ?? args.items.reduce((sum, item) => sum + (item.sources || 0), 0)
+  } satisfies ImportProgressSummaryData;
+}
+
+export function formatEtaLabel(seconds: number | null) {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) {
+    return "ETA beregnes ...";
+  }
+  const rounded = Math.max(0, Math.round(seconds));
+  if (rounded < 10) {
+    return "ETA: under 10 sek";
+  }
+  if (rounded < 60) {
+    return `ETA: ca. ${rounded} sek`;
+  }
+  if (rounded < 3600) {
+    const minutes = Math.floor(rounded / 60);
+    const rest = rounded % 60;
+    return rest > 0 ? `ETA: ca. ${minutes} min ${rest} sek` : `ETA: ca. ${minutes} min`;
+  }
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.round((rounded % 3600) / 60);
+  return minutes > 0 ? `ETA: ca. ${hours} t ${minutes} min` : `ETA: ca. ${hours} t`;
+}
+
+function calculateWeightedProgress(items: ImportUxQueueItem[], totalDocuments: number, allTerminal: boolean) {
+  if (allTerminal) {
+    return 100;
+  }
+  if (totalDocuments <= 0) {
+    return 0;
+  }
+  const knownWeight = items.reduce((sum, item) => sum + PHASE_WEIGHTS[normalizeImportPhase(item.status)], 0);
+  const missingItems = Math.max(0, totalDocuments - items.length);
+  const progress = (knownWeight + missingItems * PHASE_WEIGHTS.selected) / totalDocuments;
+  return Math.max(0, Math.min(99, Math.round(progress * 100)));
+}
+
+function earliestStart(items: ImportUxQueueItem[]) {
+  const starts = items.map((item) => item.startedAt).filter((value): value is number => typeof value === "number");
+  return starts.length ? Math.min(...starts) : null;
+}
+
+function calculateWeightedEtaSeconds(args: {
+  items: ImportUxQueueItem[];
+  nowMs: number;
+  startedAt: number;
+  progressPercent: number;
+  terminalDocuments: number;
+  totalDocuments: number;
+}) {
+  const elapsedSeconds = Math.max(1, (args.nowMs - args.startedAt) / 1000);
+  const overallProgress = args.progressPercent / 100;
+  if (overallProgress > 0.05) {
+    const estimatedTotalSeconds = elapsedSeconds / overallProgress;
+    return Math.max(0, estimatedTotalSeconds - elapsedSeconds);
+  }
+  if (args.terminalDocuments > 0 && args.totalDocuments > args.terminalDocuments) {
+    const avgSecondsPerItem = elapsedSeconds / args.terminalDocuments;
+    return avgSecondsPerItem * (args.totalDocuments - args.terminalDocuments);
+  }
+  return null;
 }
 
 export function deriveImportGapMessages(input: {
@@ -202,20 +472,4 @@ export function deriveImportGapMessages(input: {
     );
   }
   return messages;
-}
-
-function etaBucket(seconds: number) {
-  if (seconds < 60) {
-    return "Under 1 minutt igjen";
-  }
-  if (seconds < 180) {
-    return "Omtrent 1-3 minutter igjen";
-  }
-  if (seconds < 300) {
-    return "Omtrent 3-5 minutter igjen";
-  }
-  if (seconds < 900) {
-    return "Omtrent 5-15 minutter igjen";
-  }
-  return "Over 15 minutter igjen";
 }

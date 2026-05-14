@@ -47,7 +47,7 @@ P0 must be `PASS` before first-user release.
 | FU-039 | Security | Dependency scan has no release-blocking issues | P0 | dependency scan | review | Security | BLOCKED |
 | FU-040 | Security | Prod-unsafe config blocked or pilot-labeled | P0 | config/startup test | inspect | Platform | PASS |
 | FU-041 | UX | User-visible errors are safe and useful | P1 | UI/e2e | smoke | Product/UI | BLOCKED |
-| FU-042 | UX | Loading/progress states for upload | P1 | UI/e2e | smoke | Product/UI | BLOCKED |
+| FU-042 | UX | Loading/progress states for upload | P1 | `npm test` import UX assertions + `npm run build` | manual smoke still needed | Product/UI | PARTIAL |
 | FU-043 | UX | Keyboard/basic accessibility smoke | P1 | manual | manual | UI | BLOCKED |
 | FU-044 | CI | First-user gauntlet script exists | P0 | script run | N/A | Platform | PASS |
 | FU-045 | CI | Golden path docs exist | P0 | file check | review | Platform | PASS |
@@ -59,7 +59,7 @@ P0 must be `PASS` before first-user release.
 
 ## Current Evidence Snapshot
 
-Updated 2026-05-13 from local automated gates. The matrix is intentionally not all green: any remaining `BLOCKED` or `PARTIAL` P0 row means first-user release is still NO-GO.
+Updated 2026-05-14 from local automated gates. The matrix is intentionally not all green: any remaining `BLOCKED` or `PARTIAL` P0 row means first-user release is still NO-GO.
 
 Evidence artifacts:
 

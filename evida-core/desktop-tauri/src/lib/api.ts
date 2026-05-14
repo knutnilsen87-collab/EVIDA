@@ -594,7 +594,7 @@ export async function recordDocumentControlAction(params: {
     const store = readStore();
     const actionMap = {
       preview: "DOCUMENT_PREVIEW_OPENED",
-      approve_for_ai: "DOCUMENT_APPROVED_FOR_AI",
+      approve_for_ai: "DOCUMENT_MANUAL_REVIEW_APPROVED",
       reject_for_ai: "DOCUMENT_REJECTED_FOR_AI"
     };
     appendAudit(store, {

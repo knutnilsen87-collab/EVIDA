@@ -52,7 +52,9 @@ const summary = deriveImportUxSummary({
 });
 
 assert.equal(summary.progressLabel, "10 av 39 dokumenter behandlet", "39-document import shows aggregate progress");
-assert.match(summary.etaLabel, /igjen$/, "ETA is visible for active 39-document import");
+assert.match(summary.etaLabel, /^ETA: ca\. \d+ min \d+ sek$/, "ETA is visible for active 39-document import");
+assert.equal(summary.progress.state, "processing", "active import is not marked complete while documents remain");
+assert.equal(summary.progress.title, "Behandler dokumenter", "processing import uses the non-terminal title");
 assert.equal(summary.nextStep.primaryAction.label, "Se dokumenter som trenger kontroll", "exactly one user-facing primary action is selected");
 assert.deepEqual(
   summary.gapMessages,
@@ -82,6 +84,8 @@ assert.match(appSource, /Saksgrunnlaget er ikke komplett ennå\./, "preliminary 
 assert.match(appSource, /Mangler nå:/, "import completion modal names current gaps");
 assert.match(appSource, /sources=\{aiReadySources\}/, "CaseRoom receives only AI-ready sources");
 assert.match(appSource, /hasNonAiReadySources/, "AI workrooms are gated when source objects are not AI-ready");
+assert.match(appSource, /DocumentPreviewDrawer/, "preview opens inside Evida instead of Explorer");
+assert.match(appSource, /documents-needing-control/, "attention navigation has a stable section target");
 for (const staleLabel of ["View details", "Run OCR", "Open preliminary Saksrom", "Files imported", "Requiring OCR"]) {
   assert.equal(appSource.includes(staleLabel), false, `stale import modal label is removed: ${staleLabel}`);
 }

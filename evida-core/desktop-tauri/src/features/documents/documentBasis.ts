@@ -91,7 +91,9 @@ function deriveDocumentBasisRow(
   document: DocumentSummary,
   args: { importItem?: ImportItem; manualReviewItems: ManualReviewItem[]; audit: AuditEvent[] }
 ): DocumentBasisRow {
-  const approvalEvent = latestAudit(args.audit, document.id, "DOCUMENT_APPROVED_FOR_AI");
+  const approvalEvent =
+    latestAudit(args.audit, document.id, "DOCUMENT_MANUAL_REVIEW_APPROVED") ||
+    latestAudit(args.audit, document.id, "DOCUMENT_APPROVED_FOR_AI");
   const rejectionEvent = latestAudit(args.audit, document.id, "DOCUMENT_REJECTED_FOR_AI");
   const openReviewItems = args.manualReviewItems.filter((item) => item.status === "open" || item.status === "needs_follow_up");
   const importItem = args.importItem;

@@ -3358,7 +3358,7 @@ pub fn record_document_control_action(
     )?;
     let normalized_action = match action {
         "preview" => "DOCUMENT_PREVIEW_OPENED",
-        "approve_for_ai" => "DOCUMENT_APPROVED_FOR_AI",
+        "approve_for_ai" => "DOCUMENT_MANUAL_REVIEW_APPROVED",
         "reject_from_ai" => "DOCUMENT_REJECTED_FOR_AI",
         "reject_for_ai" => "DOCUMENT_REJECTED_FOR_AI",
         other => other,
@@ -3368,10 +3368,33 @@ pub fn record_document_control_action(
     } else {
         "PASS"
     };
+    let previous_status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM manual_review_items
+             WHERE case_id = ?1 AND document_id = ?2
+             ORDER BY updated_at DESC LIMIT 1",
+            params![case_id, document_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let new_status = if normalized_action == "DOCUMENT_MANUAL_REVIEW_APPROVED" {
+        "reviewed"
+    } else if normalized_action == "DOCUMENT_REJECTED_FOR_AI" {
+        "excluded_from_ai"
+    } else {
+        previous_status.as_deref().unwrap_or("previewed")
+    };
+    let reviewed_at = Utc::now().to_rfc3339();
     let details = serde_json::json!({
+        "document_id": document_id,
+        "case_id": case_id,
+        "actor": "local-user",
+        "reviewed_at": reviewed_at,
+        "reason": note.unwrap_or("manual document control"),
+        "previous_status": previous_status,
+        "new_status": new_status,
         "document_name": document_name,
-        "sha256": sha256,
-        "note": note
+        "sha256": sha256
     });
     crate::audit::append_audit_event(
         conn,
@@ -3383,15 +3406,15 @@ pub fn record_document_control_action(
         result,
         Some(&details.to_string()),
     )?;
-    if normalized_action == "DOCUMENT_APPROVED_FOR_AI"
+    if normalized_action == "DOCUMENT_MANUAL_REVIEW_APPROVED"
         || normalized_action == "DOCUMENT_REJECTED_FOR_AI"
     {
-        let status = if normalized_action == "DOCUMENT_APPROVED_FOR_AI" {
+        let status = if normalized_action == "DOCUMENT_MANUAL_REVIEW_APPROVED" {
             "reviewed"
         } else {
             "excluded_from_ai"
         };
-        let ai_usable = normalized_action == "DOCUMENT_APPROVED_FOR_AI";
+        let ai_usable = normalized_action == "DOCUMENT_MANUAL_REVIEW_APPROVED";
         conn.execute(
             "UPDATE manual_review_items
              SET status = ?1, ai_usable = ?2, updated_at = ?3

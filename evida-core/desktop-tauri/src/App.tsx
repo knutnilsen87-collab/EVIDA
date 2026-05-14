@@ -69,6 +69,8 @@ import { CaseSwitcher } from "./components/CaseSwitcher";
 import { DesktopMenuBar } from "./components/DesktopMenuBar";
 import { SourcePanel } from "./components/SourcePanel";
 import { SourcePreviewDrawer } from "./components/SourcePreviewDrawer";
+import { DocumentPreviewDrawer } from "./components/DocumentPreviewDrawer";
+import { ImportProgressSummary, type ImportAttentionItem } from "./components/ImportProgressSummary";
 import { StatusCard } from "./components/StatusCard";
 import { CaseRoomView } from "./components/CaseRoomView";
 import { CaseVitalityBar } from "./components/CaseVitalityBar";
@@ -117,7 +119,8 @@ import {
   canApproveSourceAfterPreview,
   deriveImportUxSummary,
   getAiReadyDocumentIds,
-  getReviewDocuments
+  getReviewDocuments,
+  summarizeImportProgress
 } from "./features/documents/importUx";
 
 const viewTitles: Record<ViewKey, string> = {
@@ -491,8 +494,11 @@ export default function App() {
   const [showImportQueueDetails, setShowImportQueueDetails] = useState(false);
   const [showImportCompletionDetails, setShowImportCompletionDetails] = useState(false);
   const [showControlTechnicalDetails, setShowControlTechnicalDetails] = useState(false);
+  const [controlAttentionExpanded, setControlAttentionExpanded] = useState(false);
+  const [controlAttentionHighlighted, setControlAttentionHighlighted] = useState(false);
   const [reviewApprovalChecks, setReviewApprovalChecks] = useState<Record<string, boolean>>({});
   const [expandedDocumentId, setExpandedDocumentId] = useState("");
+  const [previewDocument, setPreviewDocument] = useState<DocumentSummary | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [draftText, setDraftText] = useState("");
@@ -837,6 +843,24 @@ export default function App() {
       aiReadySources.length,
       canUseDraftControl
     ]
+  );
+  const importProgress = useMemo(
+    () =>
+      summarizeImportProgress({
+        items: importQueue,
+        nowMs: importNow,
+        totalDocuments: importQueue.length || documentBasis.totalCount,
+        totalPagesEstimate: totalPages || importQueue.reduce((sum, item) => sum + (item.pagesTotal || item.pages || 0), 0),
+        processedPages: analyzedPages || importQueue.reduce((sum, item) => sum + (item.pagesProcessed || 0), 0),
+        sourcesCreated: sources.length || importQueue.reduce((sum, item) => sum + (item.sources || 0), 0),
+        attentionDocumentsFallback: reviewDocuments.length,
+        failedDocumentsFallback: documentBasis.unreadableDocuments.length
+      }),
+    [importQueue, importNow, documentBasis.totalCount, documentBasis.unreadableDocuments.length, reviewDocuments.length, totalPages, analyzedPages, sources.length]
+  );
+  const previewDocumentSources = useMemo(
+    () => (previewDocument ? sources.filter((source) => source.document_id === previewDocument.id) : []),
+    [previewDocument, sources]
   );
   const isWorkspaceUnlocked = isAuthenticated && onboardingStage === "caseRoom";
 
@@ -1551,6 +1575,27 @@ export default function App() {
   }, [isImporting]);
 
   useEffect(() => {
+    if (activeView !== "control" || !controlAttentionExpanded) {
+      return;
+    }
+
+    const focusTarget = () => {
+      document.getElementById("documents-needing-control")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+      document.getElementById("documents-needing-control-title")?.focus();
+      setControlAttentionHighlighted(true);
+      window.setTimeout(() => setControlAttentionHighlighted(false), 1400);
+    };
+
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(focusTarget);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeView, controlAttentionExpanded, reviewDocuments.length]);
+
+  useEffect(() => {
     if (!hasDesktopRuntime()) {
       return;
     }
@@ -2014,6 +2059,18 @@ export default function App() {
           <p className="muted">
             Saksrom-oppsummering blir tilgjengelig når dokumentgrunnlaget er klart.
           </p>
+        ) : hasActiveProcessing ? (
+          <ImportProgressSummary
+            {...importProgress}
+            isImporting={true}
+            attentionItems={progressAttentionItems}
+            failedItems={progressFailedItems}
+            detailsOpen={showImportQueueDetails}
+            statusMessage="Evida behandler dokumentene automatisk."
+            onShowAttentionItems={() => handleFirstUserPrimaryAction("review")}
+            onShowDetails={() => setShowImportQueueDetails((current) => !current)}
+            onOpenAttentionItem={(item) => void handlePreviewDocumentById(item.documentId || item.id)}
+          />
         ) : (
           <p className="muted">Foreløpig — lav eller ufullstendig dekning. Kontroller alle svar mot kildene.</p>
         )}
@@ -2125,12 +2182,13 @@ export default function App() {
     if (!document) {
       return;
     }
-    const report = await openOriginalFolder(document.local_path);
+    setPreviewDocument(document);
+    setReviewApprovalChecks((current) => ({ ...current, [row.id]: true }));
     await recordDocumentControlAction({ caseId: row.caseId, documentId: row.id, action: "preview" });
     if (selectedCaseId) {
       await refresh(selectedCaseId);
     }
-    setMaintenanceStatus(`${row.name}: ${report.message}`);
+    setMaintenanceStatus(`${row.name}: preview åpnet i Evida.`);
   }
 
   async function handleDocumentApproval(row: DocumentBasisRow, action: "approve_for_ai" | "reject_for_ai") {
@@ -2151,6 +2209,38 @@ export default function App() {
     setMaintenanceStatus(`${row.name}: ${report.message}`);
   }
 
+  async function handlePreviewDocumentById(documentId: string) {
+    const row = documentBasis.rows.find((item) => item.id === documentId);
+    if (row) {
+      await handlePreviewDocument(row);
+    }
+  }
+
+  async function handleApprovePreviewDocument(documentId: string) {
+    const row = documentBasis.rows.find((item) => item.id === documentId);
+    if (!row) {
+      return;
+    }
+    await handleDocumentApproval(row, "approve_for_ai");
+    setPreviewDocument(null);
+  }
+
+  async function handleExcludePreviewDocument(documentId: string) {
+    const row = documentBasis.rows.find((item) => item.id === documentId);
+    if (!row) {
+      return;
+    }
+    await handleDocumentApproval(row, "reject_for_ai");
+    setPreviewDocument(null);
+  }
+
+  async function handleReplacePreviewDocument(documentId: string) {
+    const row = documentBasis.rows.find((item) => item.id === documentId);
+    if (row) {
+      await handleReplaceDocumentRow(row);
+    }
+  }
+
   async function handleReplaceDocumentRow(row: DocumentBasisRow) {
     const paths = await chooseDocumentPaths();
     if (paths.length > 0) {
@@ -2164,8 +2254,27 @@ export default function App() {
       setActiveView("caseRoom");
       return;
     }
+    if (target === "review") {
+      setControlAttentionExpanded(true);
+    }
     setActiveView("control");
   }
+
+  function makeAttentionItems(rows: DocumentBasisRow[]): ImportAttentionItem[] {
+    return rows.map((row) => ({
+      id: row.id,
+      documentId: row.id,
+      name: row.name,
+      problem: row.reason || row.label,
+      suggestedAction: row.recommendedAction,
+      status: row.label,
+      canApprove: row.canApprove,
+      approvalChecked: Boolean(reviewApprovalChecks[row.id])
+    }));
+  }
+
+  const progressAttentionItems = makeAttentionItems(reviewDocuments);
+  const progressFailedItems = makeAttentionItems(documentBasis.unreadableDocuments);
 
   function ImportItemCard({ item, technical = false }: { item: ImportItem; technical?: boolean }) {
     return (
@@ -2223,6 +2332,7 @@ export default function App() {
             <button
               className="button-primary"
               type="button"
+              aria-controls="documents-needing-control"
               onClick={() => handleFirstUserPrimaryAction(importUx.nextStep.primaryAction.target)}
             >
               {importUx.nextStep.primaryAction.label}
@@ -2379,16 +2489,36 @@ export default function App() {
     const session = importHealth.latest_session;
     return (
       <div className="modal-backdrop" role="presentation">
-        <section className="modal-panel import-completion-modal" role="dialog" aria-modal="true" aria-label="Import fullført">
+        <section className="modal-panel import-completion-modal" role="dialog" aria-modal="true" aria-label={importProgress.title}>
           <div className="panel-header">
             <div>
-              <div className="eyebrow">Import fullført</div>
-              <h2>{importUx.progressLabel}</h2>
-              <p>{importUx.nextStep.message}</p>
-              <p className="muted">ETA: {importUx.etaLabel}</p>
+              <div className="eyebrow">Importstatus</div>
+              <h2>{importProgress.title}</h2>
+              <p>{importProgress.primaryLine}</p>
+              <p className="muted">{importProgress.etaLabel}</p>
             </div>
             <button className="button-ghost" type="button" onClick={() => setShowImportCompletion(false)}>Lukk</button>
           </div>
+          <ImportProgressSummary
+            {...importProgress}
+            isImporting={importProgress.state === "processing"}
+            attentionItems={progressAttentionItems}
+            failedItems={progressFailedItems}
+            detailsOpen={showImportCompletionDetails}
+            statusMessage={importUx.nextStep.message}
+            onShowAttentionItems={() => {
+              setShowImportCompletion(false);
+              handleFirstUserPrimaryAction("review");
+            }}
+            onShowDetails={() => setShowImportCompletionDetails((current) => !current)}
+            onOpenAttentionItem={(item) => void handlePreviewDocumentById(item.documentId || item.id)}
+            onApproveAttentionItem={(item) => {
+              const row = documentBasis.rows.find((candidate) => candidate.id === (item.documentId || item.id));
+              if (row) {
+                void handleDocumentApproval(row, "approve_for_ai");
+              }
+            }}
+          />
           {importUx.gapMessages.length > 0 ? (
             <div className="warning-notice" role="alert">
               <strong>Mangler nå:</strong>
@@ -2492,7 +2622,7 @@ export default function App() {
           <span><strong>{hasActiveProcessing ? activeCount : 0}</strong> behandles nå</span>
           <span><strong>{documentsRequiringAttention.length}</strong> kunne ikke behandles automatisk</span>
         </div>
-        {documents.length > 0 ? (
+        {documents.length > 0 && !hasActiveProcessing ? (
           <div className="processing-list">
             {documents.map((document) => {
               const statusLabel =
@@ -2788,6 +2918,25 @@ export default function App() {
           <span>Du kan slippe flere filer samtidig. Bruk Velg mappe for å hente en hel saksmappe rekursivt.</span>
         </div>
         {importQueue.length > 0 ? (
+          <ImportProgressSummary
+            {...importProgress}
+            isImporting={isImporting || importProgress.state === "processing"}
+            attentionItems={progressAttentionItems}
+            failedItems={progressFailedItems}
+            detailsOpen={showImportQueueDetails}
+            statusMessage={importProgress.state === "processing" ? "Evida behandler dokumentene automatisk." : importUx.nextStep.message}
+            onShowAttentionItems={() => handleFirstUserPrimaryAction("review")}
+            onShowDetails={() => setShowImportQueueDetails((current) => !current)}
+            onOpenAttentionItem={(item) => void handlePreviewDocumentById(item.documentId || item.id)}
+            onApproveAttentionItem={(item) => {
+              const row = documentBasis.rows.find((candidate) => candidate.id === (item.documentId || item.id));
+              if (row) {
+                void handleDocumentApproval(row, "approve_for_ai");
+              }
+            }}
+          />
+        ) : null}
+        {false && importQueue.length > 0 ? (
           <div className="import-queue" aria-live="polite">
             <div className="import-queue__header">
               <div>
@@ -3069,26 +3218,47 @@ export default function App() {
     title,
     rows,
     emptyText,
-    mode = "status"
+    mode = "status",
+    sectionId,
+    titleId,
+    highlighted = false
   }: {
     title: string;
     rows: DocumentBasisRow[];
     emptyText: string;
     mode?: "status" | "review" | "unused";
+    sectionId?: string;
+    titleId?: string;
+    highlighted?: boolean;
   }) {
     return (
-      <section className="document-basis-group">
+      <section id={sectionId} className={`document-basis-group ${highlighted ? "document-basis-group--highlighted" : ""}`}>
         <div className="document-basis-group__header">
-          <h3>{title}</h3>
+          <h3 id={titleId} tabIndex={titleId ? -1 : undefined}>{title}</h3>
           <span>{countLabel(rows.length, "dokument", "dokumenter")}</span>
         </div>
         {rows.length === 0 ? (
           <p className="muted">{emptyText}</p>
+        ) : hasActiveProcessing ? (
+          <ImportProgressSummary
+            {...importProgress}
+            isImporting={true}
+            attentionItems={progressAttentionItems}
+            failedItems={progressFailedItems}
+            detailsOpen={showImportQueueDetails}
+            statusMessage="Evida behandler dokumentene automatisk."
+            onShowAttentionItems={() => handleFirstUserPrimaryAction("review")}
+            onShowDetails={() => setShowImportQueueDetails((current) => !current)}
+            onOpenAttentionItem={(item) => void handlePreviewDocumentById(item.documentId || item.id)}
+          />
         ) : (
           <div className="document-basis-list">
             {rows.map((row) => (
-              <article key={row.id} className={`document-basis-row document-basis-row--${row.state}`}>
-                <div className="document-basis-row__main">
+              <article
+                key={row.id}
+                className={`${mode === "review" ? "control-document-card" : "document-basis-row"} document-basis-row--${row.state}`}
+              >
+                <div className={mode === "review" ? "control-document-main" : "document-basis-row__main"}>
                   <div className="document-primary">
                     <strong>{row.name}</strong>
                     <span className={row.canUseInAnswer ? "status-chip status-chip--ok" : "status-chip status-chip--warn"}>
@@ -3110,7 +3280,7 @@ export default function App() {
                   {row.approvedAt ? <small>Godkjent av {row.approvedBy || "local-user"} {row.approvedAt}</small> : null}
                   {row.rejectedAt ? <small>Avvist av {row.rejectedBy || "local-user"} {row.rejectedAt}</small> : null}
                 </div>
-                <div className="document-basis-row__actions">
+                <aside className={mode === "review" ? "control-document-actions" : "document-basis-row__actions"}>
                   <button className="button-secondary" type="button" onClick={() => void handlePreviewDocument(row)} disabled={!row.canPreview}>
                     Åpne preview
                   </button>
@@ -3146,7 +3316,7 @@ export default function App() {
                       Erstatt fil
                     </button>
                   ) : null}
-                </div>
+                </aside>
               </article>
             ))}
           </div>
@@ -3181,6 +3351,7 @@ export default function App() {
             <button
               className="button-primary"
               type="button"
+              aria-controls="documents-needing-control"
               onClick={() => handleFirstUserPrimaryAction(importUx.nextStep.primaryAction.target)}
             >
               {importUx.nextStep.primaryAction.label}
@@ -3199,14 +3370,16 @@ export default function App() {
             </div>
           </div>
           <div className="document-basis-board">
-            {reviewDocuments.length > 0 ? (
-              <DocumentBasisGroup
+            <DocumentBasisGroup
                 title="Dokumenter som trenger kontroll"
                 rows={reviewDocuments}
                 emptyText="Ingen dokumenter venter på manuell kontroll."
                 mode="review"
+                sectionId="documents-needing-control"
+                titleId="documents-needing-control-title"
+                highlighted={controlAttentionHighlighted}
               />
-            ) : (
+            {reviewDocuments.length === 0 ? (
               <>
                 <DocumentBasisGroup
                   title="Klare dokumenter"
@@ -3220,7 +3393,7 @@ export default function App() {
                   mode="unused"
                 />
               </>
-            )}
+            ) : null}
           </div>
           <button
             className="button-secondary"
@@ -3652,6 +3825,15 @@ export default function App() {
         />
       ) : null}
       <SourcePreviewDrawer source={activeSource} onClose={() => setActiveSource(undefined)} />
+      <DocumentPreviewDrawer
+        document={previewDocument}
+        sources={previewDocumentSources}
+        isOpen={Boolean(previewDocument)}
+        onClose={() => setPreviewDocument(null)}
+        onApproveAsSource={(documentId) => void handleApprovePreviewDocument(documentId)}
+        onExcludeFromCase={(documentId) => void handleExcludePreviewDocument(documentId)}
+        onReplaceFile={(documentId) => void handleReplacePreviewDocument(documentId)}
+      />
       <ImportCompletionModal />
       <CaseSwitcher
         open={casePickerOpen && showNavigation}
