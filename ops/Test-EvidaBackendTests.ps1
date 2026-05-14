@@ -21,6 +21,12 @@ else {
     if ($mvn) {
         $mavenCommand = $mvn.Source
     }
+    else {
+        $localMaven = Get-ChildItem -Path (Join-Path $env:USERPROFILE ".evida-tools\apache-maven-*\bin\mvn.cmd") -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($localMaven) {
+            $mavenCommand = $localMaven.FullName
+        }
+    }
 }
 
 if (-not $mavenCommand) {

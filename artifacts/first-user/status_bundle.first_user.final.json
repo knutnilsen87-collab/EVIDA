@@ -1,141 +1,138 @@
 {
-  "bundle_id": "SB-FIRST-USER-EVIDA-LOCAL-2026-05-13",
-  "bundle_version": 1,
-  "domain": "casepilot_first_user_release",
-  "release_candidate_id": "evida-0.1.0-alpha-local-2026-05-13",
-  "commit_sha": "local-working-tree",
-  "created_at": "2026-05-13T11:38:36Z",
-  "updated_at": "2026-05-13T11:38:36Z",
-  "current_state": {
-    "lifecycle_state": "evidence_collected",
-    "status": "blocked",
-    "terminal_state": false,
-    "first_user_allowed": false
-  },
-  "summary": {
-    "short_summary": "Automated evidence has improved, but first-user release remains blocked.",
-    "technical_summary": "Desktop/release gates pass; first-user approval is blocked by incomplete critical invariants, missing Maven verification, unsigned Windows artifacts, missing signed SBOM/security scan, and missing clean-machine smoke.",
-    "user_visible_summary": "Not approved for first user yet."
-  },
-  "scope_lock": {
-    "allowed_data": "synthetic_or_redacted_test_data",
-    "real_client_data_allowed": false,
-    "external_ai_raw_document_upload_allowed": false,
-    "document_upload_required": true,
-    "source_bound_ai_required": true
-  },
-  "invariant_layer": {
-    "critical_invariants": [
-      "INV-DOC-001",
-      "INV-DOC-002",
-      "INV-DOC-003",
-      "INV-DOC-004",
-      "INV-DATA-001",
-      "INV-DATA-002",
-      "INV-AI-001",
-      "INV-AI-002",
-      "INV-AUDIT-001",
-      "INV-AUDIT-002",
-      "INV-CONFIG-001",
-      "INV-CONFIG-002"
-    ],
-    "broken_invariants": [],
-    "untested_invariants": [
-      "INV-DOC-001",
-      "INV-DATA-001",
-      "INV-DATA-002",
-      "INV-AI-002",
-      "INV-AUDIT-001"
-    ],
-    "evaluation_ref": "artifacts/first-user/invariant_evaluation.first_user.json"
-  },
-  "evidence_layer": {
-    "artifact_refs": [
-      "artifacts/first-user/evidence.first_user.current.json",
-      "artifacts/first-user/invariant_evaluation.first_user.json",
-      "artifacts/production-dod/evida-production-dod-report.json",
-      "Evida Release/release-manifest.json",
-      "Evida Release/SHA256SUMS.txt"
-    ],
-    "ci_refs": [],
-    "manual_smoke_refs": [],
-    "evidence_quality": "partial",
-    "evidence_gaps": [
-      {
-        "id": "GAP-CLEAN-MACHINE-SMOKE",
-        "gate": "clean_machine_smoke",
-        "status": "blocked",
-        "required_action": "Run clean-machine smoke on a separate Windows profile or machine and attach manual evidence."
-      },
-      {
-        "id": "GAP-BACKEND-MAVEN",
-        "gate": "backend_tests",
-        "status": "blocked",
-        "required_action": "Run ops/Test-EvidaBackendTests.ps1 in an environment with ./mvnw or mvn available."
-      },
-      {
-        "id": "GAP-SECRET-SCAN",
-        "gate": "secret_scan",
-        "status": "blocked",
-        "required_action": "Run gitleaks or equivalent secret scanning and attach machine-readable result."
-      },
-      {
-        "id": "GAP-SBOM-SCA-SAST",
-        "gate": "signed_sbom_and_security_scan",
-        "status": "blocked",
-        "required_action": "Generate signed SBOM and CI SCA/SAST report with no release-blocking findings."
-      },
-      {
-        "id": "GAP-CODE-SIGNING",
-        "gate": "windows_code_signing",
-        "status": "blocked",
-        "required_action": "Sign Windows executable and installers."
-      },
-      {
-        "id": "GAP-MANUAL-APPROVAL",
-        "gate": "manual_approval",
-        "status": "blocked",
-        "required_action": "Complete engineering, product, and security/privacy approval checklist."
-      }
-    ]
-  },
-  "verification_layer": {
-    "verification_status": "blocked",
-    "coverage_status": "partial",
-    "residual_risk": "medium_high",
-    "false_green_risk": "controlled_by_fail_closed_gates",
-    "p0_status": "blocked",
-    "document_upload_status": "partial",
-    "ai_source_control_status": "partial",
-    "audit_status": "partial"
-  },
-  "ambiguity_layer": {
-    "flags": [
-      "coverage_partial",
-      "critical_invariant_incomplete",
-      "manual_approval_missing",
-      "unsigned_release"
-    ]
-  },
-  "action_layer": {
-    "recommended_next_action": "Install Maven/gitleaks or run equivalent CI, execute clean-machine smoke, sign release artifacts, generate signed SBOM/security scan, then update approvals.",
-    "fallback_action": "Keep release as internal developer-only build with synthetic fixtures.",
-    "rollback_path": "Do not distribute release candidate; revoke build artifact if already shared. Delete local test data with Evida reset command if needed."
-  },
-  "trust_layer": {
-    "confidence_overall": 0.62,
-    "approval_recommendation": "blocked"
-  },
-  "closure_layer": {
-    "closure_decision": "blocked",
-    "approved_by_review": false,
-    "remaining_unknowns": [
-      "Manual clean-machine install/start behavior.",
-      "Maven test result for control plane.",
-      "Secret scan result.",
-      "Signed SBOM/security scan result.",
-      "Human approval decision."
-    ],
-    "failure_to_asset_required": false
-  }
+    "bundle_id":  "SB-FIRST-USER-EVIDA-LOCAL-2026-05-13",
+    "bundle_version":  1,
+    "domain":  "casepilot_first_user_release",
+    "release_candidate_id":  "evida-0.1.0-alpha-local-2026-05-13",
+    "commit_sha":  "local-working-tree",
+    "created_at":  "2026-05-13T11:38:36Z",
+    "updated_at":  "2026-05-14T16:42:19.5770047Z",
+    "current_state":  {
+                          "lifecycle_state":  "evidence_collected",
+                          "status":  "blocked",
+                          "terminal_state":  false,
+                          "first_user_allowed":  false
+                      },
+    "summary":  {
+                    "short_summary":  "Automated evidence has improved, but first-user release remains blocked.",
+                    "technical_summary":  "Desktop/release gates pass; Maven/backend tests and gitleaks secret scan now pass locally. First-user approval remains blocked by incomplete critical invariants, unsigned Windows artifacts, missing signed SBOM/CI SCA/SAST, missing clean-machine smoke, and missing approvals.",
+                    "user_visible_summary":  "Not approved for first user yet."
+                },
+    "scope_lock":  {
+                       "allowed_data":  "synthetic_or_redacted_test_data",
+                       "real_client_data_allowed":  false,
+                       "external_ai_raw_document_upload_allowed":  false,
+                       "document_upload_required":  true,
+                       "source_bound_ai_required":  true
+                   },
+    "invariant_layer":  {
+                            "critical_invariants":  [
+                                                        "INV-DOC-001",
+                                                        "INV-DOC-002",
+                                                        "INV-DOC-003",
+                                                        "INV-DOC-004",
+                                                        "INV-DATA-001",
+                                                        "INV-DATA-002",
+                                                        "INV-AI-001",
+                                                        "INV-AI-002",
+                                                        "INV-AUDIT-001",
+                                                        "INV-AUDIT-002",
+                                                        "INV-CONFIG-001",
+                                                        "INV-CONFIG-002"
+                                                    ],
+                            "broken_invariants":  [
+
+                                                  ],
+                            "untested_invariants":  [
+                                                        "INV-DOC-001",
+                                                        "INV-DATA-001",
+                                                        "INV-DATA-002",
+                                                        "INV-AI-002",
+                                                        "INV-AUDIT-001"
+                                                    ],
+                            "evaluation_ref":  "artifacts/first-user/invariant_evaluation.first_user.json"
+                        },
+    "evidence_layer":  {
+                           "artifact_refs":  [
+                                                 "artifacts/first-user/evidence.first_user.current.json",
+                                                 "artifacts/first-user/invariant_evaluation.first_user.json",
+                                                 "artifacts/production-dod/evida-production-dod-report.json",
+                                                 "Evida Release/release-manifest.json",
+                                                 "Evida Release/SHA256SUMS.txt",
+                                                 "artifacts/security/evida-security-evidence.json",
+                                                 "artifacts/security/gitleaks-report.json",
+                                                 "artifacts/security/npm-audit.json"
+                                             ],
+                           "ci_refs":  [
+
+                                       ],
+                           "manual_smoke_refs":  [
+
+                                                 ],
+                           "evidence_quality":  "partial",
+                           "evidence_gaps":  [
+                                                 {
+                                                     "id":  "GAP-CLEAN-MACHINE-SMOKE",
+                                                     "gate":  "clean_machine_smoke",
+                                                     "status":  "blocked",
+                                                     "required_action":  "Run clean-machine smoke on a separate Windows profile or machine and attach manual evidence."
+                                                 },
+                                                 {
+                                                     "id":  "GAP-SBOM-SCA-SAST",
+                                                     "gate":  "signed_sbom_and_security_scan",
+                                                     "status":  "blocked",
+                                                     "required_action":  "Generate signed SBOM and CI SCA/SAST report with no release-blocking findings."
+                                                 },
+                                                 {
+                                                     "id":  "GAP-CODE-SIGNING",
+                                                     "gate":  "windows_code_signing",
+                                                     "status":  "blocked",
+                                                     "required_action":  "Sign Windows executable and installers."
+                                                 },
+                                                 {
+                                                     "id":  "GAP-MANUAL-APPROVAL",
+                                                     "gate":  "manual_approval",
+                                                     "status":  "blocked",
+                                                     "required_action":  "Complete engineering, product, and security/privacy approval checklist."
+                                                 }
+                                             ]
+                       },
+    "verification_layer":  {
+                               "verification_status":  "blocked",
+                               "coverage_status":  "partial",
+                               "residual_risk":  "medium_high",
+                               "false_green_risk":  "controlled_by_fail_closed_gates",
+                               "p0_status":  "blocked",
+                               "document_upload_status":  "partial",
+                               "ai_source_control_status":  "partial",
+                               "audit_status":  "partial"
+                           },
+    "ambiguity_layer":  {
+                            "flags":  [
+                                          "coverage_partial",
+                                          "critical_invariant_incomplete",
+                                          "manual_approval_missing",
+                                          "unsigned_release"
+                                      ]
+                        },
+    "action_layer":  {
+                         "recommended_next_action":  "Run clean-machine smoke, sign release artifacts, generate signed SBOM/CI SCA/SAST, complete privacy/legal readiness decisions and approval checklist, then update status bundle.",
+                         "fallback_action":  "Keep release as internal developer-only build with synthetic fixtures.",
+                         "rollback_path":  "Do not distribute release candidate; revoke build artifact if already shared. Delete local test data with Evida reset command if needed."
+                     },
+    "trust_layer":  {
+                        "confidence_overall":  0.62,
+                        "approval_recommendation":  "blocked"
+                    },
+    "closure_layer":  {
+                          "closure_decision":  "blocked",
+                          "approved_by_review":  false,
+                          "remaining_unknowns":  [
+                                                     "Manual clean-machine install/start behavior.",
+                                                     "Signed SBOM/CI SCA/SAST result.",
+                                                     "Windows code-signing certificate/signature result.",
+                                                     "Privacy/legal operational decision for real juridical data.",
+                                                     "Human approval decision."
+                                                 ],
+                          "failure_to_asset_required":  false
+                      }
 }

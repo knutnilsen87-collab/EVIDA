@@ -1,0 +1,52 @@
+{
+    "generated_at":  "2026-05-14T17:05:29.2452511Z",
+    "gate":  "local-security-evidence",
+    "status":  "PARTIAL_PASS",
+    "production_gate":  "BLOCKED",
+    "reason":  "Local evidence exists, but production still requires signed SBOM plus CI SCA/SAST with no release-blocking findings.",
+    "evidence":  {
+                     "dependency_inventory":  "F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\reports\\dependency-inventory.json",
+                     "secret_scan":  {
+                                         "gate":  "secret-scan",
+                                         "status":  "PASS",
+                                         "command":  "C:\\Users\\knutn\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\\gitleaks.exe",
+                                         "report":  "F:\\prosjekter(MAIN)\\CasePilot\\artifacts\\security\\gitleaks-report.json",
+                                         "exit_code":  0,
+                                         "findings":  0,
+                                         "scopes":  [
+                                                        "evida-core\\desktop-tauri\\src",
+                                                        "evida-core\\desktop-tauri\\src-tauri\\src",
+                                                        "evida-core\\desktop-tauri\\scripts",
+                                                        "ops",
+                                                        "scripts",
+                                                        "configs",
+                                                        "docs",
+                                                        "tests",
+                                                        ".github",
+                                                        "AGENTS.md",
+                                                        "casepilot_first_user_readiness_pack_manifest.json"
+                                                    ],
+                                         "message":  "gitleaks secret scan passed.",
+                                         "output":  [
+
+                                                    ]
+                                     },
+                     "npm_audit":  {
+                                       "status":  "PASS",
+                                       "report":  "F:\\prosjekter(MAIN)\\CasePilot\\artifacts\\security\\npm-audit.json",
+                                       "vulnerabilities_total":  0
+                                   },
+                     "cargo_tree":  {
+                                        "status":  "PASS",
+                                        "report":  "F:\\prosjekter(MAIN)\\CasePilot\\artifacts\\security\\cargo-tree.txt"
+                                    },
+                     "maven_dependency_tree":  {
+                                                   "status":  "BLOCKED",
+                                                   "report":  "F:\\prosjekter(MAIN)\\CasePilot\\artifacts\\security\\maven-dependency-tree.txt",
+                                                   "note":  "Blocked here if Maven cannot resolve dependency plugin through local trust store."
+                                               }
+                 },
+    "inventory_output":  [
+                             "Dependency inventory written: F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\reports\\dependency-inventory.json"
+                         ]
+}

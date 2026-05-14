@@ -17,7 +17,14 @@ function Invoke-Gate {
         [string[]]$Arguments = @()
     )
     $scriptPath = Join-Path $Root $Script
-    $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath @Arguments 2>&1
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath @Arguments 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     $exitCode = $LASTEXITCODE
     $parsed = $null
     $jsonLine = @($output | Where-Object { $_.ToString().Trim().StartsWith("{") } | Select-Object -Last 1)
@@ -87,12 +94,16 @@ function Get-SignatureGate {
 
 function Get-SbomGate {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "ops\New-EvidaDependencyInventory.ps1") | Out-Null
+    $securityEvidenceOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "ops\New-EvidaSecurityEvidence.ps1") 2>&1
     $inventory = Join-Path $Root "evida-core\reports\dependency-inventory.json"
+    $securityEvidence = Join-Path $Root "artifacts\security\evida-security-evidence.json"
     [pscustomobject]@{
         name = "sbom-and-security-scan"
-        status = if (Test-Path -LiteralPath $inventory) { "BLOCKED" } else { "FAIL" }
+        status = if ((Test-Path -LiteralPath $inventory) -and (Test-Path -LiteralPath $securityEvidence)) { "BLOCKED" } else { "FAIL" }
         local_inventory = if (Test-Path -LiteralPath $inventory) { (Resolve-Path $inventory).Path } else { $null }
-        reason = "Local dependency inventory exists, but signed SBOM plus CI SCA/SAST vulnerability gate is still required for production."
+        local_security_evidence = if (Test-Path -LiteralPath $securityEvidence) { (Resolve-Path $securityEvidence).Path } else { $null }
+        reason = "Local dependency inventory/security evidence exists, but signed SBOM plus CI SCA/SAST vulnerability gate is still required for production."
+        output = @($securityEvidenceOutput | ForEach-Object { $_.ToString() })
     }
 }
 
@@ -126,8 +137,10 @@ $report = [pscustomobject]@{
     )
 }
 
-$report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
-$report | ConvertTo-Json -Depth 8
+$reportJson = ($report | ConvertTo-Json -Depth 8).Replace("`r`n", "`n")
+$encoding = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($ReportPath, $reportJson, $encoding)
+$reportJson
 
 if ($RequireProductionReady -and -not $report.production_ready) {
     throw "Production DoD is blocked. See $ReportPath"

@@ -32,10 +32,21 @@ Assert-FileContains (Join-Path $Service "src\test\java\no\saksrom\api\casefile\C
 $mavenStatus = "SKIPPED"
 if (-not $SkipMaven) {
     $mvn = Get-Command mvn -ErrorAction SilentlyContinue
+    $mavenCommand = $null
     if ($mvn) {
+        $mavenCommand = $mvn.Source
+    }
+    else {
+        $localMaven = Get-ChildItem -Path (Join-Path $env:USERPROFILE ".evida-tools\apache-maven-*\bin\mvn.cmd") -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($localMaven) {
+            $mavenCommand = $localMaven.FullName
+        }
+    }
+
+    if ($mavenCommand) {
         Push-Location $Service
         try {
-            & $mvn.Source test
+            & $mavenCommand test
             if ($LASTEXITCODE -ne 0) {
                 throw "Maven tests failed for saksrom-api."
             }

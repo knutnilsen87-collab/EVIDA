@@ -1,5 +1,5 @@
-﻿{
-    "generated_at":  "2026-05-13T11:38:36.6829943Z",
+{
+    "generated_at":  "2026-05-14T17:05:29.2820389Z",
     "production_ready":  false,
     "first_user_allowed":  false,
     "verdict":  "BLOCKED",
@@ -20,10 +20,11 @@
                                      "4/6 Desktop tests",
                                      "",
                                      "\u003e evida-desktop@0.1.0 test",
-                                     "\u003e node scripts/run-case-readiness-tests.mjs \u0026\u0026 node scripts/run-document-basis-tests.mjs \u0026\u0026 node scripts/run-processing-tests.mjs \u0026\u0026 node scripts/run-adaptive-saksrom-tests.mjs \u0026\u0026 node scripts/run-legal-command-tests.mjs \u0026\u0026 node scripts/run-handoff-tests.mjs \u0026\u0026 node scripts/run-answer-quality-tests.mjs \u0026\u0026 node scripts/run-smoke-path-tests.mjs \u0026\u0026 node scripts/run-case-flow-tests.mjs \u0026\u0026 node scripts/run-phase-hardening-tests.mjs",
+                                     "\u003e node scripts/run-case-readiness-tests.mjs \u0026\u0026 node scripts/run-document-basis-tests.mjs \u0026\u0026 node scripts/run-first-user-import-ux-tests.mjs \u0026\u0026 node scripts/run-processing-tests.mjs \u0026\u0026 node scripts/run-adaptive-saksrom-tests.mjs \u0026\u0026 node scripts/run-legal-command-tests.mjs \u0026\u0026 node scripts/run-handoff-tests.mjs \u0026\u0026 node scripts/run-answer-quality-tests.mjs \u0026\u0026 node scripts/run-smoke-path-tests.mjs \u0026\u0026 node scripts/run-case-flow-tests.mjs \u0026\u0026 node scripts/run-phase-hardening-tests.mjs",
                                      "",
                                      "caseReadiness tests passed (24 assertions).",
-                                     "document basis tests passed (10 assertions).",
+                                     "document basis tests passed (11 assertions).",
+                                     "first-user import UX tests passed (20 assertions).",
                                      "processing tests passed (25 assertions).",
                                      "adaptiveSaksrom tests passed (31 assertions).",
                                      "legal command tests passed (22 assertions).",
@@ -41,14 +42,14 @@
                                      "",
                                      "\u001b[36mvite v8.0.10 \u001b[32mbuilding client environment for production...\u001b[36m\u001b[39m",
                                      "\u001b[2K",
-                                     "transforming...✓ 1610 modules transformed.",
+                                     "transforming...✓ 1611 modules transformed.",
                                      "rendering chunks...",
                                      "computing gzip size...",
-                                     "dist/index.html                   0.43 kB │ gzip:   0.28 kB",
-                                     "dist/assets/index-Bxsa83Sq.css   60.03 kB │ gzip:  11.84 kB",
-                                     "dist/assets/index-DpaS9XuG.js   367.78 kB │ gzip: 107.53 kB",
+                                     "dist/index.html                   0.43 kB │ gzip:   0.27 kB",
+                                     "dist/assets/index-BqBUUhEu.css   60.63 kB │ gzip:  11.96 kB",
+                                     "dist/assets/index-C76m-unv.js   375.96 kB │ gzip: 109.13 kB",
                                      "",
-                                     "\u001b[32m✓ built in 1.32s\u001b[39m",
+                                     "\u001b[32m✓ built in 1.04s\u001b[39m",
                                      "Evida hardening checks passed."
                                  ]
                   },
@@ -79,29 +80,86 @@
                                       "gate":  "first-user-readiness-pack",
                                       "zip_sha256":  "f9e0a9dd45c5d65abbb400b22d1b5d951bd9a94bab8334b1e8432f64121ba338",
                                       "manifest_file_count":  24,
-                                      "status_bundle":  "F:\\prosjekter(MAIN)\\CasePilot\\configs\\first-user\\status_bundle.first_user.template.json",
+                                      "status_bundle":  "F:\\prosjekter(MAIN)\\CasePilot\\artifacts\\first-user\\status_bundle.first_user.final.json",
                                       "first_user_allowed":  false,
                                       "status":  "blocked",
                                       "verdict":  "BLOCKED",
+                                      "backend_tests_status":  "pass",
+                                      "secret_scan_status":  "pass",
+                                      "toolchain_status":  "pass",
                                       "validator":  "OK: first-user status bundle structure is valid"
                                   },
                       "output":  [
-                                     "{\"gate\":\"first-user-readiness-pack\",\"zip_sha256\":\"f9e0a9dd45c5d65abbb400b22d1b5d951bd9a94bab8334b1e8432f64121ba338\",\"manifest_file_count\":24,\"status_bundle\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\configs\\\\first-user\\\\status_bundle.first_user.template.json\",\"first_user_allowed\":false,\"status\":\"blocked\",\"verdict\":\"BLOCKED\",\"validator\":\"OK: first-user status bundle structure is valid\"}"
+                                     "{\"gate\":\"first-user-readiness-pack\",\"zip_sha256\":\"f9e0a9dd45c5d65abbb400b22d1b5d951bd9a94bab8334b1e8432f64121ba338\",\"manifest_file_count\":24,\"status_bundle\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\artifacts\\\\first-user\\\\status_bundle.first_user.final.json\",\"first_user_allowed\":false,\"status\":\"blocked\",\"verdict\":\"BLOCKED\",\"backend_tests_status\":\"pass\",\"secret_scan_status\":\"pass\",\"toolchain_status\":\"pass\",\"validator\":\"OK: first-user status bundle structure is valid\"}"
                                  ]
                   },
                   {
                       "name":  "control-plane-auth-rbac-audit",
-                      "status":  "BLOCKED",
+                      "status":  "PASS",
                       "exit_code":  0,
                       "details":  {
                                       "gate":  "control-plane-auth-rbac-audit",
                                       "service":  "F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\services\\saksrom-api",
                                       "static_checks":  "PASS",
-                                      "maven_tests":  "BLOCKED_MAVEN_NOT_FOUND",
-                                      "verdict":  "BLOCKED"
+                                      "maven_tests":  "PASS",
+                                      "verdict":  "PASS"
                                   },
                       "output":  [
-                                     "{\"gate\":\"control-plane-auth-rbac-audit\",\"service\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\evida-core\\\\services\\\\saksrom-api\",\"static_checks\":\"PASS\",\"maven_tests\":\"BLOCKED_MAVEN_NOT_FOUND\",\"verdict\":\"BLOCKED\"}"
+                                     "[INFO] Scanning for projects...",
+                                     "[INFO] ",
+                                     "[INFO] ------------------------\u003c no.saksrom:evida-api \u003e------------------------",
+                                     "[INFO] Building evida-api 0.1.0",
+                                     "[INFO]   from pom.xml",
+                                     "[INFO] --------------------------------[ jar ]---------------------------------",
+                                     "[INFO] ",
+                                     "[INFO] --- resources:3.3.1:resources (default-resources) @ evida-api ---",
+                                     "[INFO] Copying 2 resources from src\\main\\resources to target\\classes",
+                                     "[INFO] Copying 2 resources from src\\main\\resources to target\\classes",
+                                     "[INFO] ",
+                                     "[INFO] --- compiler:3.13.0:compile (default-compile) @ evida-api ---",
+                                     "[INFO] Nothing to compile - all classes are up to date.",
+                                     "[INFO] ",
+                                     "[INFO] --- resources:3.3.1:testResources (default-testResources) @ evida-api ---",
+                                     "[INFO] skip non existing resourceDirectory F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\services\\saksrom-api\\src\\test\\resources",
+                                     "[INFO] ",
+                                     "[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ evida-api ---",
+                                     "[INFO] Nothing to compile - all classes are up to date.",
+                                     "[INFO] ",
+                                     "[INFO] --- surefire:3.2.5:test (default-test) @ evida-api ---",
+                                     "[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider",
+                                     "[INFO] ",
+                                     "[INFO] -------------------------------------------------------",
+                                     "[INFO]  T E S T S",
+                                     "[INFO] -------------------------------------------------------",
+                                     "[INFO] Running no.saksrom.api.audit.AuditHashTest",
+                                     "OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended",
+                                     "[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.034 s -- in no.saksrom.api.audit.AuditHashTest",
+                                     "[INFO] Running no.saksrom.api.casefile.CaseFileServiceTest",
+                                     "WARNING: A Java agent has been loaded dynamically (C:\\Users\\knutn\\.m2\\repository\\net\\bytebuddy\\byte-buddy-agent\\1.14.19\\byte-buddy-agent-1.14.19.jar)",
+                                     "WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamicAgentLoading to hide this warning",
+                                     "WARNING: If a serviceability tool is not in use, please run with -Djdk.instrument.traceUsage for more information",
+                                     "WARNING: Dynamic loading of agents will be disallowed by default in a future release",
+                                     "[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.761 s -- in no.saksrom.api.casefile.CaseFileServiceTest",
+                                     "[INFO] Running no.saksrom.api.config.SecurityModeValidatorTest",
+                                     "[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.065 s -- in no.saksrom.api.config.SecurityModeValidatorTest",
+                                     "[INFO] Running no.saksrom.api.document.DocumentControllerTest",
+                                     "[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.005 s -- in no.saksrom.api.document.DocumentControllerTest",
+                                     "[INFO] Running no.saksrom.api.enterprise.EnterpriseControllerTest",
+                                     "[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.007 s -- in no.saksrom.api.enterprise.EnterpriseControllerTest",
+                                     "[INFO] Running no.saksrom.api.policy.PolicyControllerTest",
+                                     "[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.001 s -- in no.saksrom.api.policy.PolicyControllerTest",
+                                     "[INFO] ",
+                                     "[INFO] Results:",
+                                     "[INFO] ",
+                                     "[INFO] Tests run: 14, Failures: 0, Errors: 0, Skipped: 0",
+                                     "[INFO] ",
+                                     "[INFO] ------------------------------------------------------------------------",
+                                     "[INFO] BUILD SUCCESS",
+                                     "[INFO] ------------------------------------------------------------------------",
+                                     "[INFO] Total time:  3.022 s",
+                                     "[INFO] Finished at: 2026-05-14T19:04:57+02:00",
+                                     "[INFO] ------------------------------------------------------------------------",
+                                     "{\"gate\":\"control-plane-auth-rbac-audit\",\"service\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\evida-core\\\\services\\\\saksrom-api\",\"static_checks\":\"PASS\",\"maven_tests\":\"PASS\",\"verdict\":\"PASS\"}"
                                  ]
                   },
                   {
@@ -139,7 +197,11 @@
                       "name":  "sbom-and-security-scan",
                       "status":  "BLOCKED",
                       "local_inventory":  "F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\reports\\dependency-inventory.json",
-                      "reason":  "Local dependency inventory exists, but signed SBOM plus CI SCA/SAST vulnerability gate is still required for production."
+                      "local_security_evidence":  "F:\\prosjekter(MAIN)\\CasePilot\\artifacts\\security\\evida-security-evidence.json",
+                      "reason":  "Local dependency inventory/security evidence exists, but signed SBOM plus CI SCA/SAST vulnerability gate is still required for production.",
+                      "output":  [
+                                     "{\"generated_at\":\"2026-05-14T17:05:29.2452511Z\",\"gate\":\"local-security-evidence\",\"status\":\"PARTIAL_PASS\",\"production_gate\":\"BLOCKED\",\"reason\":\"Local evidence exists, but production still requires signed SBOM plus CI SCA/SAST with no release-blocking findings.\",\"evidence\":{\"dependency_inventory\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\evida-core\\\\reports\\\\dependency-inventory.json\",\"secret_scan\":{\"gate\":\"secret-scan\",\"status\":\"PASS\",\"command\":\"C:\\\\Users\\\\knutn\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Packages\\\\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\\\\gitleaks.exe\",\"report\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\artifacts\\\\security\\\\gitleaks-report.json\",\"exit_code\":0,\"findings\":0,\"scopes\":[\"evida-core\\\\desktop-tauri\\\\src\",\"evida-core\\\\desktop-tauri\\\\src-tauri\\\\src\",\"evida-core\\\\desktop-tauri\\\\scripts\",\"ops\",\"scripts\",\"configs\",\"docs\",\"tests\",\".github\",\"AGENTS.md\",\"casepilot_first_user_readiness_pack_manifest.json\"],\"message\":\"gitleaks secret scan passed.\",\"output\":[]},\"npm_audit\":{\"status\":\"PASS\",\"report\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\artifacts\\\\security\\\\npm-audit.json\",\"vulnerabilities_total\":0},\"cargo_tree\":{\"status\":\"PASS\",\"report\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\artifacts\\\\security\\\\cargo-tree.txt\"},\"maven_dependency_tree\":{\"status\":\"BLOCKED\",\"report\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\artifacts\\\\security\\\\maven-dependency-tree.txt\",\"note\":\"Blocked here if Maven cannot resolve dependency plugin through local trust store.\"}},\"inventory_output\":[\"Dependency inventory written: F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\evida-core\\\\reports\\\\dependency-inventory.json\"]}"
+                                 ]
                   }
               ],
     "remaining_manual_gates":  [

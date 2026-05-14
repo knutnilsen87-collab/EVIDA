@@ -28,7 +28,14 @@ function Invoke-JsonScript {
     param(
         [string]$ScriptPath
     )
-    $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath 2>&1
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     $jsonLine = @($output | ForEach-Object { $_.ToString() } | Where-Object { $_.Trim().StartsWith("{") } | Select-Object -Last 1)
     if ($jsonLine.Count -eq 0) {
         throw "Expected JSON output from $ScriptPath, got: $($output -join ' ')"
@@ -51,7 +58,8 @@ function Write-JsonFile {
         $Value
     )
     $encoding = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 20), $encoding)
+    $json = ($Value | ConvertTo-Json -Depth 20).Replace("`r`n", "`n")
+    [System.IO.File]::WriteAllText($Path, $json, $encoding)
 }
 
 Assert-Exists $ManifestPath "first-user manifest"
@@ -105,31 +113,22 @@ foreach ($doc in $requiredDocs) {
 
 $toolchain = Invoke-JsonScript -ScriptPath (Join-Path $Root "ops\Assert-EvidaToolchain.ps1")
 $backendTests = Invoke-JsonScript -ScriptPath (Join-Path $Root "ops\Test-EvidaBackendTests.ps1")
-$gitleaksTool = @($toolchain.tools | Where-Object { $_.name -eq "gitleaks" } | Select-Object -First 1)
-$secretScan = if ($gitleaksTool.Count -eq 0 -or $gitleaksTool[0].status -ne "PASS") {
-    [pscustomobject]@{
-        gate = "secret-scan"
-        status = "BLOCKED"
-        command = $null
-        message = "gitleaks is missing. Secret scan was not run."
-    }
-}
-else {
-    [pscustomobject]@{
-        gate = "secret-scan"
-        status = "PASS"
-        command = $gitleaksTool[0].command
-        message = "gitleaks is available. Run gitleaks in CI or a dedicated security job for final approval evidence."
-    }
-}
+$secretScan = Invoke-JsonScript -ScriptPath (Join-Path $Root "ops\Test-EvidaSecretScan.ps1")
 
 $backendStatus = if ($backendTests.status -eq "PASS") { "pass" } else { "blocked" }
 $secretStatus = if ($secretScan.status -eq "PASS") { "pass" } else { "blocked" }
 $evidencePath = Join-Path $Root "artifacts\first-user\evidence.first_user.current.json"
 $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
 Set-JsonProperty -Object $evidence.summary -Name "backend_tests_status" -Value $backendStatus
+Set-JsonProperty -Object $evidence.summary -Name "control_plane_maven_tests" -Value ($(if ($backendTests.status -eq "PASS") { "pass" } else { "blocked_maven_not_found" }))
 Set-JsonProperty -Object $evidence.summary -Name "secret_scan_status" -Value $secretStatus
 Set-JsonProperty -Object $evidence.summary -Name "toolchain_status" -Value ($(if ($toolchain.status -eq "PASS") { "pass" } else { "blocked" }))
+Set-JsonProperty -Object $evidence -Name "manual_gates_remaining" -Value @(
+    "Run clean-machine smoke on a separate Windows profile or machine.",
+    "Generate signed SBOM and SCA/SAST report with no release-blocking findings.",
+    "Sign Windows executable and installers.",
+    "Complete engineering, product, and security/privacy approval."
+)
 Set-JsonProperty -Object $evidence -Name "machine_readable_gates" -Value ([pscustomobject]@{
     toolchain = $toolchain
     backend_tests = $backendTests

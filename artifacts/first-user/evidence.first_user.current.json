@@ -9,14 +9,14 @@
                     "first_user_pack_integrity":  "pass",
                     "release_artifact_integrity":  "pass",
                     "control_plane_static_gate":  "pass",
-                    "control_plane_maven_tests":  "blocked_maven_not_found",
                     "code_signing":  "blocked_not_signed",
                     "signed_sbom_and_ci_security_scan":  "blocked",
                     "clean_machine_smoke":  "blocked_manual_required",
                     "human_approval":  "blocked_manual_required",
-                    "backend_tests_status":  "blocked",
-                    "secret_scan_status":  "blocked",
-                    "toolchain_status":  "blocked"
+                    "backend_tests_status":  "pass",
+                    "control_plane_maven_tests":  "pass",
+                    "secret_scan_status":  "pass",
+                    "toolchain_status":  "pass"
                 },
     "evidence_refs":  [
                           {
@@ -71,8 +71,6 @@
                         },
     "manual_gates_remaining":  [
                                    "Run clean-machine smoke on a separate Windows profile or machine.",
-                                   "Run Maven tests for evida-core/services/saksrom-api in an environment with Maven installed.",
-                                   "Run secret scanning with gitleaks or equivalent in CI.",
                                    "Generate signed SBOM and SCA/SAST report with no release-blocking findings.",
                                    "Sign Windows executable and installers.",
                                    "Complete engineering, product, and security/privacy approval."
@@ -80,7 +78,7 @@
     "machine_readable_gates":  {
                                    "toolchain":  {
                                                      "gate":  "evida-toolchain",
-                                                     "status":  "BLOCKED",
+                                                     "status":  "PASS",
                                                      "tools":  [
                                                                    {
                                                                        "name":  "java",
@@ -91,10 +89,10 @@
                                                                    },
                                                                    {
                                                                        "name":  "maven",
-                                                                       "status":  "BLOCKED",
-                                                                       "command":  null,
+                                                                       "status":  "PASS",
+                                                                       "command":  "C:\\Users\\knutn\\.evida-tools\\apache-maven-3.9.11\\bin\\mvn.cmd",
                                                                        "required_for":  "backend_tests",
-                                                                       "message":  "maven is missing. Install or provide it in CI; this script does not install tools automatically."
+                                                                       "message":  "maven available via user-local Evida tool cache."
                                                                    },
                                                                    {
                                                                        "name":  "node",
@@ -126,29 +124,48 @@
                                                                    },
                                                                    {
                                                                        "name":  "gitleaks",
-                                                                       "status":  "BLOCKED",
-                                                                       "command":  null,
+                                                                       "status":  "PASS",
+                                                                       "command":  "C:\\Users\\knutn\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\\gitleaks.exe",
                                                                        "required_for":  "secret_scan",
-                                                                       "message":  "gitleaks is missing. Install or provide it in CI; this script does not install tools automatically."
+                                                                       "message":  "gitleaks available on PATH."
                                                                    }
                                                                ],
                                                      "blocked_tools":  [
-                                                                           "maven",
-                                                                           "gitleaks"
+
                                                                        ]
                                                  },
                                    "backend_tests":  {
                                                          "gate":  "backend-tests",
-                                                         "status":  "BLOCKED",
+                                                         "status":  "PASS",
                                                          "service":  "F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\services\\saksrom-api",
-                                                         "command":  null,
-                                                         "message":  "Maven is missing and no mvnw wrapper was found under evida-core/services/saksrom-api. Backend tests were not run."
+                                                         "command":  "C:\\Users\\knutn\\.evida-tools\\apache-maven-3.9.11\\bin\\mvn.cmd",
+                                                         "exit_code":  0,
+                                                         "message":  "Backend Maven tests passed."
                                                      },
                                    "secret_scan":  {
                                                        "gate":  "secret-scan",
-                                                       "status":  "BLOCKED",
-                                                       "command":  null,
-                                                       "message":  "gitleaks is missing. Secret scan was not run."
+                                                       "status":  "PASS",
+                                                       "command":  "C:\\Users\\knutn\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\\gitleaks.exe",
+                                                       "report":  "F:\\prosjekter(MAIN)\\CasePilot\\artifacts\\security\\gitleaks-report.json",
+                                                       "exit_code":  0,
+                                                       "findings":  0,
+                                                       "scopes":  [
+                                                                      "evida-core\\desktop-tauri\\src",
+                                                                      "evida-core\\desktop-tauri\\src-tauri\\src",
+                                                                      "evida-core\\desktop-tauri\\scripts",
+                                                                      "ops",
+                                                                      "scripts",
+                                                                      "configs",
+                                                                      "docs",
+                                                                      "tests",
+                                                                      ".github",
+                                                                      "AGENTS.md",
+                                                                      "casepilot_first_user_readiness_pack_manifest.json"
+                                                                  ],
+                                                       "message":  "gitleaks secret scan passed.",
+                                                       "output":  [
+
+                                                                  ]
                                                    }
                                }
 }

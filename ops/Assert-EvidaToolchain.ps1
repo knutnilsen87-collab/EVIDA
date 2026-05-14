@@ -38,6 +38,43 @@ function Resolve-Tool {
         }
     }
 
+    if ($Name -eq "maven") {
+        $mavenCandidates = @(
+            (Join-Path $env:USERPROFILE ".evida-tools\apache-maven-*\bin\mvn.cmd"),
+            (Join-Path $env:USERPROFILE ".evida-tools\apache-maven-*\bin\mvn")
+        )
+        foreach ($pattern in $mavenCandidates) {
+            $candidate = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($candidate) {
+                return [pscustomobject]@{
+                    name = $Name
+                    status = "PASS"
+                    command = $candidate.FullName
+                    required_for = $RequiredFor
+                    message = "$Name available via user-local Evida tool cache."
+                }
+            }
+        }
+    }
+
+    if ($Name -eq "gitleaks") {
+        $gitleaksCandidates = @(
+            (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages\Gitleaks.Gitleaks_*\gitleaks.exe")
+        )
+        foreach ($pattern in $gitleaksCandidates) {
+            $candidate = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($candidate) {
+                return [pscustomobject]@{
+                    name = $Name
+                    status = "PASS"
+                    command = $candidate.FullName
+                    required_for = $RequiredFor
+                    message = "$Name available via winget package cache."
+                }
+            }
+        }
+    }
+
     [pscustomobject]@{
         name = $Name
         status = "BLOCKED"
@@ -65,4 +102,3 @@ $blocked = @($tools | Where-Object { $_.status -ne "PASS" })
     tools = $tools
     blocked_tools = @($blocked | ForEach-Object { $_.name })
 } | ConvertTo-Json -Depth 6 -Compress
-
