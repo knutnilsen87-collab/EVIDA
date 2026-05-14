@@ -12,6 +12,24 @@ $nsis = Join-Path $target "bundle\nsis\Evida_0.1.0_x64-setup.exe"
 $msi = Join-Path $target "bundle\msi\Evida_0.1.0_x64_en-US.msi"
 $exe = Join-Path $target "evida-desktop.exe"
 
+function Write-Utf8NoBomText {
+    param(
+        [string]$Path,
+        [string]$Text
+    )
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Text, $encoding)
+}
+
+function Write-Utf8NoBomLines {
+    param(
+        [string]$Path,
+        [string[]]$Lines
+    )
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($Path, $Lines, $encoding)
+}
+
 if (-not $SkipBuild) {
     Push-Location $desktop
     try {
@@ -26,7 +44,9 @@ New-Item -ItemType Directory -Force -Path $release | Out-Null
 $artifacts = @(
     @{ Source = $exe; Destination = (Join-Path $release "Evida.exe") },
     @{ Source = $nsis; Destination = (Join-Path $release "Evida installer.exe") },
-    @{ Source = $msi; Destination = (Join-Path $release "Evida installer.msi") }
+    @{ Source = $msi; Destination = (Join-Path $release "Evida installer.msi") },
+    @{ Source = $nsis; Destination = (Join-Path $release "Evida_0.1.0_x64-setup.exe") },
+    @{ Source = $msi; Destination = (Join-Path $release "Evida_0.1.0_x64_en-US.msi") }
 )
 
 foreach ($artifact in $artifacts) {
@@ -50,9 +70,9 @@ $checksums = foreach ($file in Get-ChildItem -LiteralPath $release -File | Where
     }
 }
 
-$checksums | ForEach-Object { "$($_.sha256)  $($_.file)" } | Set-Content -LiteralPath $checksumPath -Encoding UTF8
+Write-Utf8NoBomLines -Path $checksumPath -Lines @($checksums | ForEach-Object { "$($_.sha256)  $($_.file)" })
 
-[pscustomobject]@{
+$manifestJson = [pscustomobject]@{
     product = "Evida"
     version = "0.1.0-alpha"
     status = "pre-alpha evaluation build"
@@ -60,9 +80,10 @@ $checksums | ForEach-Object { "$($_.sha256)  $($_.file)" } | Set-Content -Litera
     local_processing = $true
     real_client_data_allowed = $false
     artifacts = $checksums
-} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+} | ConvertTo-Json -Depth 5
+Write-Utf8NoBomText -Path $manifestPath -Text $manifestJson
 
-@"
+$readme = @"
 Evida Release
 ==============
 
@@ -83,10 +104,10 @@ Kontrollfiler:
 
 Rotmappen har én startfil:
 - Start Evida.bat
-"@ | Set-Content -LiteralPath $readmePath -Encoding UTF8
+"@
+Write-Utf8NoBomText -Path $readmePath -Text $readme
 
 Write-Host "Evida release prepared:"
 Write-Host "  $release"
 Write-Host "  $checksumPath"
 Write-Host "  $manifestPath"
-

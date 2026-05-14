@@ -1057,6 +1057,22 @@ export async function exportDiagnostics(): Promise<MaintenanceReport> {
   }
 }
 
+export async function createEncryptedBackup(): Promise<MaintenanceReport> {
+  try {
+    return await callTauri<MaintenanceReport>("create_encrypted_backup");
+  } catch {
+    return { message: "Kryptert backup kan bare opprettes fra desktop-appen." };
+  }
+}
+
+export async function restoreEncryptedBackup(path: string): Promise<MaintenanceReport> {
+  try {
+    return await callTauri<MaintenanceReport>("restore_encrypted_backup", { path });
+  } catch {
+    return { message: "Kryptert backup kan bare gjenopprettes fra desktop-appen.", path };
+  }
+}
+
 export async function exportImportDiagnostics(caseId: string): Promise<MaintenanceReport> {
   try {
     return await callTauri<MaintenanceReport>("export_import_diagnostics", { caseId });

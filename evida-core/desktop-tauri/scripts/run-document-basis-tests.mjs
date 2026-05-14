@@ -92,6 +92,7 @@ assert.equal(summary.needsReviewDocuments[0].label, "Trenger OCR eller tekstkont
 assert.equal(summary.unreadableDocuments[0].recommendedAction, "Last opp en ny kopi.");
 assert.equal(summary.etaLabel, "2 dokumenter trenger kontroll");
 assert.equal(canUseDocumentInAnswer(summary.readyDocuments[0]), true);
+assert.equal(canUseDocumentInAnswer(summary.needsReviewDocuments[0]), false);
 assert.equal(canUseDocumentInAnswer(summary.unreadableDocuments[0]), false);
 
 const approved = deriveDocumentBasisSummary({
@@ -116,4 +117,4 @@ const approved = deriveDocumentBasisSummary({
 assert.equal(approved.readyDocuments.length, 1, "manual approval can release partial text for preliminary AI use");
 assert.equal(approved.readyDocuments[0].approvedBy, "local-user", "approval actor is exposed");
 
-console.log("document basis tests passed (10 assertions).");
+console.log("document basis tests passed (11 assertions).");

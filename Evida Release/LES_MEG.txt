@@ -1,4 +1,4 @@
-﻿Evida Release
+Evida Release
 ==============
 
 Dobbeltklikk Evida.exe for å starte programmet direkte.

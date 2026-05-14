@@ -35,7 +35,8 @@ import {
   createSafeFallbackStructuredAnswer,
   mainAnswerHasBlockedMetadata,
   normalizeMainAnswerText,
-  structuredToDisplayAnswer
+  structuredToDisplayAnswer,
+  validateStructuredAnswer
 } from "../lib/answerQuality";
 import { AssistantWorkState } from "./AssistantWorkState";
 
@@ -804,16 +805,36 @@ function qualityGateCaseAnswer(
     intent: UserQuestionIntent;
     allowedSourceIds: string[];
     nextActionTitle: string;
+    weakSourceBasis?: boolean;
   }
 ): CaseAnswer {
   const cleanAnswer = normalizeMainAnswerText(normalizeAssistantAnswer(result.answer));
   const sourceIds = result.sourceIds.filter((sourceId) => args.allowedSourceIds.includes(sourceId));
   const hasInvalidSourceIds = result.sourceIds.some((sourceId) => !args.allowedSourceIds.includes(sourceId));
+  const structuredValidation = validateStructuredAnswer({
+    answer: {
+      direct_answer: cleanAnswer,
+      partner_assessment: result.answerStrength.reason,
+      reasoning_points: [],
+      uncertainty: result.uncertainty,
+      next_best_step: result.nextStep,
+      suggested_followups: [],
+      source_ids: sourceIds,
+      answer_quality: {
+        answered_user_question: true,
+        question_type: args.intent,
+        confidence: result.answerStrength.level === "Høy" ? "high" : result.answerStrength.level === "Middels" ? "medium" : "low"
+      }
+    },
+    allowedSourceIds: args.allowedSourceIds,
+    weakSourceBasis: args.weakSourceBasis ?? true
+  });
   const invalidAnswer =
     !cleanAnswer ||
     cleanAnswer.length < 30 ||
     mainAnswerHasBlockedMetadata(result.answer) ||
-    hasInvalidSourceIds;
+    hasInvalidSourceIds ||
+    !structuredValidation.ok;
 
   if (invalidAnswer) {
     return safeFallbackCaseAnswer({

@@ -1,16 +1,17 @@
 use crate::domain::{
-    ArgumentItem, AuditEvent, CaseAiMessage, CaseAiMessageSource, CaseCoverageAudit,
-    AppSetting, CaseSummary, ChronologyEvent, ContradictionItem, DatabaseSecurityStatus,
+    AppSetting, ArgumentItem, AuditEvent, CaseAiMessage, CaseAiMessageSource, CaseCoverageAudit,
+    CaseReadinessReport, CaseSummary, ChronologyEvent, ContradictionItem, DatabaseSecurityStatus,
     DocumentCoverageAudit, DocumentIngestionReport, DocumentSummary, EvidenceItem,
     EvidenceQualityReport, ImportHealthSummary, ImportItem, ImportSession,
-    ImportVerificationResult, CaseReadinessReport, ManualReviewAction, ManualReviewItem,
-    MaintenanceReport, OcrResult, ReindexReport, SourceSearchResult,
-    RiskItem, SourceObjectSummary, WorkItems,
+    ImportVerificationResult, MaintenanceReport, ManualReviewAction, ManualReviewItem, OcrResult,
+    ReindexReport, RiskItem, SourceObjectSummary, SourceSearchResult, WorkItems,
 };
 use crate::ingestion::DocumentExtraction;
 use anyhow::{Context, Result};
+use base64::Engine;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::json;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -39,7 +40,12 @@ pub fn database_security_status() -> Result<DatabaseSecurityStatus> {
     let data_dir = default_data_dir()?;
     let plaintext_backups = std::fs::read_dir(&data_dir)?
         .filter_map(std::result::Result::ok)
-        .filter(|entry| entry.file_name().to_string_lossy().contains("plaintext-backup"))
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .contains("plaintext-backup")
+        })
         .count() as i64;
     let encrypted_at_rest = true;
     let mut warnings = Vec::new();
@@ -50,7 +56,10 @@ pub fn database_security_status() -> Result<DatabaseSecurityStatus> {
         warnings.push("OS credential store was unavailable; field key is stored in local app data and should be moved before production rollout.".to_string());
     }
     if plaintext_backups > 0 {
-        warnings.push("Plaintext database backup exists from migration; review and delete after validation.".to_string());
+        warnings.push(
+            "Plaintext database backup exists from migration; review and delete after validation."
+                .to_string(),
+        );
     }
     warnings.push("Sensitive legal text fields use AES-256-GCM; full-file SQLCipher is still required before broad production rollout.".to_string());
 
@@ -538,23 +547,93 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "cases", "deleted_at", "TEXT")?;
     add_column_if_missing(conn, "import_sessions", "workspace_id", "TEXT")?;
     add_column_if_missing(conn, "import_sessions", "actor_id", "TEXT")?;
-    add_column_if_missing(conn, "import_sessions", "source_type", "TEXT NOT NULL DEFAULT 'mixed'")?;
-    add_column_if_missing(conn, "import_sessions", "cancel_requested", "INTEGER NOT NULL DEFAULT 0")?;
-    add_column_if_missing(conn, "import_sessions", "pause_requested", "INTEGER NOT NULL DEFAULT 0")?;
-    add_column_if_missing(conn, "import_sessions", "summary_counts_json", "TEXT NOT NULL DEFAULT '{}'")?;
-    add_column_if_missing(conn, "import_sessions", "readiness_state", "TEXT NOT NULL DEFAULT 'not_ready'")?;
-    add_column_if_missing(conn, "import_sessions", "current_recommendation", "TEXT NOT NULL DEFAULT ''")?;
-    add_column_if_missing(conn, "import_items", "phase", "TEXT NOT NULL DEFAULT 'discovered'")?;
-    add_column_if_missing(conn, "import_items", "hash_status", "TEXT NOT NULL DEFAULT 'not_started'")?;
+    add_column_if_missing(
+        conn,
+        "import_sessions",
+        "source_type",
+        "TEXT NOT NULL DEFAULT 'mixed'",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_sessions",
+        "cancel_requested",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_sessions",
+        "pause_requested",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_sessions",
+        "summary_counts_json",
+        "TEXT NOT NULL DEFAULT '{}'",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_sessions",
+        "readiness_state",
+        "TEXT NOT NULL DEFAULT 'not_ready'",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_sessions",
+        "current_recommendation",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_items",
+        "phase",
+        "TEXT NOT NULL DEFAULT 'discovered'",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_items",
+        "hash_status",
+        "TEXT NOT NULL DEFAULT 'not_started'",
+    )?;
     add_column_if_missing(conn, "import_items", "detected_file_type", "TEXT")?;
     add_column_if_missing(conn, "import_items", "magic_signature", "TEXT")?;
-    add_column_if_missing(conn, "import_items", "type_mismatch", "INTEGER NOT NULL DEFAULT 0")?;
-    add_column_if_missing(conn, "import_items", "retry_count", "INTEGER NOT NULL DEFAULT 0")?;
-    add_column_if_missing(conn, "import_items", "ai_usable", "INTEGER NOT NULL DEFAULT 0")?;
-    add_column_if_missing(conn, "import_items", "verified", "INTEGER NOT NULL DEFAULT 0")?;
-    add_column_if_missing(conn, "import_items", "manual_review_required", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column_if_missing(
+        conn,
+        "import_items",
+        "type_mismatch",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_items",
+        "retry_count",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_items",
+        "ai_usable",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_items",
+        "verified",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "import_items",
+        "manual_review_required",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     add_column_if_missing(conn, "import_items", "final_status_at", "TEXT")?;
-    add_column_if_missing(conn, "audit_events", "sequence_number", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column_if_missing(
+        conn,
+        "audit_events",
+        "sequence_number",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     add_column_if_missing(conn, "audit_events", "previous_event_hash", "TEXT")?;
     add_column_if_missing(conn, "audit_events", "event_hash", "TEXT")?;
     add_column_if_missing(conn, "audit_events", "canonical_payload_json", "TEXT")?;
@@ -585,18 +664,28 @@ fn encrypt_existing_sensitive_fields(conn: &Connection) -> Result<()> {
 fn encrypt_existing_column(conn: &Connection, table: &str, column: &str) -> Result<()> {
     let sql = format!("SELECT id, {column} FROM {table} WHERE {column} NOT LIKE 'enc:v1:%'");
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
     let values = rows.collect::<std::result::Result<Vec<_>, _>>()?;
     drop(stmt);
 
     let update_sql = format!("UPDATE {table} SET {column} = ?1 WHERE id = ?2");
     for (id, value) in values {
-        conn.execute(&update_sql, params![crate::crypto::encrypt_text(&value)?, id])?;
+        conn.execute(
+            &update_sql,
+            params![crate::crypto::encrypt_text(&value)?, id],
+        )?;
     }
     Ok(())
 }
 
-fn add_column_if_missing(conn: &Connection, table: &str, column: &str, definition: &str) -> Result<()> {
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
     let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
     for existing in columns {
@@ -604,7 +693,10 @@ fn add_column_if_missing(conn: &Connection, table: &str, column: &str, definitio
             return Ok(());
         }
     }
-    conn.execute(&format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition), [])?;
+    conn.execute(
+        &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition),
+        [],
+    )?;
     Ok(())
 }
 
@@ -699,7 +791,11 @@ pub fn rename_case(conn: &Connection, case_id: &str, name: &str) -> Result<CaseS
     get_case(conn, case_id)
 }
 
-pub fn set_case_number(conn: &Connection, case_id: &str, case_number: Option<&str>) -> Result<CaseSummary> {
+pub fn set_case_number(
+    conn: &Connection,
+    case_id: &str,
+    case_number: Option<&str>,
+) -> Result<CaseSummary> {
     let cleaned = case_number.and_then(|value| {
         let trimmed = value.trim();
         if trimmed.is_empty() {
@@ -763,7 +859,8 @@ pub fn set_setting(conn: &Connection, key: &str, value_json: &str) -> Result<()>
 }
 
 pub fn list_settings(conn: &Connection) -> Result<Vec<AppSetting>> {
-    let mut stmt = conn.prepare("SELECT key, value_json, updated_at FROM app_settings ORDER BY key ASC")?;
+    let mut stmt =
+        conn.prepare("SELECT key, value_json, updated_at FROM app_settings ORDER BY key ASC")?;
     let rows = stmt.query_map([], |row| {
         Ok(AppSetting {
             key: row.get(0)?,
@@ -775,12 +872,25 @@ pub fn list_settings(conn: &Connection) -> Result<Vec<AppSetting>> {
 }
 
 fn case_project_dir(case_id: &str) -> Result<PathBuf> {
-    Ok(default_data_dir()?.join("cases").join(format!("case_{}", case_id)))
+    Ok(default_data_dir()?
+        .join("cases")
+        .join(format!("case_{}", case_id)))
 }
 
-fn write_case_project_metadata(case_id: &str, display_name: &str, user_defined_name: Option<&str>) -> Result<()> {
+fn write_case_project_metadata(
+    case_id: &str,
+    display_name: &str,
+    user_defined_name: Option<&str>,
+) -> Result<()> {
     let dir = case_project_dir(case_id)?;
-    for subdir in ["documents", "sources", "exports", "audit", "reports", "cache"] {
+    for subdir in [
+        "documents",
+        "sources",
+        "exports",
+        "audit",
+        "reports",
+        "cache",
+    ] {
         std::fs::create_dir_all(dir.join(subdir))?;
     }
     let now = Utc::now().to_rfc3339();
@@ -988,6 +1098,164 @@ pub fn export_diagnostics(conn: &Connection) -> Result<MaintenanceReport> {
     })
 }
 
+pub fn create_encrypted_backup(conn: &Connection) -> Result<MaintenanceReport> {
+    create_encrypted_backup_for_path(conn, &default_db_path()?)
+}
+
+fn create_encrypted_backup_for_path(
+    conn: &Connection,
+    db_path: &Path,
+) -> Result<MaintenanceReport> {
+    create_encrypted_backup_for_path_and_dir(conn, db_path, &default_data_dir()?.join("backups"))
+}
+
+fn create_encrypted_backup_for_path_and_dir(
+    conn: &Connection,
+    db_path: &Path,
+    backup_dir: &Path,
+) -> Result<MaintenanceReport> {
+    conn.execute_batch("PRAGMA wal_checkpoint(FULL);")?;
+    let database_bytes = std::fs::read(db_path)
+        .with_context(|| format!("Could not read database at {}", db_path.display()))?;
+    let database_b64 = base64::engine::general_purpose::STANDARD.encode(database_bytes);
+    let encrypted_payload = crate::crypto::encrypt_text(&database_b64)?;
+    let payload_sha256 = crate::hash::sha256_text(&encrypted_payload);
+    let created_at = Utc::now();
+    std::fs::create_dir_all(&backup_dir)?;
+    let backup_path = backup_dir.join(format!(
+        "evida-backup-{}.evida-backup.json",
+        created_at.format("%Y%m%d-%H%M%S")
+    ));
+    let envelope = json!({
+        "format": "evida.encrypted.sqlite.backup.v1",
+        "created_at": created_at.to_rfc3339(),
+        "source_database": db_path.display().to_string(),
+        "cipher": "AES-256-GCM field-key envelope",
+        "payload_sha256": payload_sha256,
+        "payload": encrypted_payload,
+    });
+    std::fs::write(&backup_path, serde_json::to_string_pretty(&envelope)?)?;
+    crate::audit::append_audit_event(
+        conn,
+        None,
+        "system",
+        "ENCRYPTED_BACKUP_CREATED",
+        "DATABASE_BACKUP",
+        &backup_path.display().to_string(),
+        "OK",
+        Some(
+            &json!({
+                "path": backup_path.display().to_string(),
+                "payload_sha256": payload_sha256,
+            })
+            .to_string(),
+        ),
+    )?;
+
+    Ok(MaintenanceReport {
+        message: "Kryptert lokal backup opprettet.".to_string(),
+        path: Some(backup_path.display().to_string()),
+        cases_deleted: None,
+        documents_deleted: None,
+        sources_deleted: None,
+    })
+}
+
+pub fn restore_encrypted_backup(backup_path: &Path) -> Result<MaintenanceReport> {
+    restore_encrypted_backup_for_paths(backup_path, &default_db_path()?)
+}
+
+fn restore_encrypted_backup_for_paths(
+    backup_path: &Path,
+    db_path: &Path,
+) -> Result<MaintenanceReport> {
+    restore_encrypted_backup_for_paths_and_preimage_dir(
+        backup_path,
+        db_path,
+        &default_data_dir()?.join("restore-preimage"),
+    )
+}
+
+fn restore_encrypted_backup_for_paths_and_preimage_dir(
+    backup_path: &Path,
+    db_path: &Path,
+    preimage_dir: &Path,
+) -> Result<MaintenanceReport> {
+    let raw = std::fs::read_to_string(backup_path)
+        .with_context(|| format!("Could not read backup at {}", backup_path.display()))?;
+    let envelope: serde_json::Value = serde_json::from_str(&raw)?;
+    let format = envelope
+        .get("format")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if format != "evida.encrypted.sqlite.backup.v1" {
+        anyhow::bail!("Unsupported backup format: {format}");
+    }
+    let encrypted_payload = envelope
+        .get("payload")
+        .and_then(serde_json::Value::as_str)
+        .context("Backup payload is missing")?;
+    let expected_sha = envelope
+        .get("payload_sha256")
+        .and_then(serde_json::Value::as_str)
+        .context("Backup payload_sha256 is missing")?;
+    let actual_sha = crate::hash::sha256_text(encrypted_payload);
+    if actual_sha != expected_sha {
+        anyhow::bail!("Backup payload hash mismatch");
+    }
+    let database_b64 = crate::crypto::decrypt_text_strict(encrypted_payload)?;
+    let database_bytes = base64::engine::general_purpose::STANDARD
+        .decode(database_b64)
+        .context("Backup payload is not valid base64")?;
+
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if db_path.exists() {
+        std::fs::create_dir_all(&preimage_dir)?;
+        let preimage_path = preimage_dir.join(format!(
+            "evida-before-restore-{}.sqlite3",
+            Utc::now().format("%Y%m%d-%H%M%S")
+        ));
+        std::fs::copy(db_path, &preimage_path)?;
+    }
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{}", db_path.display(), suffix));
+        if sidecar.exists() {
+            std::fs::remove_file(sidecar)?;
+        }
+    }
+    std::fs::write(db_path, database_bytes)?;
+
+    let restored_conn = Connection::open(db_path)?;
+    apply_schema(&restored_conn)?;
+    crate::audit::append_audit_event(
+        &restored_conn,
+        None,
+        "system",
+        "ENCRYPTED_BACKUP_RESTORED",
+        "DATABASE_BACKUP",
+        &backup_path.display().to_string(),
+        "OK",
+        Some(
+            &json!({
+                "backup_path": backup_path.display().to_string(),
+                "database_path": db_path.display().to_string(),
+                "payload_sha256": actual_sha,
+            })
+            .to_string(),
+        ),
+    )?;
+
+    Ok(MaintenanceReport {
+        message: "Kryptert lokal backup gjenopprettet.".to_string(),
+        path: Some(db_path.display().to_string()),
+        cases_deleted: None,
+        documents_deleted: None,
+        sources_deleted: None,
+    })
+}
+
 fn count_table(conn: &Connection, table: &str) -> Result<i64> {
     let sql = format!("SELECT COUNT(*) FROM {}", table);
     Ok(conn.query_row(&sql, [], |row| row.get(0))?)
@@ -1043,7 +1311,11 @@ fn import_session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ImportSe
     })
 }
 
-pub fn create_import_session(conn: &Connection, case_id: &str, total_files_seen: i64) -> Result<ImportSession> {
+pub fn create_import_session(
+    conn: &Connection,
+    case_id: &str,
+    total_files_seen: i64,
+) -> Result<ImportSession> {
     let id = format!("IMP-{}", Uuid::new_v4());
     let now = Utc::now().to_rfc3339();
     conn.execute(
@@ -1110,17 +1382,25 @@ pub fn create_import_source(
         None,
         None,
         "Importkilde registrert.",
-        Some(&serde_json::json!({
-            "source_type": source_type,
-            "original_path": original_path,
-            "discovered_files_count": discovered_files_count,
-            "rejected_objects_count": rejected_objects_count
-        }).to_string()),
+        Some(
+            &serde_json::json!({
+                "source_type": source_type,
+                "original_path": original_path,
+                "discovered_files_count": discovered_files_count,
+                "rejected_objects_count": rejected_objects_count
+            })
+            .to_string(),
+        ),
     )?;
     Ok(())
 }
 
-pub fn create_import_item(conn: &Connection, import_session_id: &str, case_id: &str, path: &Path) -> Result<ImportItem> {
+pub fn create_import_item(
+    conn: &Connection,
+    import_session_id: &str,
+    case_id: &str,
+    path: &Path,
+) -> Result<ImportItem> {
     let id = format!("IMI-{}", Uuid::new_v4());
     let now = Utc::now().to_rfc3339();
     let original_path = path.display().to_string();
@@ -1133,7 +1413,9 @@ pub fn create_import_item(conn: &Connection, import_session_id: &str, case_id: &
         .extension()
         .and_then(|value| value.to_str())
         .map(|value| value.to_ascii_lowercase());
-    let file_size = std::fs::metadata(path).ok().map(|metadata| metadata.len() as i64);
+    let file_size = std::fs::metadata(path)
+        .ok()
+        .map(|metadata| metadata.len() as i64);
 
     conn.execute(
         "INSERT INTO import_items
@@ -1149,7 +1431,13 @@ pub fn create_import_item(conn: &Connection, import_session_id: &str, case_id: &
         "INSERT INTO import_jobs
          (id, import_session_id, import_item_id, case_id, job_type, status, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, 'ingest_file', 'queued', ?5, ?5)",
-        params![format!("IMPJOB-{}", Uuid::new_v4()), import_session_id, id, case_id, now],
+        params![
+            format!("IMPJOB-{}", Uuid::new_v4()),
+            import_session_id,
+            id,
+            case_id,
+            now
+        ],
     )?;
     append_import_event(
         conn,
@@ -1161,10 +1449,13 @@ pub fn create_import_item(conn: &Connection, import_session_id: &str, case_id: &
         Some("queued"),
         None,
         "Fil lagt i importkø.",
-        Some(&serde_json::json!({
-            "original_path": original_path,
-            "file_size": file_size
-        }).to_string()),
+        Some(
+            &serde_json::json!({
+                "original_path": original_path,
+                "file_size": file_size
+            })
+            .to_string(),
+        ),
     )?;
     get_import_item(conn, &id)
 }
@@ -1201,7 +1492,9 @@ pub fn update_import_item(
         "hashed"
     } else if status == "hashing" {
         "running"
-    } else if status == "failed" && matches!(issue_code, Some("FILE_PERMISSION_DENIED" | "PATH_NOT_FILE")) {
+    } else if status == "failed"
+        && matches!(issue_code, Some("FILE_PERMISSION_DENIED" | "PATH_NOT_FILE"))
+    {
         "failed"
     } else {
         "not_started"
@@ -1215,7 +1508,12 @@ pub fn update_import_item(
     let verified = crate::ingestion_core::is_terminal_status(status);
     let manual_review_required = matches!(
         status,
-        "partial" | "ocr_required" | "unsupported" | "failed" | "security_blocked" | "manual_review_required"
+        "partial"
+            | "ocr_required"
+            | "unsupported"
+            | "failed"
+            | "security_blocked"
+            | "manual_review_required"
     );
     conn.execute(
         "UPDATE import_items
@@ -1276,14 +1574,17 @@ pub fn update_import_item(
         Some(status),
         issue_code,
         user_message,
-        Some(&serde_json::json!({
-            "phase": phase,
-            "hash_status": hash_status,
-            "page_count": page_count,
-            "pages_with_text": pages_with_text,
-            "pages_requires_ocr": pages_requires_ocr,
-            "source_count": source_count
-        }).to_string()),
+        Some(
+            &serde_json::json!({
+                "phase": phase,
+                "hash_status": hash_status,
+                "page_count": page_count,
+                "pages_with_text": pages_with_text,
+                "pages_requires_ocr": pages_requires_ocr,
+                "source_count": source_count
+            })
+            .to_string(),
+        ),
     )?;
     Ok(item)
 }
@@ -1486,7 +1787,11 @@ pub fn cancel_import_session(conn: &Connection, session_id: &str) -> Result<Impo
     get_import_session(conn, session_id)
 }
 
-pub fn recalculate_import_session(conn: &Connection, session_id: &str, completed: bool) -> Result<ImportSession> {
+pub fn recalculate_import_session(
+    conn: &Connection,
+    session_id: &str,
+    completed: bool,
+) -> Result<ImportSession> {
     let now = Utc::now().to_rfc3339();
     let total_items: i64 = conn.query_row(
         "SELECT COUNT(*) FROM import_items WHERE import_session_id = ?1",
@@ -1524,7 +1829,9 @@ pub fn recalculate_import_session(conn: &Connection, session_id: &str, completed
     };
     let recommendation = match readiness_state {
         "processing" => "Vent til importen er ferdig før endelig kontroll.",
-        "preliminary" => "Åpne Import Health Center og håndter filer som krever OCR, retry eller erstatning.",
+        "preliminary" => {
+            "Åpne Import Health Center og håndter filer som krever OCR, retry eller erstatning."
+        }
         "ready" => "Dokumentgrunnlaget er komplett nok til Saksrom.",
         _ => "Importer dokumenter for å starte saksgrunnlaget.",
     };
@@ -1616,7 +1923,9 @@ pub fn create_import_verification_result(
         |row| row.get(0),
     )?;
     if missing_sources > 0 {
-        invariant_failures.push(format!("INV-003 {missing_sources} ready items lack source provenance"));
+        invariant_failures.push(format!(
+            "INV-003 {missing_sources} ready items lack source provenance"
+        ));
     }
     let status = if invariant_failures.is_empty() && processing_items == 0 {
         "verified"
@@ -1645,7 +1954,8 @@ pub fn create_import_verification_result(
             now
         ],
     )?;
-    latest_import_verification_result(conn, session.id.as_str())?.context("verification result was not persisted")
+    latest_import_verification_result(conn, session.id.as_str())?
+        .context("verification result was not persisted")
 }
 
 pub fn latest_import_verification_result(
@@ -1688,20 +1998,37 @@ pub fn create_case_readiness_report(
     let items = list_import_items(conn, case_id)?;
     let missing_files_count = items
         .iter()
-        .filter(|item| matches!(item.status.as_str(), "partial" | "ocr_required" | "unsupported" | "failed" | "security_blocked" | "manual_review_required"))
+        .filter(|item| {
+            matches!(
+                item.status.as_str(),
+                "partial"
+                    | "ocr_required"
+                    | "unsupported"
+                    | "failed"
+                    | "security_blocked"
+                    | "manual_review_required"
+            )
+        })
         .count() as i64;
     let missing_pages_count = audit.pending_text_recognition_pages + audit.pages_missing_sources;
-    let has_processing = audit.has_active_processing || items.iter().any(|item| crate::ingestion_core::is_processing_status(&item.status));
+    let has_processing = audit.has_active_processing
+        || items
+            .iter()
+            .any(|item| crate::ingestion_core::is_processing_status(&item.status));
     let readiness_state = if has_processing {
         "processing"
-    } else if audit.source_coverage_percent >= 100.0 && missing_files_count == 0 && missing_pages_count == 0 {
+    } else if audit.source_coverage_percent >= 100.0
+        && missing_files_count == 0
+        && missing_pages_count == 0
+    {
         "ready"
     } else if audit.source_count > 0 {
         "preliminary"
     } else {
         "not_ready"
     };
-    let can_open_preliminary = matches!(readiness_state, "ready" | "preliminary") && audit.source_count > 0;
+    let can_open_preliminary =
+        matches!(readiness_state, "ready" | "preliminary") && audit.source_count > 0;
     let banner_message = if readiness_state == "ready" {
         "Saksrom kan brukes med komplett dokumentgrunnlag.".to_string()
     } else if can_open_preliminary {
@@ -1743,7 +2070,10 @@ pub fn create_case_readiness_report(
     latest_case_readiness_report(conn, case_id)?.context("readiness report was not persisted")
 }
 
-pub fn latest_case_readiness_report(conn: &Connection, case_id: &str) -> Result<Option<CaseReadinessReport>> {
+pub fn latest_case_readiness_report(
+    conn: &Connection,
+    case_id: &str,
+) -> Result<Option<CaseReadinessReport>> {
     conn.query_row(
         "SELECT id, case_id, import_session_id, readiness_state, source_coverage_percent,
          missing_files_count, missing_pages_count, can_open_preliminary, banner_message,
@@ -1783,19 +2113,34 @@ pub fn get_import_health(conn: &Connection, case_id: &str) -> Result<ImportHealt
     )
     .ok()
     .or(latest_case_readiness_report(conn, case_id)?);
-    let verification = latest_session
-        .as_ref()
-        .and_then(|session| latest_import_verification_result(conn, &session.id).ok().flatten());
+    let verification = latest_session.as_ref().and_then(|session| {
+        latest_import_verification_result(conn, &session.id)
+            .ok()
+            .flatten()
+    });
     let missing_files_count = items
         .iter()
-        .filter(|item| matches!(item.status.as_str(), "partial" | "ocr_required" | "unsupported" | "failed" | "duplicate"))
+        .filter(|item| {
+            matches!(
+                item.status.as_str(),
+                "partial" | "ocr_required" | "unsupported" | "failed" | "duplicate"
+            )
+        })
         .count() as i64;
     let missing_pages_count = audit.pending_text_recognition_pages + audit.pages_missing_sources;
-    let has_active = latest_session.as_ref().is_some_and(|session| session.status == "running")
+    let has_active = latest_session
+        .as_ref()
+        .is_some_and(|session| session.status == "running")
         || items.iter().any(|item| {
             matches!(
                 item.status.as_str(),
-                "queued" | "validating" | "hashing" | "extracting_text" | "ocr_running" | "chunking" | "indexed"
+                "queued"
+                    | "validating"
+                    | "hashing"
+                    | "extracting_text"
+                    | "ocr_running"
+                    | "chunking"
+                    | "indexed"
             )
         })
         || audit.has_active_processing;
@@ -1853,8 +2198,14 @@ pub fn export_import_diagnostics(conn: &Connection, case_id: &str) -> Result<Mai
     let dir = default_data_dir()?.join("diagnostics");
     std::fs::create_dir_all(&dir)?;
     let stamp = Utc::now().format("%Y%m%d-%H%M%S");
-    let json_path = dir.join(format!("evida-import-diagnostics-{}-{}.json", case_id, stamp));
-    let csv_path = dir.join(format!("evida-import-diagnostics-{}-{}.csv", case_id, stamp));
+    let json_path = dir.join(format!(
+        "evida-import-diagnostics-{}-{}.json",
+        case_id, stamp
+    ));
+    let csv_path = dir.join(format!(
+        "evida-import-diagnostics-{}-{}.csv",
+        case_id, stamp
+    ));
     let health = get_import_health(conn, case_id)?;
     let issue_summary = serde_json::json!({
         "ready": health.items.iter().filter(|item| item.status == "ready").count(),
@@ -1891,7 +2242,11 @@ pub fn export_import_diagnostics(conn: &Connection, case_id: &str) -> Result<Mai
             item.recommended_action,
             item.technical_message.unwrap_or_default(),
         ];
-        csv.push_str(&cells.map(|cell| format!("\"{}\"", cell.replace('"', "\"\""))).join(","));
+        csv.push_str(
+            &cells
+                .map(|cell| format!("\"{}\"", cell.replace('"', "\"\"")))
+                .join(","),
+        );
         csv.push('\n');
     }
     std::fs::write(&csv_path, csv)?;
@@ -2109,7 +2464,11 @@ pub fn reindex_case_documents(conn: &Connection, case_id: &str) -> Result<Reinde
         "document.reindex",
         "case",
         case_id,
-        if report.warnings.is_empty() { "PASS" } else { "WARN" },
+        if report.warnings.is_empty() {
+            "PASS"
+        } else {
+            "WARN"
+        },
         Some(&format!(
             r#"{{"documents_processed":{},"sources_created":{},"warnings":{}}}"#,
             report.documents_processed,
@@ -2128,9 +2487,18 @@ fn replace_document_extraction(
     extraction: &DocumentExtraction,
 ) -> Result<ReindexReport> {
     let now = Utc::now().to_rfc3339();
-    conn.execute("DELETE FROM source_objects WHERE document_id = ?1", params![document_id])?;
-    conn.execute("DELETE FROM chunks WHERE document_id = ?1", params![document_id])?;
-    conn.execute("DELETE FROM pages WHERE document_id = ?1", params![document_id])?;
+    conn.execute(
+        "DELETE FROM source_objects WHERE document_id = ?1",
+        params![document_id],
+    )?;
+    conn.execute(
+        "DELETE FROM chunks WHERE document_id = ?1",
+        params![document_id],
+    )?;
+    conn.execute(
+        "DELETE FROM pages WHERE document_id = ?1",
+        params![document_id],
+    )?;
     conn.execute(
         "UPDATE documents SET mime_type = ?1, page_count = ?2, ocr_status = ?3 WHERE id = ?4",
         params![
@@ -2267,7 +2635,9 @@ pub fn get_case_coverage_audit(conn: &Connection, case_id: &str) -> Result<CaseC
     let source_coverage_percent = if total_pages <= 0 {
         0.0
     } else {
-        ((pages_with_sources as f64 / total_pages as f64) * 100.0).round().clamp(0.0, 100.0)
+        ((pages_with_sources as f64 / total_pages as f64) * 100.0)
+            .round()
+            .clamp(0.0, 100.0)
     };
     let has_active_processing = document_audits
         .iter()
@@ -2292,12 +2662,14 @@ pub fn get_case_coverage_audit(conn: &Connection, case_id: &str) -> Result<CaseC
     })
 }
 
-fn document_coverage_audit(conn: &Connection, document: &DocumentSummary) -> Result<DocumentCoverageAudit> {
+fn document_coverage_audit(
+    conn: &Connection,
+    document: &DocumentSummary,
+) -> Result<DocumentCoverageAudit> {
     let page_count = document.page_count.max(0);
     let mut covered_pages = HashSet::new();
-    let mut source_stmt = conn.prepare(
-        "SELECT page_start, page_end FROM source_objects WHERE document_id = ?1",
-    )?;
+    let mut source_stmt =
+        conn.prepare("SELECT page_start, page_end FROM source_objects WHERE document_id = ?1")?;
     let source_ranges = source_stmt.query_map(params![document.id.as_str()], |row| {
         Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
     })?;
@@ -2334,23 +2706,26 @@ fn document_coverage_audit(conn: &Connection, document: &DocumentSummary) -> Res
     let source_coverage_percent = if page_count <= 0 {
         0.0
     } else {
-        ((pages_with_sources as f64 / page_count as f64) * 100.0).round().clamp(0.0, 100.0)
+        ((pages_with_sources as f64 / page_count as f64) * 100.0)
+            .round()
+            .clamp(0.0, 100.0)
     };
     let missing_page_ranges = missing_page_ranges(page_count, &covered_pages, 12);
-    let status = if ["failed", "empty", "unsupported_file_type"].contains(&document.ocr_status.as_str()) {
-        "failed"
-    } else if document.ocr_status == "running" {
-        "running"
-    } else if pages_missing_sources == 0 && page_count > 0 {
-        "ready"
-    } else if pages_with_sources > 0 {
-        "partially_ready"
-    } else if pending_text_recognition_pages > 0 {
-        "queued"
-    } else {
-        "needs_user_action"
-    }
-    .to_string();
+    let status =
+        if ["failed", "empty", "unsupported_file_type"].contains(&document.ocr_status.as_str()) {
+            "failed"
+        } else if document.ocr_status == "running" {
+            "running"
+        } else if pages_missing_sources == 0 && page_count > 0 {
+            "ready"
+        } else if pages_with_sources > 0 {
+            "partially_ready"
+        } else if pending_text_recognition_pages > 0 {
+            "queued"
+        } else {
+            "needs_user_action"
+        }
+        .to_string();
 
     let mut warnings = Vec::new();
     if pending_text_recognition_pages > 0 {
@@ -2383,7 +2758,11 @@ fn document_coverage_audit(conn: &Connection, document: &DocumentSummary) -> Res
     })
 }
 
-fn missing_page_ranges(page_count: i64, covered_pages: &HashSet<i64>, max_ranges: usize) -> Vec<String> {
+fn missing_page_ranges(
+    page_count: i64,
+    covered_pages: &HashSet<i64>,
+    max_ranges: usize,
+) -> Vec<String> {
     let mut ranges = Vec::new();
     let mut cursor = 1;
     while cursor <= page_count && ranges.len() < max_ranges {
@@ -2603,25 +2982,35 @@ pub fn search_source_objects(
     let mut results = rows
         .collect::<std::result::Result<Vec<_>, _>>()?
         .into_iter()
-        .filter_map(|(source_id, case_id, document_id, document_name, page_start, page_end, text)| {
-            let lower = text.to_lowercase();
-            let score = terms.iter().filter(|term| lower.contains(term.as_str())).count() as i64;
-            if score == 0 {
-                return None;
-            }
-            Some(SourceSearchResult {
-                source_id,
-                case_id,
-                document_id,
-                document_name,
-                page_start,
-                page_end,
-                snippet: highlighted_snippet(&text, &terms),
-                score,
-            })
-        })
+        .filter_map(
+            |(source_id, case_id, document_id, document_name, page_start, page_end, text)| {
+                let lower = text.to_lowercase();
+                let score = terms
+                    .iter()
+                    .filter(|term| lower.contains(term.as_str()))
+                    .count() as i64;
+                if score == 0 {
+                    return None;
+                }
+                Some(SourceSearchResult {
+                    source_id,
+                    case_id,
+                    document_id,
+                    document_name,
+                    page_start,
+                    page_end,
+                    snippet: highlighted_snippet(&text, &terms),
+                    score,
+                })
+            },
+        )
         .collect::<Vec<_>>();
-    results.sort_by(|left, right| right.score.cmp(&left.score).then(left.document_name.cmp(&right.document_name)));
+    results.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then(left.document_name.cmp(&right.document_name))
+    });
     results.truncate(limit.max(0) as usize);
     Ok(results)
 }
@@ -2697,7 +3086,9 @@ pub fn ensure_ocr_and_review_items_for_import(
                 "SELECT id, page_number FROM pages WHERE document_id = ?1 AND text_status = 'needs_ocr'",
             )?;
             let pages = stmt
-                .query_map(params![document_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+                .query_map(params![document_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             drop(stmt);
             for (page_id, page_number) in pages {
@@ -2746,7 +3137,10 @@ pub fn ensure_ocr_and_review_items_for_import(
             )?;
         }
     }
-    if matches!(import_item.status.as_str(), "partial" | "failed" | "unsupported" | "security_blocked") {
+    if matches!(
+        import_item.status.as_str(),
+        "partial" | "failed" | "unsupported" | "security_blocked"
+    ) {
         ensure_manual_review_item(
             conn,
             &import_item.case_id,
@@ -2754,7 +3148,10 @@ pub fn ensure_ocr_and_review_items_for_import(
             Some(&import_item.id),
             document_id,
             None,
-            import_item.issue_code.as_deref().unwrap_or(import_item.status.as_str()),
+            import_item
+                .issue_code
+                .as_deref()
+                .unwrap_or(import_item.status.as_str()),
             import_item.issue_severity.as_deref().unwrap_or("warning"),
             &import_item.user_message,
             &import_item.recommended_action,
@@ -2890,7 +3287,11 @@ pub fn apply_manual_review_action(
         manual_review_item_from_row,
     )?;
     let normalized = match action {
-        "mark_reviewed" | "relevant" | "not_relevant" | "blank_no_significance" | "unreadable_but_seen" => "reviewed",
+        "mark_reviewed"
+        | "relevant"
+        | "not_relevant"
+        | "blank_no_significance"
+        | "unreadable_but_seen" => "reviewed",
         "exclude_from_ai" => "excluded_from_ai",
         "requires_follow_up" => "needs_follow_up",
         "retry_ocr" => "open",
@@ -2900,14 +3301,26 @@ pub fn apply_manual_review_action(
     let now = Utc::now().to_rfc3339();
     conn.execute(
         "UPDATE manual_review_items SET status = ?1, ai_usable = ?2, updated_at = ?3 WHERE id = ?4",
-        params![normalized, if ai_usable { 1 } else { 0 }, now, review_item_id],
+        params![
+            normalized,
+            if ai_usable { 1 } else { 0 },
+            now,
+            review_item_id
+        ],
     )?;
     let action_id = format!("REVACT-{}", Uuid::new_v4());
     conn.execute(
         "INSERT INTO manual_review_actions
          (id, review_item_id, case_id, action, note, actor, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, 'local-user', ?6)",
-        params![action_id, review_item_id, item.case_id.as_str(), action, note, now],
+        params![
+            action_id,
+            review_item_id,
+            item.case_id.as_str(),
+            action,
+            note,
+            now
+        ],
     )?;
     crate::audit::append_audit_event(
         conn,
@@ -2950,7 +3363,11 @@ pub fn record_document_control_action(
         "reject_for_ai" => "DOCUMENT_REJECTED_FOR_AI",
         other => other,
     };
-    let result = if normalized_action == "DOCUMENT_REJECTED_FOR_AI" { "WARN" } else { "PASS" };
+    let result = if normalized_action == "DOCUMENT_REJECTED_FOR_AI" {
+        "WARN"
+    } else {
+        "PASS"
+    };
     let details = serde_json::json!({
         "document_name": document_name,
         "sha256": sha256,
@@ -2966,7 +3383,9 @@ pub fn record_document_control_action(
         result,
         Some(&details.to_string()),
     )?;
-    if normalized_action == "DOCUMENT_APPROVED_FOR_AI" || normalized_action == "DOCUMENT_REJECTED_FOR_AI" {
+    if normalized_action == "DOCUMENT_APPROVED_FOR_AI"
+        || normalized_action == "DOCUMENT_REJECTED_FOR_AI"
+    {
         let status = if normalized_action == "DOCUMENT_APPROVED_FOR_AI" {
             "reviewed"
         } else {
@@ -3038,7 +3457,11 @@ pub fn list_ocr_results(conn: &Connection, case_id: &str) -> Result<Vec<OcrResul
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
-pub fn run_ocr_for_import_item(conn: &Connection, import_item_id: &str, engine_available: bool) -> Result<Vec<OcrResult>> {
+pub fn run_ocr_for_import_item(
+    conn: &Connection,
+    import_item_id: &str,
+    engine_available: bool,
+) -> Result<Vec<OcrResult>> {
     let item = get_import_item(conn, import_item_id)?;
     let now = Utc::now().to_rfc3339();
     let (status, issue_code, user_message, technical, action) = if engine_available {
@@ -3063,7 +3486,15 @@ pub fn run_ocr_for_import_item(conn: &Connection, import_item_id: &str, engine_a
          SET status = ?1, issue_code = ?2, user_message = ?3, technical_message = ?4,
              recommended_action = ?5, updated_at = ?6
          WHERE import_item_id = ?7 AND status IN ('queued','failed')",
-        params![status, issue_code, user_message, technical, action, now, import_item_id],
+        params![
+            status,
+            issue_code,
+            user_message,
+            technical,
+            action,
+            now,
+            import_item_id
+        ],
     )?;
     if !engine_available {
         ensure_manual_review_item(
@@ -3085,7 +3516,10 @@ pub fn run_ocr_for_import_item(conn: &Connection, import_item_id: &str, engine_a
 
 pub fn refresh_evidence_quality(conn: &Connection, case_id: &str) -> Result<EvidenceQualityReport> {
     let now = Utc::now().to_rfc3339();
-    conn.execute("DELETE FROM duplicate_groups WHERE case_id = ?1", params![case_id])?;
+    conn.execute(
+        "DELETE FROM duplicate_groups WHERE case_id = ?1",
+        params![case_id],
+    )?;
     conn.execute(
         "INSERT INTO duplicate_groups (id, case_id, sha256, document_count, created_at)
          SELECT 'DUP-' || lower(hex(randomblob(16))), case_id, sha256, COUNT(*), ?1
@@ -3098,7 +3532,10 @@ pub fn refresh_evidence_quality(conn: &Connection, case_id: &str) -> Result<Evid
          HAVING COUNT(*) > 1",
         params![now, case_id],
     )?;
-    conn.execute("DELETE FROM document_families WHERE case_id = ?1", params![case_id])?;
+    conn.execute(
+        "DELETE FROM document_families WHERE case_id = ?1",
+        params![case_id],
+    )?;
     let docs = list_documents(conn, case_id)?;
     for document in &docs {
         let lower = document.original_name.to_lowercase();
@@ -3111,7 +3548,10 @@ pub fn refresh_evidence_quality(conn: &Connection, case_id: &str) -> Result<Evid
             )?;
         }
     }
-    conn.execute("DELETE FROM citation_validation_results WHERE case_id = ?1", params![case_id])?;
+    conn.execute(
+        "DELETE FROM citation_validation_results WHERE case_id = ?1",
+        params![case_id],
+    )?;
     conn.execute(
         "INSERT INTO citation_validation_results
          (id, case_id, source_id, document_id, page_number, status, message, created_at)
@@ -3163,10 +3603,14 @@ pub fn refresh_evidence_quality(conn: &Connection, case_id: &str) -> Result<Evid
     )?;
     let mut warnings = Vec::new();
     if duplicate_groups > 0 {
-        warnings.push(format!("{duplicate_groups} duplikatgrupper bør vurderes før endelig analyse."));
+        warnings.push(format!(
+            "{duplicate_groups} duplikatgrupper bør vurderes før endelig analyse."
+        ));
     }
     if citation_failures > 0 {
-        warnings.push(format!("{citation_failures} kildehenvisninger peker ikke på registrerte sider."));
+        warnings.push(format!(
+            "{citation_failures} kildehenvisninger peker ikke på registrerte sider."
+        ));
     }
     if attachment_like_documents > 0 {
         warnings.push(format!("{attachment_like_documents} dokumenter ser ut som vedlegg/bilag og bør kobles til hoveddokument."));
@@ -3192,7 +3636,10 @@ pub fn refresh_evidence_quality(conn: &Connection, case_id: &str) -> Result<Evid
     })
 }
 
-pub fn export_evidence_quality_package(conn: &Connection, case_id: &str) -> Result<MaintenanceReport> {
+pub fn export_evidence_quality_package(
+    conn: &Connection,
+    case_id: &str,
+) -> Result<MaintenanceReport> {
     let report = refresh_evidence_quality(conn, case_id)?;
     let dir = default_data_dir()?.join("diagnostics");
     std::fs::create_dir_all(&dir)?;
@@ -3227,7 +3674,9 @@ pub fn export_evidence_quality_package(conn: &Connection, case_id: &str) -> Resu
     }
     std::fs::write(&source_map_path, source_map)?;
 
-    let mut chain = String::from("document_id,document_name,local_path,sha256,page_count,mime_type,imported_at\n");
+    let mut chain = String::from(
+        "document_id,document_name,local_path,sha256,page_count,mime_type,imported_at\n",
+    );
     let mut stmt = conn.prepare(
         "SELECT id, original_name, local_path, sha256, page_count, COALESCE(mime_type, ''), imported_at
          FROM documents WHERE case_id = ?1 ORDER BY imported_at ASC",
@@ -3249,10 +3698,7 @@ pub fn export_evidence_quality_package(conn: &Connection, case_id: &str) -> Resu
     std::fs::write(&chain_path, chain)?;
 
     Ok(MaintenanceReport {
-        message: format!(
-            "Evidence quality eksportert: {}",
-            report_path.display()
-        ),
+        message: format!("Evidence quality eksportert: {}", report_path.display()),
         path: Some(report_path.display().to_string()),
         cases_deleted: None,
         documents_deleted: None,
@@ -3289,7 +3735,10 @@ pub fn build_chronology(conn: &Connection, case_id: &str) -> Result<Vec<Chronolo
         anyhow::bail!("Kronologi trenger kildeobjekter.");
     }
     let now = Utc::now().to_rfc3339();
-    conn.execute("DELETE FROM chronology_events WHERE case_id = ?1", params![case_id])?;
+    conn.execute(
+        "DELETE FROM chronology_events WHERE case_id = ?1",
+        params![case_id],
+    )?;
     for (index, source) in sources.iter().take(20).enumerate() {
         let date_text = extract_date_text(&source.text_excerpt);
         conn.execute(
@@ -3303,7 +3752,11 @@ pub fn build_chronology(conn: &Connection, case_id: &str) -> Result<Vec<Chronolo
                 crate::crypto::encrypt_text(&first_sentence(&source.text_excerpt))?,
                 source.id,
                 if index == 0 { "Til kontroll" } else { "Utkast" },
-                if date_text == "Udatert" { "Høy" } else { "Middels" },
+                if date_text == "Udatert" {
+                    "Høy"
+                } else {
+                    "Middels"
+                },
                 now,
                 now
             ],
@@ -3319,9 +3772,21 @@ pub fn build_evidence_matrix(conn: &Connection, case_id: &str) -> Result<Vec<Evi
         anyhow::bail!("Bevismatrise trenger kildeobjekter.");
     }
     let now = Utc::now().to_rfc3339();
-    let supporting: Vec<String> = sources.iter().take(3).map(|source| source.id.clone()).collect();
-    let weakening: Vec<String> = sources.iter().skip(3).take(2).map(|source| source.id.clone()).collect();
-    conn.execute("DELETE FROM evidence_items WHERE case_id = ?1", params![case_id])?;
+    let supporting: Vec<String> = sources
+        .iter()
+        .take(3)
+        .map(|source| source.id.clone())
+        .collect();
+    let weakening: Vec<String> = sources
+        .iter()
+        .skip(3)
+        .take(2)
+        .map(|source| source.id.clone())
+        .collect();
+    conn.execute(
+        "DELETE FROM evidence_items WHERE case_id = ?1",
+        params![case_id],
+    )?;
     conn.execute(
         "INSERT INTO evidence_items
          (id, case_id, claim, supporting_source_ids_json, weakening_source_ids_json, strength, status, created_at, updated_at)
@@ -3348,7 +3813,11 @@ pub fn create_argument_item(conn: &Connection, case_id: &str) -> Result<Vec<Argu
         anyhow::bail!("Anførsler trenger kildeobjekter.");
     }
     let now = Utc::now().to_rfc3339();
-    let linked: Vec<String> = sources.iter().take(2).map(|source| source.id.clone()).collect();
+    let linked: Vec<String> = sources
+        .iter()
+        .take(2)
+        .map(|source| source.id.clone())
+        .collect();
     conn.execute(
         "INSERT INTO argument_items
          (id, case_id, argument, factual_basis, legal_basis, evidence_source_ids_json, status, created_at, updated_at)
@@ -3375,7 +3844,10 @@ pub fn find_contradictions(conn: &Connection, case_id: &str) -> Result<Vec<Contr
         anyhow::bail!("Motstridsanalyse trenger minst to kildeobjekter.");
     }
     let now = Utc::now().to_rfc3339();
-    conn.execute("DELETE FROM contradiction_items WHERE case_id = ?1", params![case_id])?;
+    conn.execute(
+        "DELETE FROM contradiction_items WHERE case_id = ?1",
+        params![case_id],
+    )?;
     conn.execute(
         "INSERT INTO contradiction_items
          (id, case_id, topic, source_a_id, source_b_id, conflict, significance, status, created_at, updated_at)
@@ -3406,7 +3878,10 @@ pub fn assess_risk(conn: &Connection, case_id: &str) -> Result<Vec<RiskItem>> {
     let needs_ocr = docs.iter().any(|doc| doc.pending_ocr_page_count > 0);
     let arguments = list_argument_items(conn, case_id)?;
     let now = Utc::now().to_rfc3339();
-    conn.execute("DELETE FROM risk_items WHERE case_id = ?1", params![case_id])?;
+    conn.execute(
+        "DELETE FROM risk_items WHERE case_id = ?1",
+        params![case_id],
+    )?;
     conn.execute(
         "INSERT INTO risk_items
          (id, case_id, risk, severity, affected_arguments, source_basis, recommended_action, created_at, updated_at)
@@ -3555,8 +4030,11 @@ fn first_sentence(value: &str) -> String {
 
 fn extract_date_text(value: &str) -> String {
     for token in value.split_whitespace() {
-        let cleaned = token.trim_matches(|c: char| !c.is_ascii_digit() && c != '.' && c != '/' && c != '-');
-        let separators = cleaned.matches('.').count() + cleaned.matches('/').count() + cleaned.matches('-').count();
+        let cleaned =
+            token.trim_matches(|c: char| !c.is_ascii_digit() && c != '.' && c != '/' && c != '-');
+        let separators = cleaned.matches('.').count()
+            + cleaned.matches('/').count()
+            + cleaned.matches('-').count();
         if separators == 2 && cleaned.chars().filter(|c| c.is_ascii_digit()).count() >= 6 {
             return cleaned.to_string();
         }
@@ -3655,7 +4133,11 @@ pub fn record_case_ai_exchange(
             },
             "source_object",
             source_id,
-            if validation.validation_status == "PASS" { "PASS" } else { "FAIL" },
+            if validation.validation_status == "PASS" {
+                "PASS"
+            } else {
+                "FAIL"
+            },
             None,
         )?;
         persisted_sources.push(CaseAiMessageSource {
@@ -3677,13 +4159,16 @@ pub fn record_case_ai_exchange(
         "case_ai_message",
         &answer_message_id,
         if validation_failed { "WARN" } else { "PASS" },
-        Some(&serde_json::json!({
-            "model_id": model_id,
-            "prompt_version": prompt_version,
-            "source_index_version": source_index_version,
-            "sources": source_ids.len(),
-            "validation": if validation_failed { "failed" } else { "passed" }
-        }).to_string()),
+        Some(
+            &serde_json::json!({
+                "model_id": model_id,
+                "prompt_version": prompt_version,
+                "source_index_version": source_index_version,
+                "sources": source_ids.len(),
+                "validation": if validation_failed { "failed" } else { "passed" }
+            })
+            .to_string(),
+        ),
     )?;
 
     Ok(CaseAiMessage {
@@ -3742,7 +4227,10 @@ fn ensure_case_ai_session(conn: &Connection, case_id: &str, now: &str) -> Result
         params![case_id],
         |row| row.get::<_, String>(0),
     ) {
-        conn.execute("UPDATE case_ai_sessions SET updated_at = ?1 WHERE id = ?2", params![now, id])?;
+        conn.execute(
+            "UPDATE case_ai_sessions SET updated_at = ?1 WHERE id = ?2",
+            params![now, id],
+        )?;
         return Ok(id);
     }
     let id = format!("AISES-{}", Uuid::new_v4());
@@ -3753,7 +4241,11 @@ fn ensure_case_ai_session(conn: &Connection, case_id: &str, now: &str) -> Result
     Ok(id)
 }
 
-fn validate_source_for_case(conn: &Connection, case_id: &str, source_id: &str) -> Result<SourceValidation> {
+fn validate_source_for_case(
+    conn: &Connection,
+    case_id: &str,
+    source_id: &str,
+) -> Result<SourceValidation> {
     let found = conn.query_row(
         "SELECT document_id, page_start FROM source_objects WHERE id = ?1 AND case_id = ?2",
         params![source_id, case_id],
@@ -3774,7 +4266,10 @@ fn validate_source_for_case(conn: &Connection, case_id: &str, source_id: &str) -
     }
 }
 
-fn list_case_ai_message_sources(conn: &Connection, message_id: &str) -> Result<Vec<CaseAiMessageSource>> {
+fn list_case_ai_message_sources(
+    conn: &Connection,
+    message_id: &str,
+) -> Result<Vec<CaseAiMessageSource>> {
     let mut stmt = conn.prepare(
         "SELECT id, message_id, source_id, document_id, page_number, validation_status, created_at
          FROM case_ai_message_sources
@@ -3795,7 +4290,12 @@ fn list_case_ai_message_sources(conn: &Connection, message_id: &str) -> Result<V
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
-fn append_work_audit(conn: &Connection, case_id: &str, action: &str, target_type: &str) -> Result<()> {
+fn append_work_audit(
+    conn: &Connection,
+    case_id: &str,
+    action: &str,
+    target_type: &str,
+) -> Result<()> {
     crate::audit::append_audit_event(
         conn,
         Some(case_id),
@@ -3812,6 +4312,7 @@ fn append_work_audit(conn: &Connection, case_id: &str, action: &str, target_type
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn smoke_case_document_source_and_reindex_workflow() {
@@ -3841,10 +4342,18 @@ mod tests {
         assert_eq!(report.pages_created, 1);
         assert!(report.sources_created > 0);
         assert_eq!(list_documents(&conn, &case.id).expect("documents").len(), 1);
-        assert!(!list_source_objects(&conn, &case.id).expect("sources").is_empty());
-        assert!(!list_audit_events(&conn, Some(&case.id)).expect("audit").is_empty());
+        assert!(!list_source_objects(&conn, &case.id)
+            .expect("sources")
+            .is_empty());
+        assert!(!list_audit_events(&conn, Some(&case.id))
+            .expect("audit")
+            .is_empty());
         let raw_excerpt: String = conn
-            .query_row("SELECT text_excerpt FROM source_objects LIMIT 1", [], |row| row.get(0))
+            .query_row(
+                "SELECT text_excerpt FROM source_objects LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
             .expect("raw encrypted excerpt");
         assert!(raw_excerpt.starts_with("enc:v1:"));
 
@@ -3853,6 +4362,451 @@ mod tests {
         assert!(reindex.sources_created > 0);
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn encrypted_backup_restore_roundtrip_preserves_cases_and_audits_restore() {
+        let root = std::env::temp_dir().join(format!("evida-backup-test-{}", Uuid::new_v4()));
+        let db_path = root.join("evida.sqlite3");
+        let backup_dir = root.join("backups");
+        let preimage_dir = root.join("preimage");
+        std::fs::create_dir_all(&root).expect("create temp root");
+
+        let conn = Connection::open(&db_path).expect("open temp db");
+        apply_schema(&conn).expect("apply schema");
+        create_case(&conn, "Backup case", "NO").expect("create case");
+        let backup = create_encrypted_backup_for_path_and_dir(&conn, &db_path, &backup_dir)
+            .expect("create encrypted backup");
+        let backup_path = PathBuf::from(backup.path.expect("backup path"));
+        let backup_raw = std::fs::read_to_string(&backup_path).expect("read backup envelope");
+        assert!(backup_raw.contains("evida.encrypted.sqlite.backup.v1"));
+        assert!(!backup_raw.contains("Backup case"));
+        drop(conn);
+
+        let mutated_conn = Connection::open(&db_path).expect("open mutated db");
+        mutated_conn
+            .execute("DELETE FROM cases", [])
+            .expect("delete case");
+        drop(mutated_conn);
+
+        restore_encrypted_backup_for_paths_and_preimage_dir(&backup_path, &db_path, &preimage_dir)
+            .expect("restore encrypted backup");
+
+        let restored_conn = Connection::open(&db_path).expect("open restored db");
+        let cases = count_table(&restored_conn, "cases").expect("case count");
+        assert_eq!(cases, 1);
+        let restore_audits: i64 = restored_conn
+            .query_row(
+                "SELECT COUNT(*) FROM audit_events WHERE action = 'ENCRYPTED_BACKUP_RESTORED'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("restore audit count");
+        assert_eq!(restore_audits, 1);
+        assert!(preimage_dir.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[derive(Debug)]
+    struct StressManifestRow {
+        relative_path: String,
+        expected_status: String,
+        expected_pages: i64,
+        expected_ocr_pages: i64,
+        expected_sha256: String,
+    }
+
+    #[derive(Debug)]
+    struct StressImportOutcome {
+        status: String,
+        page_count: i64,
+        source_count: i64,
+        sha256: Option<String>,
+        issue_code: Option<String>,
+    }
+
+    #[test]
+    #[ignore]
+    fn evida_document_upload_stress_suite_matches_truth_manifest() {
+        let suite_dir = std::env::var("EVIDA_DOCUMENT_STRESS_SUITE_DIR")
+            .expect("Set EVIDA_DOCUMENT_STRESS_SUITE_DIR to the stress suite folder");
+        let suite_dir = PathBuf::from(suite_dir);
+        let manifest_path = suite_dir.join("stress_suite_file_manifest.csv");
+        let rows = read_stress_manifest(&manifest_path).expect("read stress manifest");
+        assert_eq!(391, rows.len(), "stress suite manifest row count");
+
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        apply_schema(&conn).expect("apply schema");
+        let case = create_case(&conn, "Evida document upload stress suite", "NO")
+            .expect("create stress case");
+        let session =
+            create_import_session(&conn, &case.id, rows.len() as i64).expect("create session");
+
+        let mut deviations = Vec::new();
+        let mut status_counts: BTreeMap<String, i64> = BTreeMap::new();
+        let mut expected_counts: BTreeMap<String, i64> = BTreeMap::new();
+        let mut total_pages = 0_i64;
+        let mut total_sources = 0_i64;
+
+        for row in &rows {
+            *expected_counts
+                .entry(row.expected_status.clone())
+                .or_insert(0) += 1;
+            let path = suite_dir.join(&row.relative_path);
+            let outcome = simulate_stress_upload(&conn, &session.id, &case.id, &path)
+                .unwrap_or_else(|error| StressImportOutcome {
+                    status: "failed".to_string(),
+                    page_count: 0,
+                    source_count: 0,
+                    sha256: None,
+                    issue_code: Some(error.to_string()),
+                });
+            *status_counts.entry(outcome.status.clone()).or_insert(0) += 1;
+            total_pages += outcome.page_count;
+            total_sources += outcome.source_count;
+
+            if !stress_status_matches(row, &outcome.status) {
+                deviations.push(json!({
+                    "relative_path": row.relative_path,
+                    "field": "status",
+                    "expected": row.expected_status,
+                    "actual": outcome.status,
+                    "issue_code": outcome.issue_code,
+                }));
+            }
+            if let Some(actual_sha) = &outcome.sha256 {
+                if !row.expected_sha256.is_empty() && actual_sha != &row.expected_sha256 {
+                    deviations.push(json!({
+                        "relative_path": row.relative_path,
+                        "field": "sha256",
+                        "expected": row.expected_sha256,
+                        "actual": actual_sha,
+                    }));
+                }
+            }
+            if row.expected_pages > 0
+                && matches!(
+                    row.expected_status.as_str(),
+                    "supported" | "requires_ocr" | "duplicate_or_supported"
+                )
+                && outcome.status != "duplicate"
+                && outcome.page_count != row.expected_pages
+            {
+                deviations.push(json!({
+                    "relative_path": row.relative_path,
+                    "field": "page_count",
+                    "expected": row.expected_pages,
+                    "actual": outcome.page_count,
+                    "status": outcome.status,
+                }));
+            }
+            if row.expected_status == "supported"
+                && outcome.status == "ready"
+                && outcome.source_count == 0
+            {
+                deviations.push(json!({
+                    "relative_path": row.relative_path,
+                    "field": "source_count",
+                    "expected": ">0",
+                    "actual": outcome.source_count,
+                    "status": outcome.status,
+                }));
+            }
+        }
+
+        let report = json!({
+            "suite": suite_dir.display().to_string(),
+            "manifest": manifest_path.display().to_string(),
+            "files_tested": rows.len(),
+            "expected_counts": expected_counts,
+            "actual_status_counts": status_counts,
+            "total_pages": total_pages,
+            "total_sources": total_sources,
+            "deviation_count": deviations.len(),
+            "deviations": deviations,
+        });
+        let report_path = std::env::var("EVIDA_DOCUMENT_STRESS_REPORT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("..")
+                    .join("..")
+                    .join("artifacts")
+                    .join("document-upload-stress")
+                    .join("evida-document-upload-stress-report.json")
+            });
+        if let Some(parent) = report_path.parent() {
+            std::fs::create_dir_all(parent).expect("create report dir");
+        }
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap())
+            .expect("write stress report");
+
+        assert!(
+            report["deviation_count"].as_u64().unwrap_or(0) == 0,
+            "document upload stress suite has deviations; see {}",
+            report_path.display()
+        );
+    }
+
+    fn read_stress_manifest(path: &Path) -> Result<Vec<StressManifestRow>> {
+        let content = std::fs::read_to_string(path)?;
+        let mut rows = Vec::new();
+        for (index, line) in content.lines().enumerate() {
+            if index == 0 || line.trim().is_empty() {
+                continue;
+            }
+            let cols = parse_csv_line(line);
+            if cols.len() < 8 {
+                anyhow::bail!("Malformed stress manifest row {}: {}", index + 1, line);
+            }
+            rows.push(StressManifestRow {
+                relative_path: cols[1].replace('/', std::path::MAIN_SEPARATOR_STR),
+                expected_status: cols[3].clone(),
+                expected_pages: cols[4].parse().unwrap_or(0),
+                expected_ocr_pages: cols[5].parse().unwrap_or(0),
+                expected_sha256: cols[7].clone(),
+            });
+        }
+        Ok(rows)
+    }
+
+    fn parse_csv_line(line: &str) -> Vec<String> {
+        let mut cols = Vec::new();
+        let mut current = String::new();
+        let mut chars = line.chars().peekable();
+        let mut in_quotes = false;
+        while let Some(ch) = chars.next() {
+            match ch {
+                '"' if in_quotes && chars.peek() == Some(&'"') => {
+                    current.push('"');
+                    chars.next();
+                }
+                '"' => in_quotes = !in_quotes,
+                ',' if !in_quotes => {
+                    cols.push(current);
+                    current = String::new();
+                }
+                _ => current.push(ch),
+            }
+        }
+        cols.push(current);
+        cols
+    }
+
+    fn simulate_stress_upload(
+        conn: &Connection,
+        import_session_id: &str,
+        case_id: &str,
+        path: &Path,
+    ) -> Result<StressImportOutcome> {
+        let item = create_import_item(conn, import_session_id, case_id, path)?;
+        let detection = match crate::ingestion_core::detect_file_type(path) {
+            Ok(value) => value,
+            Err(error) => {
+                let outcome = StressImportOutcome {
+                    status: "failed".to_string(),
+                    page_count: 0,
+                    source_count: 0,
+                    sha256: None,
+                    issue_code: Some(error.to_string()),
+                };
+                update_import_item(
+                    conn,
+                    &item.id,
+                    &outcome.status,
+                    Some("DETECTION_FAILED"),
+                    Some("error"),
+                    "Feilet - filen kunne ikke klassifiseres.",
+                    outcome.issue_code.as_deref(),
+                    "Last opp en ny kopi.",
+                    true,
+                    false,
+                    None,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                )?;
+                return Ok(outcome);
+            }
+        };
+        update_import_item_detection(conn, &item.id, &detection)?;
+        let safety = crate::ingestion_core::assess_file_safety(path, &detection);
+        if !safety.allowed {
+            let status = match safety.issue_code.as_deref() {
+                Some("UNSUPPORTED_FILE_TYPE") => "unsupported",
+                Some("ARCHIVE_PATH_TRAVERSAL_BLOCKED" | "ARCHIVE_BOMB_RISK") => "security_blocked",
+                _ => "failed",
+            };
+            update_import_item(
+                conn,
+                &item.id,
+                status,
+                safety.issue_code.as_deref(),
+                safety.issue_severity.as_deref(),
+                &safety.user_message,
+                safety.technical_message.as_deref(),
+                &safety.recommended_action,
+                safety.retryable,
+                false,
+                Some(&detection.detected_mime_type),
+                None,
+                0,
+                0,
+                0,
+                0,
+            )?;
+            return Ok(StressImportOutcome {
+                status: status.to_string(),
+                page_count: 0,
+                source_count: 0,
+                sha256: None,
+                issue_code: safety.issue_code,
+            });
+        }
+
+        let sha256 = crate::hash::sha256_file(path)?;
+        if document_exists_for_sha(conn, case_id, &sha256)? {
+            update_import_item(
+                conn,
+                &item.id,
+                "duplicate",
+                Some("DUPLICATE_FILE"),
+                Some("info"),
+                "Duplikat - denne filen finnes allerede i saken.",
+                Some("same_case_sha256_match"),
+                "Ingen handling nødvendig.",
+                false,
+                true,
+                Some(&detection.detected_mime_type),
+                Some(&sha256),
+                0,
+                0,
+                0,
+                0,
+            )?;
+            return Ok(StressImportOutcome {
+                status: "duplicate".to_string(),
+                page_count: 0,
+                source_count: 0,
+                sha256: Some(sha256),
+                issue_code: Some("DUPLICATE_FILE".to_string()),
+            });
+        }
+
+        let extraction = crate::ingestion::extract_document(path)?;
+        let pages_with_text = extraction
+            .pages
+            .iter()
+            .filter(|page| page.text_status == "extracted" || page.text_status == "ocr_extracted")
+            .count() as i64;
+        let pages_requires_ocr = extraction
+            .pages
+            .iter()
+            .filter(|page| page.text_status == "needs_ocr")
+            .count() as i64;
+        let original_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("unknown-file");
+        let report = insert_document(
+            conn,
+            case_id,
+            original_name,
+            path.to_str().unwrap_or_default(),
+            &sha256,
+            &extraction,
+        )?;
+        let status = stress_status_for_extraction(&extraction, report.sources_created);
+        update_import_item(
+            conn,
+            &item.id,
+            status,
+            None,
+            None,
+            "Stress import status recorded.",
+            None,
+            "Ingen handling nødvendig.",
+            false,
+            status == "ready" || status == "partial",
+            extraction.mime_type.as_deref(),
+            Some(&sha256),
+            extraction.page_count,
+            pages_with_text,
+            pages_requires_ocr,
+            report.sources_created,
+        )?;
+        record_extraction_result(
+            conn,
+            case_id,
+            Some(&item.id),
+            Some(&report.document.id),
+            &extraction,
+            report.chunks_created,
+            report.sources_created,
+        )?;
+        ensure_ocr_and_review_items_for_import(
+            conn,
+            &get_import_item(conn, &item.id)?,
+            Some(&report.document.id),
+        )?;
+        Ok(StressImportOutcome {
+            status: status.to_string(),
+            page_count: extraction.page_count,
+            source_count: report.sources_created,
+            sha256: Some(sha256),
+            issue_code: None,
+        })
+    }
+
+    fn stress_status_for_extraction(
+        extraction: &crate::ingestion::DocumentExtraction,
+        sources_created: i64,
+    ) -> &'static str {
+        let pages_requires_ocr = extraction
+            .pages
+            .iter()
+            .filter(|page| page.text_status == "needs_ocr")
+            .count() as i64;
+        if extraction.ocr_status == "unsupported_file_type" {
+            "unsupported"
+        } else if extraction.ocr_status == "needs_ocr"
+            || (sources_created == 0 && pages_requires_ocr > 0)
+        {
+            "ocr_required"
+        } else if extraction.ocr_status == "partial_needs_ocr"
+            || (sources_created > 0 && pages_requires_ocr > 0)
+        {
+            "partial"
+        } else if extraction.ocr_status == "empty"
+            || extraction.ocr_status == "failed"
+            || sources_created == 0
+        {
+            "failed"
+        } else {
+            "ready"
+        }
+    }
+
+    fn stress_status_matches(row: &StressManifestRow, actual: &str) -> bool {
+        match row.expected_status.as_str() {
+            "supported" if row.expected_ocr_pages > 0 => actual == "ready" || actual == "partial",
+            "supported" => actual == "ready",
+            "requires_ocr" => actual == "partial" || actual == "ocr_required",
+            "failed" => actual == "failed",
+            "failed_or_unsupported" => actual == "failed" || actual == "unsupported",
+            "failed_or_unsupported_or_warning" => {
+                matches!(
+                    actual,
+                    "failed" | "unsupported" | "security_blocked" | "partial" | "ocr_required"
+                )
+            }
+            "duplicate_or_supported" => matches!(actual, "duplicate" | "ready" | "partial"),
+            _ => false,
+        }
     }
 
     #[test]
@@ -3977,9 +4931,11 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert!(hits[0].snippet.to_lowercase().contains("betaling"));
 
-        let duplicate_path = std::env::temp_dir().join(format!("evida-phase58-dup-{}.txt", Uuid::new_v4()));
+        let duplicate_path =
+            std::env::temp_dir().join(format!("evida-phase58-dup-{}.txt", Uuid::new_v4()));
         std::fs::write(&duplicate_path, "duplicate").expect("write duplicate marker");
-        let duplicate_item = create_import_item(&conn, &session.id, &case.id, &duplicate_path).expect("dup item");
+        let duplicate_item =
+            create_import_item(&conn, &session.id, &case.id, &duplicate_path).expect("dup item");
         update_import_item(
             &conn,
             &duplicate_item.id,
@@ -4000,9 +4956,11 @@ mod tests {
         )
         .expect("duplicate item");
 
-        let ocr_path = std::env::temp_dir().join(format!("evida-phase58-ocr-{}.pdf", Uuid::new_v4()));
+        let ocr_path =
+            std::env::temp_dir().join(format!("evida-phase58-ocr-{}.pdf", Uuid::new_v4()));
         std::fs::write(&ocr_path, b"%PDF-1.7\n").expect("write pdf");
-        let ocr_item = create_import_item(&conn, &session.id, &case.id, &ocr_path).expect("ocr item");
+        let ocr_item =
+            create_import_item(&conn, &session.id, &case.id, &ocr_path).expect("ocr item");
         let ocr_extraction = crate::ingestion::DocumentExtraction {
             mime_type: Some("application/pdf".to_string()),
             page_count: 1,
@@ -4049,8 +5007,13 @@ mod tests {
         assert_eq!(list_ocr_results(&conn, &case.id).expect("ocr").len(), 1);
         let review_items = list_manual_review_items(&conn, &case.id).expect("review items");
         assert!(!review_items.is_empty());
-        let action = apply_manual_review_action(&conn, &review_items[0].id, "requires_follow_up", Some("Må OCR-behandles"))
-            .expect("review action");
+        let action = apply_manual_review_action(
+            &conn,
+            &review_items[0].id,
+            "requires_follow_up",
+            Some("Må OCR-behandles"),
+        )
+        .expect("review action");
         assert_eq!(action.action, "requires_follow_up");
 
         let quality = refresh_evidence_quality(&conn, &case.id).expect("quality");
@@ -4072,9 +5035,13 @@ mod tests {
         assert_eq!(list_cases(&conn).expect("list cases").len(), 1);
         soft_delete_case(&conn, &case.id).expect("soft delete");
 
-        assert!(list_cases(&conn).expect("list cases after delete").is_empty());
+        assert!(list_cases(&conn)
+            .expect("list cases after delete")
+            .is_empty());
         let audit = list_audit_events(&conn, Some(&case.id)).expect("audit");
-        assert!(audit.iter().any(|event| event.action == "CASE_SOFT_DELETED"));
+        assert!(audit
+            .iter()
+            .any(|event| event.action == "CASE_SOFT_DELETED"));
     }
 
     #[test]
@@ -4113,9 +5080,15 @@ mod tests {
         )
         .expect("insert document");
 
-        assert!(!build_chronology(&conn, &case.id).expect("chronology").is_empty());
-        assert!(!build_evidence_matrix(&conn, &case.id).expect("evidence").is_empty());
-        assert!(!create_argument_item(&conn, &case.id).expect("argument").is_empty());
+        assert!(!build_chronology(&conn, &case.id)
+            .expect("chronology")
+            .is_empty());
+        assert!(!build_evidence_matrix(&conn, &case.id)
+            .expect("evidence")
+            .is_empty());
+        assert!(!create_argument_item(&conn, &case.id)
+            .expect("argument")
+            .is_empty());
         assert!(!assess_risk(&conn, &case.id).expect("risk").is_empty());
         let work = list_work_items(&conn, &case.id).expect("work items");
         assert_eq!(work.chronology.len(), 1);
@@ -4177,11 +5150,22 @@ mod tests {
 
         assert_eq!(message.sources.len(), 1);
         assert_eq!(message.sources[0].validation_status, "PASS");
-        assert_eq!(list_case_ai_messages(&conn, &case.id).expect("messages").len(), 1);
+        assert_eq!(
+            list_case_ai_messages(&conn, &case.id)
+                .expect("messages")
+                .len(),
+            1
+        );
         let audit = list_audit_events(&conn, Some(&case.id)).expect("audit");
-        assert!(audit.iter().any(|event| event.action == "CASE_AI_QUESTION_ASKED"));
-        assert!(audit.iter().any(|event| event.action == "CASE_AI_ANSWER_GENERATED"));
-        assert!(audit.iter().any(|event| event.action == "CASE_AI_SOURCE_VALIDATED"));
+        assert!(audit
+            .iter()
+            .any(|event| event.action == "CASE_AI_QUESTION_ASKED"));
+        assert!(audit
+            .iter()
+            .any(|event| event.action == "CASE_AI_ANSWER_GENERATED"));
+        assert!(audit
+            .iter()
+            .any(|event| event.action == "CASE_AI_SOURCE_VALIDATED"));
 
         let _ = std::fs::remove_file(path);
     }
@@ -4189,18 +5173,24 @@ mod tests {
     #[test]
     #[ignore]
     fn okokrim_10000_bundle_passes_ingestion_gate() {
-        let pdf_path = std::env::var("EVIDA_STRESS_PDF").expect("EVIDA_STRESS_PDF must point to test PDF");
-        let manifest_path = std::env::var("EVIDA_STRESS_MANIFEST").expect("EVIDA_STRESS_MANIFEST must point to truth manifest");
+        let pdf_path =
+            std::env::var("EVIDA_STRESS_PDF").expect("EVIDA_STRESS_PDF must point to test PDF");
+        let manifest_path = std::env::var("EVIDA_STRESS_MANIFEST")
+            .expect("EVIDA_STRESS_MANIFEST must point to truth manifest");
         let manifest: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(&manifest_path).expect("read truth manifest"),
         )
         .expect("parse truth manifest");
         let expected = &manifest["expected"];
-        let expected_pages = expected["registered_pages"].as_i64().expect("registered_pages");
+        let expected_pages = expected["registered_pages"]
+            .as_i64()
+            .expect("registered_pages");
         let minimum_coverage = expected["minimum_coverage_before_ocr_percent"]
             .as_f64()
             .expect("minimum coverage");
-        let expected_ocr_pages = expected["ocr_required_pages"].as_i64().expect("ocr_required_pages");
+        let expected_ocr_pages = expected["ocr_required_pages"]
+            .as_i64()
+            .expect("ocr_required_pages");
 
         let conn = Connection::open_in_memory().expect("open in-memory db");
         apply_schema(&conn).expect("apply schema");
@@ -4220,7 +5210,9 @@ mod tests {
         let report = insert_document(
             &conn,
             &case.id,
-            path.file_name().and_then(|value| value.to_str()).unwrap_or("stress.pdf"),
+            path.file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("stress.pdf"),
             &pdf_path,
             &sha256,
             &extraction,

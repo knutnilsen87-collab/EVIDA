@@ -1,0 +1,154 @@
+{
+    "artifact":  "evidence.first_user.current",
+    "generated_at":  "2026-05-13T11:38:36Z",
+    "release_candidate_id":  "evida-0.1.0-alpha-local-2026-05-13",
+    "scope":  "controlled first-user evaluation with synthetic/redacted test data only",
+    "verdict":  "blocked",
+    "summary":  {
+                    "automated_desktop_gates":  "pass",
+                    "first_user_pack_integrity":  "pass",
+                    "release_artifact_integrity":  "pass",
+                    "control_plane_static_gate":  "pass",
+                    "control_plane_maven_tests":  "blocked_maven_not_found",
+                    "code_signing":  "blocked_not_signed",
+                    "signed_sbom_and_ci_security_scan":  "blocked",
+                    "clean_machine_smoke":  "blocked_manual_required",
+                    "human_approval":  "blocked_manual_required",
+                    "backend_tests_status":  "blocked",
+                    "secret_scan_status":  "blocked",
+                    "toolchain_status":  "blocked"
+                },
+    "evidence_refs":  [
+                          {
+                              "id":  "EV-DESKTOP-HARDENING",
+                              "kind":  "command",
+                              "ref":  "powershell -NoProfile -ExecutionPolicy Bypass -File ops/Test-EvidaHardening.ps1",
+                              "result":  "PASS",
+                              "notes":  "Includes desktop npm tests, Rust static hardening checks, release hardening checks, and frontend build."
+                          },
+                          {
+                              "id":  "EV-RUST-FULL",
+                              "kind":  "command",
+                              "ref":  "cargo test --manifest-path src-tauri/Cargo.toml --jobs 1 -- --test-threads=1",
+                              "result":  "PASS",
+                              "notes":  "18 passed, 1 ignored. Includes audit tamper test, case/document/source smoke, AI exchange persistence, and encrypted backup restore roundtrip."
+                          },
+                          {
+                              "id":  "EV-FRONTEND-BUILD",
+                              "kind":  "command",
+                              "ref":  "npm.cmd run build",
+                              "result":  "PASS",
+                              "notes":  "TypeScript and Vite production build completed."
+                          },
+                          {
+                              "id":  "EV-RELEASE",
+                              "kind":  "command",
+                              "ref":  "powershell -NoProfile -ExecutionPolicy Bypass -File ops/Test-EvidaRelease.ps1",
+                              "result":  "PASS",
+                              "notes":  "Release artifact checksums and manifest verified."
+                          },
+                          {
+                              "id":  "EV-FIRST-USER-PACK",
+                              "kind":  "command",
+                              "ref":  "powershell -NoProfile -ExecutionPolicy Bypass -File ops/Test-EvidaFirstUserReadiness.ps1",
+                              "result":  "BLOCKED",
+                              "notes":  "Pack structure, zip/manifest, golden docs, and status-bundle schema pass. Approval state remains blocked."
+                          },
+                          {
+                              "id":  "EV-PRODUCTION-DOD",
+                              "kind":  "artifact",
+                              "ref":  "artifacts/production-dod/evida-production-dod-report.json",
+                              "result":  "BLOCKED",
+                              "notes":  "Fail-closed aggregate DoD report. Blocks on first-user approval, Maven, signing, SBOM/security scan."
+                          }
+                      ],
+    "first_user_pack":  {
+                            "manifest":  "casepilot_first_user_readiness_pack_manifest.json",
+                            "zip":  "casepilot_first_user_readiness_pack.zip",
+                            "zip_sha256":  "f9e0a9dd45c5d65abbb400b22d1b5d951bd9a94bab8334b1e8432f64121ba338",
+                            "file_count":  24,
+                            "integrity":  "pass"
+                        },
+    "manual_gates_remaining":  [
+                                   "Run clean-machine smoke on a separate Windows profile or machine.",
+                                   "Run Maven tests for evida-core/services/saksrom-api in an environment with Maven installed.",
+                                   "Run secret scanning with gitleaks or equivalent in CI.",
+                                   "Generate signed SBOM and SCA/SAST report with no release-blocking findings.",
+                                   "Sign Windows executable and installers.",
+                                   "Complete engineering, product, and security/privacy approval."
+                               ],
+    "machine_readable_gates":  {
+                                   "toolchain":  {
+                                                     "gate":  "evida-toolchain",
+                                                     "status":  "BLOCKED",
+                                                     "tools":  [
+                                                                   {
+                                                                       "name":  "java",
+                                                                       "status":  "PASS",
+                                                                       "command":  "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.10.7-hotspot\\bin\\java.exe",
+                                                                       "required_for":  "backend_tests",
+                                                                       "message":  "java available on PATH."
+                                                                   },
+                                                                   {
+                                                                       "name":  "maven",
+                                                                       "status":  "BLOCKED",
+                                                                       "command":  null,
+                                                                       "required_for":  "backend_tests",
+                                                                       "message":  "maven is missing. Install or provide it in CI; this script does not install tools automatically."
+                                                                   },
+                                                                   {
+                                                                       "name":  "node",
+                                                                       "status":  "PASS",
+                                                                       "command":  "C:\\Program Files\\nodejs\\node.exe",
+                                                                       "required_for":  "desktop_frontend_tests",
+                                                                       "message":  "node available on PATH."
+                                                                   },
+                                                                   {
+                                                                       "name":  "npm",
+                                                                       "status":  "PASS",
+                                                                       "command":  "C:\\Program Files\\nodejs\\npm.cmd",
+                                                                       "required_for":  "desktop_frontend_tests",
+                                                                       "message":  "npm available on PATH."
+                                                                   },
+                                                                   {
+                                                                       "name":  "cargo",
+                                                                       "status":  "PASS",
+                                                                       "command":  "C:\\Users\\knutn\\.cargo\\bin\\cargo.exe",
+                                                                       "required_for":  "desktop_rust_tests",
+                                                                       "message":  "cargo available on PATH."
+                                                                   },
+                                                                   {
+                                                                       "name":  "python",
+                                                                       "status":  "PASS",
+                                                                       "command":  "C:\\Users\\knutn\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+                                                                       "required_for":  "status_bundle_validation",
+                                                                       "message":  "python available on PATH."
+                                                                   },
+                                                                   {
+                                                                       "name":  "gitleaks",
+                                                                       "status":  "BLOCKED",
+                                                                       "command":  null,
+                                                                       "required_for":  "secret_scan",
+                                                                       "message":  "gitleaks is missing. Install or provide it in CI; this script does not install tools automatically."
+                                                                   }
+                                                               ],
+                                                     "blocked_tools":  [
+                                                                           "maven",
+                                                                           "gitleaks"
+                                                                       ]
+                                                 },
+                                   "backend_tests":  {
+                                                         "gate":  "backend-tests",
+                                                         "status":  "BLOCKED",
+                                                         "service":  "F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\services\\saksrom-api",
+                                                         "command":  null,
+                                                         "message":  "Maven is missing and no mvnw wrapper was found under evida-core/services/saksrom-api. Backend tests were not run."
+                                                     },
+                                   "secret_scan":  {
+                                                       "gate":  "secret-scan",
+                                                       "status":  "BLOCKED",
+                                                       "command":  null,
+                                                       "message":  "gitleaks is missing. Secret scan was not run."
+                                                   }
+                               }
+}

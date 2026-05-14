@@ -42,7 +42,9 @@ fn apply_preferred_window_size(window: &WebviewWindow) -> tauri::Result<()> {
     let x_offset = ((work_area.size.width as i32 - width as i32) / 2).max(0);
     let y_offset = ((work_area.size.height as i32 - height as i32) / 2).max(8);
 
-    window.set_min_size(Some(Size::Physical(PhysicalSize::new(min_width, min_height))))?;
+    window.set_min_size(Some(Size::Physical(PhysicalSize::new(
+        min_width, min_height,
+    ))))?;
     window.set_size(Size::Physical(PhysicalSize::new(width, height)))?;
     window.set_position(Position::Physical(PhysicalPosition::new(
         work_area.position.x + x_offset,
@@ -105,6 +107,8 @@ pub fn run() {
             commands::open_local_data_folder,
             commands::open_original_folder,
             commands::export_diagnostics,
+            commands::create_encrypted_backup,
+            commands::restore_encrypted_backup,
             commands::export_import_diagnostics,
             commands::get_database_security_status,
             commands::list_work_items,

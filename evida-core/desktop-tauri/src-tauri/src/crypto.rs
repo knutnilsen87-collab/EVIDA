@@ -38,6 +38,10 @@ pub fn decrypt_text(value: &str) -> String {
     decrypt_text_result(value).unwrap_or_else(|_| "[kryptert tekst kunne ikke åpnes]".to_string())
 }
 
+pub fn decrypt_text_strict(value: &str) -> Result<String> {
+    decrypt_text_result(value)
+}
+
 fn decrypt_text_result(value: &str) -> Result<String> {
     let resolved = crate::db_key::resolve_db_key()?;
     let key_bytes = Sha256::digest(resolved.key.as_bytes());

@@ -1,0 +1,96 @@
+{
+  "bundle_id": "SB-FIRST-USER-TEMPLATE",
+  "bundle_version": 1,
+  "domain": "casepilot_first_user_release",
+  "release_candidate_id": "REPLACE_ME",
+  "commit_sha": "REPLACE_ME",
+  "created_at": "REPLACE_ME",
+  "updated_at": "REPLACE_ME",
+  "current_state": {
+    "lifecycle_state": "reviewing",
+    "status": "blocked",
+    "terminal_state": false,
+    "first_user_allowed": false
+  },
+  "summary": {
+    "short_summary": "First-user release gate is not approved until all P0 items pass.",
+    "technical_summary": "Tracks first-user scope, document upload, source-bound AI, audit, data safety, and release evidence.",
+    "user_visible_summary": "Not approved for first user yet."
+  },
+  "scope_lock": {
+    "allowed_data": "synthetic_or_redacted_test_data",
+    "real_client_data_allowed": false,
+    "external_ai_raw_document_upload_allowed": false,
+    "document_upload_required": true,
+    "source_bound_ai_required": true
+  },
+  "invariant_layer": {
+    "critical_invariants": [
+      "INV-DOC-001",
+      "INV-DOC-002",
+      "INV-DOC-003",
+      "INV-DOC-004",
+      "INV-DATA-001",
+      "INV-AI-001",
+      "INV-AI-002",
+      "INV-AUDIT-001",
+      "INV-AUDIT-002",
+      "INV-CONFIG-001"
+    ],
+    "broken_invariants": [],
+    "untested_invariants": [
+      "INV-DOC-001",
+      "INV-DOC-002",
+      "INV-DOC-003",
+      "INV-DOC-004",
+      "INV-DATA-001",
+      "INV-AI-001",
+      "INV-AI-002",
+      "INV-AUDIT-001",
+      "INV-AUDIT-002",
+      "INV-CONFIG-001"
+    ]
+  },
+  "evidence_layer": {
+    "artifact_refs": [],
+    "ci_refs": [],
+    "manual_smoke_refs": [],
+    "evidence_quality": "insufficient",
+    "evidence_gaps": [
+      "P0 readiness matrix not complete"
+    ]
+  },
+  "verification_layer": {
+    "verification_status": "blocked",
+    "coverage_status": "insufficient",
+    "residual_risk": "high",
+    "false_green_risk": "high",
+    "p0_status": "blocked",
+    "document_upload_status": "blocked",
+    "ai_source_control_status": "blocked",
+    "audit_status": "blocked"
+  },
+  "ambiguity_layer": {
+    "flags": [
+      "coverage_insufficient",
+      "critical_invariant_untested"
+    ]
+  },
+  "action_layer": {
+    "recommended_next_action": "Run scripts/first-user-gauntlet.sh and update FIRST_USER_READINESS_MATRIX.md with evidence.",
+    "fallback_action": "Keep release as internal developer-only build with synthetic fixtures.",
+    "rollback_path": "Do not distribute release candidate; revoke build artifact if already shared."
+  },
+  "trust_layer": {
+    "confidence_overall": 0.0,
+    "approval_recommendation": "blocked"
+  },
+  "closure_layer": {
+    "closure_decision": "blocked",
+    "approved_by_review": false,
+    "remaining_unknowns": [
+      "P0 tests not all verified"
+    ],
+    "failure_to_asset_required": false
+  }
+}

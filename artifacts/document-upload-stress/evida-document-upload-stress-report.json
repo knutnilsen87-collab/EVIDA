@@ -1,0 +1,25 @@
+{
+  "actual_status_counts": {
+    "duplicate": 1,
+    "failed": 33,
+    "ocr_required": 36,
+    "partial": 9,
+    "ready": 308,
+    "unsupported": 4
+  },
+  "deviation_count": 0,
+  "deviations": [],
+  "expected_counts": {
+    "duplicate_or_supported": 1,
+    "failed": 12,
+    "failed_or_unsupported": 20,
+    "failed_or_unsupported_or_warning": 5,
+    "requires_ocr": 36,
+    "supported": 317
+  },
+  "files_tested": 391,
+  "manifest": "F:\\prosjekter(MAIN)\\CasePilot\\testpakker\\Evida_document_upload_stress_suite_medium_to_extreme\\stress_suite_file_manifest.csv",
+  "suite": "F:\\prosjekter(MAIN)\\CasePilot\\testpakker\\Evida_document_upload_stress_suite_medium_to_extreme",
+  "total_pages": 4012,
+  "total_sources": 7962
+}

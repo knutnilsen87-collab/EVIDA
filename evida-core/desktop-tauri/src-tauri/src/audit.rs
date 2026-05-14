@@ -80,7 +80,10 @@ pub fn append_audit_event(
     Ok(id)
 }
 
-pub fn verify_audit_chain(conn: &Connection, case_id: Option<&str>) -> Result<AuditVerificationReport> {
+pub fn verify_audit_chain(
+    conn: &Connection,
+    case_id: Option<&str>,
+) -> Result<AuditVerificationReport> {
     let mut stmt = if case_id.is_some() {
         conn.prepare(
             "SELECT id, case_id, actor, action, target_type, target_id, result,
@@ -227,18 +230,21 @@ fn calculate_event_hash(
     previous_event_hash: Option<&str>,
     created_at: &str,
 ) -> String {
-    crate::hash::sha256_text(&[
-        case_id.unwrap_or(""),
-        &sequence_number.to_string(),
-        actor,
-        action,
-        target_type,
-        target_id,
-        result,
-        canonical_payload_json,
-        previous_event_hash.unwrap_or(""),
-        created_at,
-    ].join("\n"))
+    crate::hash::sha256_text(
+        &[
+            case_id.unwrap_or(""),
+            &sequence_number.to_string(),
+            actor,
+            action,
+            target_type,
+            target_id,
+            result,
+            canonical_payload_json,
+            previous_event_hash.unwrap_or(""),
+            created_at,
+        ]
+        .join("\n"),
+    )
 }
 
 #[cfg(test)]
@@ -273,15 +279,38 @@ mod tests {
     #[test]
     fn audit_chain_passes_and_detects_tampering() {
         let conn = setup();
-        append_audit_event(&conn, Some("CASE-1"), "user", "CASE_CREATED", "CASE", "CASE-1", "OK", Some(r#"{"b":2,"a":1}"#)).expect("append 1");
-        append_audit_event(&conn, Some("CASE-1"), "user", "DOCUMENT_IMPORTED", "DOCUMENT", "DOC-1", "OK", Some(r#"{"name":"doc"}"#)).expect("append 2");
+        append_audit_event(
+            &conn,
+            Some("CASE-1"),
+            "user",
+            "CASE_CREATED",
+            "CASE",
+            "CASE-1",
+            "OK",
+            Some(r#"{"b":2,"a":1}"#),
+        )
+        .expect("append 1");
+        append_audit_event(
+            &conn,
+            Some("CASE-1"),
+            "user",
+            "DOCUMENT_IMPORTED",
+            "DOCUMENT",
+            "DOC-1",
+            "OK",
+            Some(r#"{"name":"doc"}"#),
+        )
+        .expect("append 2");
 
         let pass = verify_audit_chain(&conn, Some("CASE-1")).expect("verify");
         assert_eq!("PASS", pass.status);
         assert_eq!(2, pass.events_checked);
 
-        conn.execute("UPDATE audit_events SET result = 'CHANGED' WHERE sequence_number = 1", [])
-            .expect("tamper");
+        conn.execute(
+            "UPDATE audit_events SET result = 'CHANGED' WHERE sequence_number = 1",
+            [],
+        )
+        .expect("tamper");
         let fail = verify_audit_chain(&conn, Some("CASE-1")).expect("verify tampered");
         assert_eq!("FAIL", fail.status);
         assert_eq!(Some("event_hash_mismatch".to_string()), fail.reason);

@@ -50,7 +50,7 @@ const PROCESSING_IMPORT_STATUSES = new Set(["queued", "validating", "hashing", "
 const HARD_FAILURE_STATUSES = new Set(["failed", "empty", "unsupported_file_type"]);
 
 export function canUseDocumentInAnswer(row: Pick<DocumentBasisRow, "state" | "sourceCount" | "rejectedAt">) {
-  return row.sourceCount > 0 && row.state !== "rejected" && !row.rejectedAt;
+  return row.sourceCount > 0 && row.state === "ready" && !row.rejectedAt;
 }
 
 export function deriveDocumentBasisSummary(args: {
@@ -119,7 +119,7 @@ function deriveDocumentBasisRow(
     canPreview: Boolean(document.local_path),
     canApprove: state === "needs_text_control" || state === "needs_user_action" || state === "pending",
     canReject: state !== "rejected",
-    canUseInAnswer: state === "ready" && document.source_count > 0,
+    canUseInAnswer: canUseDocumentInAnswer({ state, sourceCount: document.source_count, rejectedAt: rejectionEvent?.created_at }),
     approvedAt: approvalEvent?.created_at,
     approvedBy: approvalEvent?.actor,
     rejectedAt: rejectionEvent?.created_at,

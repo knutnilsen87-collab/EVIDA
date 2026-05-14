@@ -1,0 +1,101 @@
+{
+  "artifact": "invariant_evaluation.first_user",
+  "generated_at": "2026-05-13T11:38:36Z",
+  "release_candidate_id": "evida-0.1.0-alpha-local-2026-05-13",
+  "verdict": "blocked",
+  "critical_invariants": [
+    {
+      "id": "INV-DOC-001",
+      "status": "incomplete",
+      "evidence": ["EV-DESKTOP-HARDENING"],
+      "reason": "Failed/needs-review documents are represented and UI-level answer eligibility is tested, but full retrieval exclusion for every failed upload fixture is not complete."
+    },
+    {
+      "id": "INV-DOC-002",
+      "status": "pass",
+      "evidence": ["EV-RUST-FULL"],
+      "reason": "Accepted documents are persisted with stable document id and sha256 in Rust integration tests."
+    },
+    {
+      "id": "INV-DOC-003",
+      "status": "pass",
+      "evidence": ["EV-DESKTOP-HARDENING"],
+      "reason": "Structured answer validation rejects unknown sources and requires allowed source ids."
+    },
+    {
+      "id": "INV-DOC-004",
+      "status": "pass",
+      "evidence": ["EV-DESKTOP-HARDENING"],
+      "reason": "Document basis and smoke path tests cover ready, OCR/manual review, unreadable, and import health UI states."
+    },
+    {
+      "id": "INV-DATA-001",
+      "status": "incomplete",
+      "evidence": ["EV-DESKTOP-HARDENING"],
+      "reason": "Default settings block document/chat logging, but a full runtime log scan is still required."
+    },
+    {
+      "id": "INV-DATA-002",
+      "status": "incomplete",
+      "evidence": ["EV-RUST-FULL"],
+      "reason": "Persistence is covered at database level, but clean restart smoke on a separate profile is still manual."
+    },
+    {
+      "id": "INV-AI-001",
+      "status": "pass",
+      "evidence": ["EV-DESKTOP-HARDENING", "EV-RUST-FULL"],
+      "reason": "Unsupported/invalid provider answers are blocked and safe fallback behavior is tested."
+    },
+    {
+      "id": "INV-AI-002",
+      "status": "incomplete",
+      "evidence": ["EV-DESKTOP-HARDENING"],
+      "reason": "Prompt-injection coverage exists in readiness docs, but a dedicated uploaded-document prompt-injection eval artifact is still required."
+    },
+    {
+      "id": "INV-AUDIT-001",
+      "status": "incomplete",
+      "evidence": ["EV-RUST-FULL"],
+      "reason": "Core audit events are tested for create/import/AI/delete and backup restore, but export and policy-change audit coverage is not fully closed."
+    },
+    {
+      "id": "INV-AUDIT-002",
+      "status": "pass",
+      "evidence": ["EV-RUST-FULL"],
+      "reason": "Audit tamper detection test passes."
+    },
+    {
+      "id": "INV-CONFIG-001",
+      "status": "pass",
+      "evidence": ["EV-DESKTOP-HARDENING"],
+      "reason": "External AI is off by default and raw/full document sending requires explicit settings."
+    },
+    {
+      "id": "INV-CONFIG-002",
+      "status": "pass",
+      "evidence": ["EV-PRODUCTION-DOD"],
+      "reason": "Release is explicitly pilot/pre-alpha labeled and production DoD blocks broad production use."
+    },
+    {
+      "id": "INV-EXPORT-001",
+      "status": "incomplete",
+      "evidence": [],
+      "reason": "Export smoke and timestamp/source-basis assertion remain P1 evidence gaps."
+    },
+    {
+      "id": "INV-BACKUP-001",
+      "status": "pass",
+      "evidence": ["EV-RUST-FULL"],
+      "reason": "Encrypted backup/restore roundtrip preserves cases and audits restore."
+    }
+  ],
+  "broken_invariants": [],
+  "untested_or_incomplete_invariants": [
+    "INV-DOC-001",
+    "INV-DATA-001",
+    "INV-DATA-002",
+    "INV-AI-002",
+    "INV-AUDIT-001",
+    "INV-EXPORT-001"
+  ]
+}

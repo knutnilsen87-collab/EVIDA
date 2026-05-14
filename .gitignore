@@ -1,5 +1,6 @@
 # Archives and extracted analysis
 *.zip
+!casepilot_first_user_readiness_pack.zip
 archives/
 .pack-staging*/
 .cargo-target-test/

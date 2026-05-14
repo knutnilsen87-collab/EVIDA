@@ -1,0 +1,151 @@
+﻿{
+    "generated_at":  "2026-05-13T11:38:36.6829943Z",
+    "production_ready":  false,
+    "first_user_allowed":  false,
+    "verdict":  "BLOCKED",
+    "gates":  [
+                  {
+                      "name":  "desktop-hardening",
+                      "status":  "PASS",
+                      "exit_code":  0,
+                      "details":  null,
+                      "output":  [
+                                     "1/6 Production boundary",
+                                     "Production boundary verification passed.",
+                                     "2/6 Smoke preflight",
+                                     "Evida smoke preflight passed.",
+                                     "3/6 Release hardening",
+                                     "Dependency inventory written: F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\reports\\dependency-inventory.json",
+                                     "Evida release hardening checks passed.",
+                                     "4/6 Desktop tests",
+                                     "",
+                                     "\u003e evida-desktop@0.1.0 test",
+                                     "\u003e node scripts/run-case-readiness-tests.mjs \u0026\u0026 node scripts/run-document-basis-tests.mjs \u0026\u0026 node scripts/run-processing-tests.mjs \u0026\u0026 node scripts/run-adaptive-saksrom-tests.mjs \u0026\u0026 node scripts/run-legal-command-tests.mjs \u0026\u0026 node scripts/run-handoff-tests.mjs \u0026\u0026 node scripts/run-answer-quality-tests.mjs \u0026\u0026 node scripts/run-smoke-path-tests.mjs \u0026\u0026 node scripts/run-case-flow-tests.mjs \u0026\u0026 node scripts/run-phase-hardening-tests.mjs",
+                                     "",
+                                     "caseReadiness tests passed (24 assertions).",
+                                     "document basis tests passed (10 assertions).",
+                                     "processing tests passed (25 assertions).",
+                                     "adaptiveSaksrom tests passed (31 assertions).",
+                                     "legal command tests passed (22 assertions).",
+                                     "handoff tests passed (37 assertions).",
+                                     "answer quality tests passed (13 assertions).",
+                                     "smoke path tests passed.",
+                                     "case flow tests passed (13 assertions).",
+                                     "phase hardening tests passed (24 assertions).",
+                                     "5/6 Rust static hardening",
+                                     "Evida Rust static hardening checks passed.",
+                                     "6/6 Frontend build",
+                                     "",
+                                     "\u003e evida-desktop@0.1.0 build",
+                                     "\u003e tsc \u0026\u0026 vite build",
+                                     "",
+                                     "\u001b[36mvite v8.0.10 \u001b[32mbuilding client environment for production...\u001b[36m\u001b[39m",
+                                     "\u001b[2K",
+                                     "transforming...✓ 1610 modules transformed.",
+                                     "rendering chunks...",
+                                     "computing gzip size...",
+                                     "dist/index.html                   0.43 kB │ gzip:   0.28 kB",
+                                     "dist/assets/index-Bxsa83Sq.css   60.03 kB │ gzip:  11.84 kB",
+                                     "dist/assets/index-DpaS9XuG.js   367.78 kB │ gzip: 107.53 kB",
+                                     "",
+                                     "\u001b[32m✓ built in 1.32s\u001b[39m",
+                                     "Evida hardening checks passed."
+                                 ]
+                  },
+                  {
+                      "name":  "release-artifacts",
+                      "status":  "PASS",
+                      "exit_code":  0,
+                      "details":  null,
+                      "output":  [
+                                     "Evida release verification passed."
+                                 ]
+                  },
+                  {
+                      "name":  "release-hardening-docs",
+                      "status":  "PASS",
+                      "exit_code":  0,
+                      "details":  null,
+                      "output":  [
+                                     "Dependency inventory written: F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\reports\\dependency-inventory.json",
+                                     "Evida release hardening checks passed."
+                                 ]
+                  },
+                  {
+                      "name":  "first-user-readiness-pack",
+                      "status":  "BLOCKED",
+                      "exit_code":  0,
+                      "details":  {
+                                      "gate":  "first-user-readiness-pack",
+                                      "zip_sha256":  "f9e0a9dd45c5d65abbb400b22d1b5d951bd9a94bab8334b1e8432f64121ba338",
+                                      "manifest_file_count":  24,
+                                      "status_bundle":  "F:\\prosjekter(MAIN)\\CasePilot\\configs\\first-user\\status_bundle.first_user.template.json",
+                                      "first_user_allowed":  false,
+                                      "status":  "blocked",
+                                      "verdict":  "BLOCKED",
+                                      "validator":  "OK: first-user status bundle structure is valid"
+                                  },
+                      "output":  [
+                                     "{\"gate\":\"first-user-readiness-pack\",\"zip_sha256\":\"f9e0a9dd45c5d65abbb400b22d1b5d951bd9a94bab8334b1e8432f64121ba338\",\"manifest_file_count\":24,\"status_bundle\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\configs\\\\first-user\\\\status_bundle.first_user.template.json\",\"first_user_allowed\":false,\"status\":\"blocked\",\"verdict\":\"BLOCKED\",\"validator\":\"OK: first-user status bundle structure is valid\"}"
+                                 ]
+                  },
+                  {
+                      "name":  "control-plane-auth-rbac-audit",
+                      "status":  "BLOCKED",
+                      "exit_code":  0,
+                      "details":  {
+                                      "gate":  "control-plane-auth-rbac-audit",
+                                      "service":  "F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\services\\saksrom-api",
+                                      "static_checks":  "PASS",
+                                      "maven_tests":  "BLOCKED_MAVEN_NOT_FOUND",
+                                      "verdict":  "BLOCKED"
+                                  },
+                      "output":  [
+                                     "{\"gate\":\"control-plane-auth-rbac-audit\",\"service\":\"F:\\\\prosjekter(MAIN)\\\\CasePilot\\\\evida-core\\\\services\\\\saksrom-api\",\"static_checks\":\"PASS\",\"maven_tests\":\"BLOCKED_MAVEN_NOT_FOUND\",\"verdict\":\"BLOCKED\"}"
+                                 ]
+                  },
+                  {
+                      "name":  "windows-code-signing",
+                      "status":  "BLOCKED",
+                      "artifacts":  [
+                                        {
+                                            "artifact":  "Evida.exe",
+                                            "status":  "NotSigned",
+                                            "signer":  null
+                                        },
+                                        {
+                                            "artifact":  "Evida installer.exe",
+                                            "status":  "NotSigned",
+                                            "signer":  null
+                                        },
+                                        {
+                                            "artifact":  "Evida installer.msi",
+                                            "status":  "NotSigned",
+                                            "signer":  null
+                                        },
+                                        {
+                                            "artifact":  "Evida_0.1.0_x64-setup.exe",
+                                            "status":  "NotSigned",
+                                            "signer":  null
+                                        },
+                                        {
+                                            "artifact":  "Evida_0.1.0_x64_en-US.msi",
+                                            "status":  "NotSigned",
+                                            "signer":  null
+                                        }
+                                    ]
+                  },
+                  {
+                      "name":  "sbom-and-security-scan",
+                      "status":  "BLOCKED",
+                      "local_inventory":  "F:\\prosjekter(MAIN)\\CasePilot\\evida-core\\reports\\dependency-inventory.json",
+                      "reason":  "Local dependency inventory exists, but signed SBOM plus CI SCA/SAST vulnerability gate is still required for production."
+                  }
+              ],
+    "remaining_manual_gates":  [
+                                   "Code-sign Windows executable and installers with a trusted certificate.",
+                                   "Generate signed SBOM and run CI SCA/SAST with no release-blocking findings.",
+                                   "Run clean-machine smoke test on a separate Windows profile or machine.",
+                                   "Complete first-user approval checklist and status bundle review."
+                               ]
+}

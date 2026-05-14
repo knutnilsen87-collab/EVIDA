@@ -113,6 +113,12 @@ import {
   deriveDocumentBasisSummary,
   type DocumentBasisRow
 } from "./features/documents/documentBasis";
+import {
+  canApproveSourceAfterPreview,
+  deriveImportUxSummary,
+  getAiReadyDocumentIds,
+  getReviewDocuments
+} from "./features/documents/importUx";
 
 const viewTitles: Record<ViewKey, string> = {
   overview: "Saksoversikt",
@@ -482,6 +488,10 @@ export default function App() {
   const [caseCreationError, setCaseCreationError] = useState("");
   const [isCreatingCase, setIsCreatingCase] = useState(false);
   const [showAdvancedImport, setShowAdvancedImport] = useState(false);
+  const [showImportQueueDetails, setShowImportQueueDetails] = useState(false);
+  const [showImportCompletionDetails, setShowImportCompletionDetails] = useState(false);
+  const [showControlTechnicalDetails, setShowControlTechnicalDetails] = useState(false);
+  const [reviewApprovalChecks, setReviewApprovalChecks] = useState<Record<string, boolean>>({});
   const [expandedDocumentId, setExpandedDocumentId] = useState("");
   const [isDragActive, setIsDragActive] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -778,15 +788,56 @@ export default function App() {
       }),
     [documents, importItems, manualReviewItems, audit, hasActiveProcessing]
   );
+  const reviewDocuments = useMemo(() => getReviewDocuments(documentBasis), [documentBasis]);
+  const aiReadyDocumentIds = useMemo(
+    () => getAiReadyDocumentIds(documentBasis.rows),
+    [documentBasis.rows]
+  );
+  const aiReadySources = useMemo(
+    () => sources.filter((source) => aiReadyDocumentIds.has(source.document_id)),
+    [sources, aiReadyDocumentIds]
+  );
+  const hasNonAiReadySources = useMemo(
+    () => sources.some((source) => !aiReadyDocumentIds.has(source.document_id)),
+    [sources, aiReadyDocumentIds]
+  );
+  const aiReadySourceById = useMemo(() => new Map(aiReadySources.map((source) => [source.id, source])), [aiReadySources]);
   const canUsePreliminaryAnalysis =
     caseReadiness.verdict === "ready_for_preliminary_analysis" ||
     caseReadiness.verdict === "ready_for_draft_control";
-  const canUseDraftControl = caseReadiness.verdict === "ready_for_draft_control";
+  const canUseDraftControl = caseReadiness.verdict === "ready_for_draft_control" && reviewDocuments.length === 0;
+  const userFacingReadinessVerdict =
+    caseReadiness.verdict === "ready_for_draft_control" && !canUseDraftControl
+      ? "requires_control"
+      : caseReadiness.verdict;
   const ocrCoveragePercent = totalPages > 0 ? Math.round(((totalPages - pendingOcrPages) / totalPages) * 100) : undefined;
   const preliminarySaksromBanner =
     hasDocuments && (caseScopedSourceCoveragePercent < 100 || pendingOcrPages > 0 || importFailures > 0)
-      ? `Saksrom kan brukes foreløpig basert på ${Math.round(caseScopedSourceCoveragePercent)} % av dokumentgrunnlaget. ${pendingOcrPages} sider er ikke lesbare ennå.`
+      ? `Saksgrunnlaget er ikke komplett ennå. Saksrom kan brukes foreløpig basert på kontrollerte kildeutdrag. ${pendingOcrPages} sider er ikke lesbare ennå.`
       : undefined;
+  const importUx = useMemo(
+    () =>
+      deriveImportUxSummary({
+        queue: importQueue,
+        nowMs: importNow,
+        documentBasis,
+        hasDocuments,
+        hasActiveProcessing,
+        canOpenPreliminary: canUsePreliminaryAnalysis || aiReadySources.length > 0,
+        canOpenFinal: canUseDraftControl,
+        totalDocuments: importQueue.length || documentBasis.totalCount
+      }),
+    [
+      importQueue,
+      importNow,
+      documentBasis,
+      hasDocuments,
+      hasActiveProcessing,
+      canUsePreliminaryAnalysis,
+      aiReadySources.length,
+      canUseDraftControl
+    ]
+  );
   const isWorkspaceUnlocked = isAuthenticated && onboardingStage === "caseRoom";
 
   const legacyCoverageRepairNeeded =
@@ -956,8 +1007,14 @@ export default function App() {
   }
 
   const buildChronology = useCallback(async () => {
-    if (!canUsePreliminaryAnalysis) {
-      setReindexStatus(`${caseReadiness.title}. ${caseReadiness.reason}`);
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || reviewDocuments.length > 0 || hasNonAiReadySources) {
+      setReindexStatus(
+        reviewDocuments.length > 0
+          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger kronologi."
+          : hasNonAiReadySources
+            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger kronologi."
+          : `${caseReadiness.title}. ${caseReadiness.reason}`
+      );
       setActiveView("control");
       return;
     }
@@ -971,11 +1028,17 @@ export default function App() {
       uncertainty: item.uncertainty
     })));
     setActiveView("chronology");
-  }, [canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, selectedCaseId]);
+  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, hasNonAiReadySources, reviewDocuments.length, selectedCaseId]);
 
   const buildEvidence = useCallback(async () => {
-    if (!canUsePreliminaryAnalysis) {
-      setReindexStatus(`${caseReadiness.title}. ${caseReadiness.reason}`);
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || reviewDocuments.length > 0 || hasNonAiReadySources) {
+      setReindexStatus(
+        reviewDocuments.length > 0
+          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger bevismatrise."
+          : hasNonAiReadySources
+            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger bevismatrise."
+          : `${caseReadiness.title}. ${caseReadiness.reason}`
+      );
       setActiveView("control");
       return;
     }
@@ -989,11 +1052,17 @@ export default function App() {
       status: item.status
     })));
     setActiveView("evidence");
-  }, [canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, selectedCaseId]);
+  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, hasNonAiReadySources, reviewDocuments.length, selectedCaseId]);
 
   async function buildArguments() {
-    if (!canUsePreliminaryAnalysis) {
-      setReindexStatus(`${caseReadiness.title}. ${caseReadiness.reason}`);
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || reviewDocuments.length > 0 || hasNonAiReadySources) {
+      setReindexStatus(
+        reviewDocuments.length > 0
+          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger anførsler."
+          : hasNonAiReadySources
+            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger anførsler."
+          : `${caseReadiness.title}. ${caseReadiness.reason}`
+      );
       setActiveView("control");
       return;
     }
@@ -1010,11 +1079,15 @@ export default function App() {
   }
 
   async function buildContradictions() {
-    if (!canUsePreliminaryAnalysis || sources.length < 2) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length < 2 || reviewDocuments.length > 0 || hasNonAiReadySources) {
       setReindexStatus(
-        !canUsePreliminaryAnalysis
+        reviewDocuments.length > 0
+          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger motstridsanalyse."
+          : hasNonAiReadySources
+            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger motstridsanalyse."
+          : !canUsePreliminaryAnalysis
           ? `${caseReadiness.title}. ${caseReadiness.reason}`
-          : "Motstridsanalyse trenger minst to sporbare kilder."
+          : "Motstridsanalyse trenger minst to godkjente, sporbare kilder."
       );
       setActiveView("control");
       return;
@@ -1033,8 +1106,14 @@ export default function App() {
   }
 
   async function buildRisk() {
-    if (!canUsePreliminaryAnalysis) {
-      setReindexStatus(`${caseReadiness.title}. ${caseReadiness.reason}`);
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || reviewDocuments.length > 0 || hasNonAiReadySources) {
+      setReindexStatus(
+        reviewDocuments.length > 0
+          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger risikovurdering."
+          : hasNonAiReadySources
+            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger risikovurdering."
+          : `${caseReadiness.title}. ${caseReadiness.reason}`
+      );
       setActiveView("control");
       return;
     }
@@ -2038,7 +2117,7 @@ export default function App() {
     if (selectedCaseId) {
       await refresh(selectedCaseId);
     }
-    setMaintenanceStatus(`Manual review oppdatert: ${item.review_type}.`);
+    setMaintenanceStatus(`Manuell kontroll oppdatert: ${item.review_type}.`);
   }
 
   async function handlePreviewDocument(row: DocumentBasisRow) {
@@ -2068,7 +2147,24 @@ export default function App() {
     if (selectedCaseId) {
       await refresh(selectedCaseId);
     }
+    setReviewApprovalChecks((current) => ({ ...current, [row.id]: false }));
     setMaintenanceStatus(`${row.name}: ${report.message}`);
+  }
+
+  async function handleReplaceDocumentRow(row: DocumentBasisRow) {
+    const paths = await chooseDocumentPaths();
+    if (paths.length > 0) {
+      await importDocuments(paths.slice(0, 1));
+      setMaintenanceStatus(`Erstatningsfil valgt for ${row.name}.`);
+    }
+  }
+
+  function handleFirstUserPrimaryAction(target: "review" | "preliminary_case_room" | "case_room" | "unused") {
+    if (target === "preliminary_case_room" || target === "case_room") {
+      setActiveView("caseRoom");
+      return;
+    }
+    setActiveView("control");
   }
 
   function ImportItemCard({ item, technical = false }: { item: ImportItem; technical?: boolean }) {
@@ -2079,7 +2175,7 @@ export default function App() {
           <span>{importStatusLabel(item.status)}</span>
         </div>
         <p>{item.user_message}</p>
-        <p><strong>Konsekvens:</strong> {item.can_continue ? "Kan brukes foreløpig der tekst finnes." : "Er ikke brukt som kildegrunnlag."}</p>
+          <p><strong>Konsekvens:</strong> {item.can_continue ? "Kan brukes foreløpig der tekst finnes." : "Er ikke brukt som kildegrunnlag."}</p>
         <p><strong>Anbefalt handling:</strong> {item.recommended_action}</p>
         <div className="import-health-item__meta">
           <span>{item.page_count} sider</span>
@@ -2089,13 +2185,13 @@ export default function App() {
         </div>
         <div className="panel-actions">
           {item.can_retry ? (
-            <button className="button-secondary" type="button" onClick={() => void importDocuments([item.original_path])}>Retry</button>
+            <button className="button-secondary" type="button" onClick={() => void importDocuments([item.original_path])}>Prøv igjen</button>
           ) : null}
-          <button className="button-secondary" type="button" onClick={() => void handleRemoveImportItem(item)}>Remove from case</button>
-          <button className="button-secondary" type="button" onClick={() => void handleReplaceImportItem(item)}>Replace file</button>
-          <button className="button-secondary" type="button" onClick={() => void handleOpenOriginalFolder(item)}>Open original folder</button>
+          <button className="button-secondary" type="button" onClick={() => void handleRemoveImportItem(item)}>Fjern fra saken</button>
+          <button className="button-secondary" type="button" onClick={() => void handleReplaceImportItem(item)}>Erstatt fil</button>
+          <button className="button-secondary" type="button" onClick={() => void handleOpenOriginalFolder(item)}>Åpne originalmappe</button>
           <button className="button-secondary" type="button" onClick={() => setExpandedDocumentId(expandedDocumentId === item.id ? "" : item.id)}>
-            View technical details
+            Vis tekniske detaljer
           </button>
         </div>
         {technical || expandedDocumentId === item.id ? (
@@ -2112,7 +2208,6 @@ export default function App() {
     const failedItems = importItems.filter((item) => item.status === "failed");
     const unsupportedItems = importItems.filter((item) => item.status === "unsupported");
     const duplicateItems = importItems.filter((item) => item.status === "duplicate");
-    const healthTitle = importHealth?.status_title || "Importjobb ferdig, men dokumentgrunnlaget er ikke komplett.";
     const openManualReviewItems = manualReviewItems.filter((item) => item.status === "open" || item.status === "needs_follow_up");
     const failedOcrResults = ocrResults.filter((item) => item.status === "failed");
 
@@ -2120,29 +2215,41 @@ export default function App() {
       <section className="panel import-health-center">
         <div className="panel-header">
           <div>
-            <div className="eyebrow">Import Health Center</div>
-            <h2>{healthTitle}</h2>
-            <p>{importHealth?.reason || "Importer dokumenter for å se komplett status per fil."}</p>
+            <div className="eyebrow">Importstatus</div>
+            <h2>{importUx.progressLabel}</h2>
+            <p>{importUx.nextStep.message}</p>
           </div>
           <div className="panel-actions">
-            <button className="button-primary" type="button" onClick={() => setActiveView("caseRoom")}>Open preliminary Saksrom</button>
-            <button className="button-secondary" type="button" onClick={handleReindex}>Run OCR</button>
-            <button className="button-secondary" type="button" onClick={() => void handleExportImportDiagnostics()}>Export JSON/CSV</button>
+            <button
+              className="button-primary"
+              type="button"
+              onClick={() => handleFirstUserPrimaryAction(importUx.nextStep.primaryAction.target)}
+            >
+              {importUx.nextStep.primaryAction.label}
+            </button>
           </div>
         </div>
-        <div className="import-health-overview">
-          <StatusCard label="Ready documents" value={readyItems.length} detail="klare filer" />
-          <StatusCard label="Requires OCR" value={ocrItems.length} detail={`${pendingOcrPages} sider`} tone={ocrItems.length ? "warn" : "ok"} />
-          <StatusCard label="Failed files" value={failedItems.length} detail="må vurderes" tone={failedItems.length ? "warn" : "ok"} />
-          <StatusCard label="Source coverage" value={`${Math.round(importHealth?.source_coverage_percent ?? caseScopedSourceCoveragePercent)} %`} detail="case-scoped import summary" tone={(importHealth?.source_coverage_percent ?? 0) < 100 ? "warn" : "ok"} />
-          <StatusCard label="Manual review" value={openManualReviewItems.length} detail="åpne punkter" tone={openManualReviewItems.length ? "warn" : "ok"} />
-          <StatusCard label="Evidence quality" value={evidenceQuality?.citation_failures ?? 0} detail="citation failures" tone={evidenceQuality?.citation_failures ? "warn" : "ok"} />
-        </div>
-        {importHealth && importHealth.overall_status !== "ready" ? (
+        <p className="muted">ETA: {importUx.etaLabel}</p>
+        {importUx.gapMessages.length > 0 ? (
           <div className="warning-notice">
-            <strong>{importHealth.status_title}</strong> {importHealth.consequence} {importHealth.recommended_action}
+            <strong>Mangler nå:</strong>
+            <ul className="compact-gap-list">
+              {importUx.gapMessages.map((message) => (
+                <li key={message}>{message}</li>
+              ))}
+            </ul>
           </div>
         ) : null}
+        <details className="technical-disclosure">
+          <summary>Vis detaljer</summary>
+          <div className="import-health-overview">
+            <StatusCard label="Klare dokumenter" value={readyItems.length} detail="klare filer" />
+            <StatusCard label="Krever OCR" value={ocrItems.length} detail={`${pendingOcrPages} sider`} tone={ocrItems.length ? "warn" : "ok"} />
+            <StatusCard label="Feilede filer" value={failedItems.length} detail="må vurderes" tone={failedItems.length ? "warn" : "ok"} />
+            <StatusCard label="Kildedekning" value={`${Math.round(importHealth?.source_coverage_percent ?? caseScopedSourceCoveragePercent)} %`} detail="sakens importstatus" tone={(importHealth?.source_coverage_percent ?? 0) < 100 ? "warn" : "ok"} />
+            <StatusCard label="Manuell kontroll" value={openManualReviewItems.length} detail="åpne punkter" tone={openManualReviewItems.length ? "warn" : "ok"} />
+            <StatusCard label="Kildekvalitet" value={evidenceQuality?.citation_failures ?? 0} detail="siteringsfeil" tone={evidenceQuality?.citation_failures ? "warn" : "ok"} />
+          </div>
         <section className="import-health-section">
           <h3>Se hva som mangler</h3>
           <div className="import-health-groups">
@@ -2155,12 +2262,12 @@ export default function App() {
           </div>
         </section>
         {[
-          ["Ready documents", readyItems],
-          ["Requires OCR", ocrItems],
-          ["Failed files", failedItems],
-          ["Unsupported files", unsupportedItems],
-          ["Duplicates", duplicateItems],
-          ["Partial documents", partialItems]
+          ["Klare dokumenter", readyItems],
+          ["Krever OCR", ocrItems],
+          ["Feilede filer", failedItems],
+          ["Filtype støttes ikke", unsupportedItems],
+          ["Duplikater", duplicateItems],
+          ["Delvis behandlede dokumenter", partialItems]
         ].map(([title, items]) => (
           <section key={title as string} className="import-health-section">
             <h3>{title as string}</h3>
@@ -2174,7 +2281,7 @@ export default function App() {
           </section>
         ))}
         <section className="import-health-section">
-          <h3>OCR pipeline</h3>
+          <h3>OCR-flyt</h3>
           <div className="import-health-groups">
             <article className="import-health-group">
               <strong>OCR-kø</strong>
@@ -2202,7 +2309,7 @@ export default function App() {
           ) : null}
         </section>
         <section className="import-health-section">
-          <h3>Manual review</h3>
+          <h3>Manuell kontroll</h3>
           {manualReviewItems.length > 0 ? (
             <div className="import-health-list">
               {manualReviewItems.slice(0, 10).map((item) => (
@@ -2212,15 +2319,15 @@ export default function App() {
                     <span>{item.severity}</span>
                   </div>
                   <p>{item.reason}</p>
-                  <p><strong>Next action:</strong> {item.recommended_action}</p>
+                  <p><strong>Neste handling:</strong> {item.recommended_action}</p>
                   <div className="import-item-card__meta">
                     <span>Status {item.status}</span>
-                    <span>{item.ai_usable ? "AI-usable after review" : "Not AI-usable"}</span>
+                    <span>{item.ai_usable ? "Kan brukes etter kontroll" : "Skal ikke brukes av AI"}</span>
                   </div>
                   <div className="panel-actions">
-                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "mark_reviewed")}>Mark reviewed</button>
-                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "requires_follow_up")}>Follow up</button>
-                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "exclude_from_ai")}>Exclude from AI</button>
+                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "mark_reviewed")}>Marker kontrollert</button>
+                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "requires_follow_up")}>Følg opp</button>
+                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "exclude_from_ai")}>Ikke bruk av AI</button>
                   </div>
                 </article>
               ))}
@@ -2230,7 +2337,7 @@ export default function App() {
           )}
         </section>
         <section className="import-health-section">
-          <h3>Legal/evidence quality</h3>
+          <h3>Juridisk kildekvalitet</h3>
           <div className="import-health-groups">
             <article className="import-health-group">
               <strong>Duplikatgrupper</strong>
@@ -2241,11 +2348,11 @@ export default function App() {
               <span>{evidenceQuality?.attachment_like_documents ?? 0}</span>
             </article>
             <article className="import-health-group">
-              <strong>Source map</strong>
+              <strong>Kildekart</strong>
               <span>{evidenceQuality?.source_map_rows ?? 0} rader</span>
             </article>
             <article className="import-health-group">
-              <strong>Chain of custody</strong>
+              <strong>Sporbarhet</strong>
               <span>{evidenceQuality?.chain_of_custody_rows ?? 0} dokumenter</span>
             </article>
           </div>
@@ -2253,13 +2360,14 @@ export default function App() {
             <div className="warning-notice">{evidenceQuality.recommended_action}</div>
           ) : null}
           <div className="panel-actions">
-            <button className="button-secondary" type="button" onClick={() => void handleExportEvidenceQuality()}>Export source map</button>
+            <button className="button-secondary" type="button" onClick={() => void handleExportEvidenceQuality()}>Eksporter kildekart</button>
           </div>
         </section>
         <section className="import-health-section">
-          <h3>Technical details</h3>
+          <h3>Tekniske detaljer</h3>
           <pre className="technical-details">{JSON.stringify(importHealth, null, 2)}</pre>
         </section>
+        </details>
       </section>
     );
   }
@@ -2275,24 +2383,53 @@ export default function App() {
           <div className="panel-header">
             <div>
               <div className="eyebrow">Import fullført</div>
-              <h2>{importHealth.status_title}</h2>
-              <p>{importHealth.recommended_action}</p>
+              <h2>{importUx.progressLabel}</h2>
+              <p>{importUx.nextStep.message}</p>
+              <p className="muted">ETA: {importUx.etaLabel}</p>
             </div>
             <button className="button-ghost" type="button" onClick={() => setShowImportCompletion(false)}>Lukk</button>
           </div>
-          <div className="import-health-overview">
-            <StatusCard label="Files imported" value={session.files_ready + session.files_partial} detail="klar eller delvis" />
-            <StatusCard label="Requiring OCR" value={session.files_requires_ocr} detail={`${session.pages_requires_ocr} sider`} tone={session.files_requires_ocr ? "warn" : "ok"} />
-            <StatusCard label="Failed" value={session.files_failed} detail="ikke brukt som kilde" tone={session.files_failed ? "warn" : "ok"} />
-            <StatusCard label="Duplicates" value={session.files_duplicate} detail="ikke importert på nytt" />
-            <StatusCard label="Source coverage" value={`${Math.round(importHealth.source_coverage_percent)} %`} detail="case-scoped" tone={importHealth.source_coverage_percent < 100 ? "warn" : "ok"} />
-          </div>
-          <p className="warning-notice">{importHealth.consequence}</p>
+          {importUx.gapMessages.length > 0 ? (
+            <div className="warning-notice" role="alert">
+              <strong>Mangler nå:</strong>
+              <ul className="compact-gap-list">
+                {importUx.gapMessages.map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="notice">Importen er ferdig, og ingen importmangler er registrert.</p>
+          )}
           <div className="panel-actions">
-            <button className="button-primary" type="button" onClick={() => { setShowImportCompletion(false); setActiveView("control"); }}>View details</button>
-            <button className="button-secondary" type="button" onClick={() => { setShowImportCompletion(false); void handleReindex(); }}>Run OCR</button>
-            <button className="button-secondary" type="button" onClick={() => { setShowImportCompletion(false); setActiveView("caseRoom"); }}>Open preliminary Saksrom</button>
+            <button
+              className="button-primary"
+              type="button"
+              onClick={() => {
+                setShowImportCompletion(false);
+                handleFirstUserPrimaryAction(importUx.nextStep.primaryAction.target);
+              }}
+            >
+              {importUx.nextStep.primaryAction.label}
+            </button>
+            <button className="button-secondary" type="button" onClick={() => setShowImportCompletionDetails((current) => !current)}>
+              {showImportCompletionDetails ? "Skjul detaljer" : "Vis detaljer"}
+            </button>
           </div>
+          {showImportCompletionDetails ? (
+            <div className="technical-disclosure__content">
+              <div className="import-health-overview">
+                <StatusCard label="Importert" value={session.files_ready + session.files_partial} detail="klar eller delvis" />
+                <StatusCard label="Krever OCR" value={session.files_requires_ocr} detail={`${session.pages_requires_ocr} sider`} tone={session.files_requires_ocr ? "warn" : "ok"} />
+                <StatusCard label="Feilet" value={session.files_failed} detail="ikke brukt som kilde" tone={session.files_failed ? "warn" : "ok"} />
+                <StatusCard label="Duplikater" value={session.files_duplicate} detail="ikke importert på nytt" />
+                <StatusCard label="Kildedekning" value={`${Math.round(importHealth.source_coverage_percent)} %`} detail="sakens importstatus" tone={importHealth.source_coverage_percent < 100 ? "warn" : "ok"} />
+              </div>
+              <div className="panel-actions">
+                <button className="button-secondary" type="button" onClick={() => { setShowImportCompletion(false); void handleReindex(); }}>Kjør OCR</button>
+              </div>
+            </div>
+          ) : null}
         </section>
       </div>
     );
@@ -2653,40 +2790,55 @@ export default function App() {
         {importQueue.length > 0 ? (
           <div className="import-queue" aria-live="polite">
             <div className="import-queue__header">
-              <strong>Importkø</strong>
-              <span>
-                {importQueue.filter((item) => item.status === "completed").length} av {importQueue.length} klare
-                {isImporting ? " · ETA oppdateres fortløpende" : ""}
-              </span>
+              <div>
+                <strong>{importUx.progressLabel}</strong>
+                <span>ETA: {importUx.etaLabel}</span>
+              </div>
+              <div className="panel-actions">
+                <button
+                  className="button-primary"
+                  type="button"
+                  onClick={() => handleFirstUserPrimaryAction(importUx.nextStep.primaryAction.target)}
+                >
+                  {importUx.nextStep.primaryAction.label}
+                </button>
+                <button className="button-secondary" type="button" onClick={() => setShowImportQueueDetails((current) => !current)}>
+                  {showImportQueueDetails ? "Skjul detaljer" : "Vis detaljer"}
+                </button>
+              </div>
             </div>
-            {importQueue.map((item) => {
-              const progress = importProgressPercent(item.status);
-              const eta = importEta(item, importNow);
-              return (
-                <article key={item.path} className={`import-queue-row import-queue-row--${item.status}`}>
-                  <div>
-                    <strong>{item.name}</strong>
-                    <span>{item.detail}</span>
-                    <div className="import-progress" aria-label={`Importstatus ${progress} prosent`}>
-                      <span style={{ width: `${progress}%` }} />
-                    </div>
-                    <span className="import-eta">
-                      {eta}
-                      {item.startedAt && !["completed", "failed"].includes(item.status)
-                        ? ` · gått ${formatDuration(importNow - item.startedAt)}`
-                        : ""}
-                    </span>
-                  </div>
-                  <div className="import-queue-row__meta">
-                    {typeof item.pages === "number" ? <span>{countLabel(item.pages, "side", "sider")}</span> : null}
-                    {typeof item.sources === "number" ? <span>{countLabel(item.sources, "kildeutdrag", "kildeutdrag")}</span> : null}
-                    <span className={item.status === "completed" ? "status-chip status-chip--ok" : item.status === "failed" ? "status-chip status-chip--warn" : "status-chip"}>
-                      {importStatusLabel(item.status)}
-                    </span>
-                  </div>
-                </article>
-              );
-            })}
+            {showImportQueueDetails ? (
+              <div className="technical-disclosure__content">
+                {importQueue.map((item) => {
+                  const progress = importProgressPercent(item.status);
+                  const eta = importEta(item, importNow);
+                  return (
+                    <article key={item.path} className={`import-queue-row import-queue-row--${item.status}`}>
+                      <div>
+                        <strong>{item.name}</strong>
+                        <span>{item.detail}</span>
+                        <div className="import-progress" aria-label={`Importstatus ${progress} prosent`}>
+                          <span style={{ width: `${progress}%` }} />
+                        </div>
+                        <span className="import-eta">
+                          {eta}
+                          {item.startedAt && !["completed", "failed"].includes(item.status)
+                            ? ` · gått ${formatDuration(importNow - item.startedAt)}`
+                            : ""}
+                        </span>
+                      </div>
+                      <div className="import-queue-row__meta">
+                        {typeof item.pages === "number" ? <span>{countLabel(item.pages, "side", "sider")}</span> : null}
+                        {typeof item.sources === "number" ? <span>{countLabel(item.sources, "kildeutdrag", "kildeutdrag")}</span> : null}
+                        <span className={item.status === "completed" ? "status-chip status-chip--ok" : item.status === "failed" ? "status-chip status-chip--warn" : "status-chip"}>
+                          {importStatusLabel(item.status)}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {hasDocuments ? (
@@ -2916,11 +3068,13 @@ export default function App() {
   function DocumentBasisGroup({
     title,
     rows,
-    emptyText
+    emptyText,
+    mode = "status"
   }: {
     title: string;
     rows: DocumentBasisRow[];
     emptyText: string;
+    mode?: "status" | "review" | "unused";
   }) {
     return (
       <section className="document-basis-group">
@@ -2942,29 +3096,54 @@ export default function App() {
                     </span>
                   </div>
                   <p>{row.reason}</p>
-                  <div className="case-row__meta">
-                    <span>{countLabel(row.pageCount, "side", "sider")}</span>
-                    <span>{row.analyzedPages} analysert</span>
-                    <span>{row.pendingOcrPages} venter på tekst</span>
-                    <span>{row.sourceCount} kildeutdrag</span>
-                    <span>{row.sourceCoveragePercent} % kildeklar</span>
-                    <span>Hash {row.hash.slice(0, 12)}</span>
-                  </div>
+                  <details className="technical-disclosure document-basis-row__details">
+                    <summary>Vis tekniske detaljer</summary>
+                    <div className="case-row__meta">
+                      <span>{countLabel(row.pageCount, "side", "sider")}</span>
+                      <span>{row.analyzedPages} analysert</span>
+                      <span>{row.pendingOcrPages} venter på tekst</span>
+                      <span>{row.sourceCount} kildeutdrag</span>
+                      <span>{row.sourceCoveragePercent} % kildeklar</span>
+                      <span>Hash {row.hash.slice(0, 12)}</span>
+                    </div>
+                  </details>
                   {row.approvedAt ? <small>Godkjent av {row.approvedBy || "local-user"} {row.approvedAt}</small> : null}
                   {row.rejectedAt ? <small>Avvist av {row.rejectedBy || "local-user"} {row.rejectedAt}</small> : null}
                 </div>
                 <div className="document-basis-row__actions">
                   <button className="button-secondary" type="button" onClick={() => void handlePreviewDocument(row)} disabled={!row.canPreview}>
-                    Forhåndsvis
+                    Åpne preview
                   </button>
+                  {mode === "review" ? (
+                    <label className="review-confirmation">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(reviewApprovalChecks[row.id])}
+                        onChange={(event) =>
+                          setReviewApprovalChecks((current) => ({ ...current, [row.id]: event.target.checked }))
+                        }
+                      />
+                      <span>Jeg har sett dokumentet og bekrefter at det kan brukes i saken.</span>
+                    </label>
+                  ) : null}
                   {row.canApprove ? (
-                    <button className="button-primary" type="button" onClick={() => void handleDocumentApproval(row, "approve_for_ai")}>
-                      Sett og godkjent
+                    <button
+                      className="button-primary"
+                      type="button"
+                      onClick={() => void handleDocumentApproval(row, "approve_for_ai")}
+                      disabled={mode === "review" && !canApproveSourceAfterPreview(Boolean(reviewApprovalChecks[row.id]))}
+                    >
+                      Godkjenn som kilde
                     </button>
                   ) : null}
                   {row.canReject ? (
                     <button className="button-secondary" type="button" onClick={() => void handleDocumentApproval(row, "reject_for_ai")}>
-                      Avvis fra AI
+                      Ikke bruk som kilde
+                    </button>
+                  ) : null}
+                  {mode === "review" || mode === "unused" ? (
+                    <button className="button-secondary" type="button" onClick={() => void handleReplaceDocumentRow(row)}>
+                      Erstatt fil
                     </button>
                   ) : null}
                 </div>
@@ -2989,88 +3168,138 @@ export default function App() {
 
     return (
       <>
-        <section className="status-grid control-status-grid">
-          <StatusCard label="Saker" value={totals.cases} detail="lokal database" />
-          <StatusCard label="Dokumenter" value={caseCoverage.totalDocuments} detail="denne saken" />
-          <StatusCard label="Sider" value={caseCoverage.totalPages} detail="denne saken" />
-          <StatusCard label="Sporbare kilder" value={coverageAudit?.source_count ?? sources.length} detail="denne saken" tone="warn" />
+        <section className="panel next-step-panel">
+          <div className="panel-header">
+            <div>
+              <div className="eyebrow">Neste steg</div>
+              <h2>{importUx.nextStep.primaryAction.label}</h2>
+              <p>{importUx.nextStep.message}</p>
+              {importUx.nextStep.isPreliminary ? (
+                <p className="warning-notice">Saksgrunnlaget er ikke komplett ennå.</p>
+              ) : null}
+            </div>
+            <button
+              className="button-primary"
+              type="button"
+              onClick={() => handleFirstUserPrimaryAction(importUx.nextStep.primaryAction.target)}
+            >
+              {importUx.nextStep.primaryAction.label}
+            </button>
+          </div>
         </section>
         <ImportHealthCenter />
         <section className="panel">
           <div className="panel-header">
             <div>
               <h2>Kontrollgrunnlag</h2>
-              <p>{hasDocuments ? userCoverageExplanation : "Kontrollgrunnlag vises etter import."}</p>
+              <p>{hasDocuments ? "Kontroller dokumentene som krever handling før de brukes i saken." : "Kontrollgrunnlag vises etter import."}</p>
             </div>
             <div className="panel-actions">
-              <button className="button-primary" onClick={handleReindex} disabled={!hasDocuments}>Oppdater kildeutdrag</button>
               <button className="button-secondary" onClick={() => void refresh(selectedCaseId)}>Oppdater</button>
             </div>
           </div>
-          <div className="check-grid">
-            {checks.map((check) => (
-              <article key={check.label} className={`check-card ${check.ok ? "check-card--ok" : "check-card--warn"}`}>
-                <strong>{check.label}</strong>
-                <span>{check.ok ? "OK" : "Mangler"}</span>
-                <p>{check.detail}</p>
-              </article>
-            ))}
-          </div>
-          <div className="document-basis-overview">
-            <StatusCard label="Dokumentstatus" value={documentBasis.primaryStatusLabel} detail={documentBasis.etaLabel} tone={documentBasis.readyCount === documentBasis.totalCount && documentBasis.totalCount > 0 ? "ok" : "warn"} />
-            <StatusCard label="Klare dokumenter" value={documentBasis.readyCount} detail={`av ${documentBasis.totalCount}`} tone={documentBasis.readyCount > 0 ? "ok" : "warn"} />
-            <StatusCard label="Trenger kontroll" value={documentBasis.needsReviewDocuments.length} detail="OCR eller tekst" tone={documentBasis.needsReviewDocuments.length ? "warn" : "ok"} />
-            <StatusCard label="Ikke lesbare" value={documentBasis.unreadableDocuments.length} detail="brukerhandling" tone={documentBasis.unreadableDocuments.length ? "warn" : "ok"} />
-          </div>
           <div className="document-basis-board">
-            <DocumentBasisGroup
-              title="Klare dokumenter"
-              rows={documentBasis.readyDocuments}
-              emptyText="Ingen dokumenter er klare for Saksrom ennå."
-            />
-            <DocumentBasisGroup
-              title="Trenger OCR eller tekstkontroll"
-              rows={documentBasis.needsReviewDocuments}
-              emptyText="Ingen dokumenter venter på OCR eller manuell tekstkontroll."
-            />
-            <DocumentBasisGroup
-              title="Kan ikke leses / trenger brukerhandling"
-              rows={documentBasis.unreadableDocuments}
-              emptyText="Ingen dokumenter er blokkert av lesefeil."
-            />
+            {reviewDocuments.length > 0 ? (
+              <DocumentBasisGroup
+                title="Dokumenter som trenger kontroll"
+                rows={reviewDocuments}
+                emptyText="Ingen dokumenter venter på manuell kontroll."
+                mode="review"
+              />
+            ) : (
+              <>
+                <DocumentBasisGroup
+                  title="Klare dokumenter"
+                  rows={documentBasis.readyDocuments}
+                  emptyText="Ingen dokumenter er klare for Saksrom ennå."
+                />
+                <DocumentBasisGroup
+                  title="Dokumenter som ikke ble brukt"
+                  rows={documentBasis.unreadableDocuments}
+                  emptyText="Ingen dokumenter er holdt utenfor kildegrunnlaget."
+                  mode="unused"
+                />
+              </>
+            )}
           </div>
-          {coverageAudit ? (
-            <section className="coverage-audit">
-              <div className="coverage-audit__header">
-                <div>
-                  <h3>Dokumentdekning</h3>
-                  <p>Side- og kildekontroll beregnes fra lokal database, ikke fra begrenset kildevisning i UI.</p>
-                </div>
-                <span className="status-chip">
-                  {coverageAudit.pages_with_sources} av {coverageAudit.total_pages} sider med kilde
-                </span>
-              </div>
-              <div className="coverage-audit__list">
-                {coverageAudit.documents.map((document) => (
-                  <article key={document.document_id} className="coverage-audit-row">
-                    <div>
-                      <strong>{document.original_name}</strong>
-                      <span>
-                        {document.pages_with_sources} av {document.page_count} sider kan brukes som kilde · {Math.round(document.source_coverage_percent)} %
-                      </span>
-                    </div>
-                    <div>
-                      <span className={document.status === "ready" ? "status-chip status-chip--ok" : "status-chip status-chip--warn"}>
-                        {document.status === "ready" ? "Klar" : document.status === "partially_ready" ? "Delvis klar" : "Klargjøres"}
-                      </span>
-                      {document.missing_page_ranges.length > 0 ? (
-                        <small>Mangler sider: {document.missing_page_ranges.join(", ")}</small>
-                      ) : null}
-                    </div>
+          <button
+            className="button-secondary"
+            type="button"
+            onClick={() => setShowControlTechnicalDetails((current) => !current)}
+          >
+            {showControlTechnicalDetails ? "Skjul tekniske detaljer" : "Vis tekniske detaljer"}
+          </button>
+          {showControlTechnicalDetails ? (
+            <div className="technical-disclosure__content">
+              <section className="status-grid control-status-grid">
+                <StatusCard label="Saker" value={totals.cases} detail="lokal database" />
+                <StatusCard label="Dokumenter" value={caseCoverage.totalDocuments} detail="denne saken" />
+                <StatusCard label="Sider" value={caseCoverage.totalPages} detail="denne saken" />
+                <StatusCard label="Sporbare kilder" value={coverageAudit?.source_count ?? sources.length} detail="denne saken" tone="warn" />
+              </section>
+              <div className="check-grid">
+                {checks.map((check) => (
+                  <article key={check.label} className={`check-card ${check.ok ? "check-card--ok" : "check-card--warn"}`}>
+                    <strong>{check.label}</strong>
+                    <span>{check.ok ? "OK" : "Mangler"}</span>
+                    <p>{check.detail}</p>
                   </article>
                 ))}
               </div>
-            </section>
+              <div className="document-basis-overview">
+                <StatusCard label="Dokumentstatus" value={documentBasis.primaryStatusLabel} detail={documentBasis.etaLabel} tone={documentBasis.readyCount === documentBasis.totalCount && documentBasis.totalCount > 0 ? "ok" : "warn"} />
+                <StatusCard label="Klare dokumenter" value={documentBasis.readyCount} detail={`av ${documentBasis.totalCount}`} tone={documentBasis.readyCount > 0 ? "ok" : "warn"} />
+                <StatusCard label="Trenger kontroll" value={documentBasis.needsReviewDocuments.length} detail="OCR eller tekst" tone={documentBasis.needsReviewDocuments.length ? "warn" : "ok"} />
+                <StatusCard label="Ikke lesbare" value={documentBasis.unreadableDocuments.length} detail="brukerhandling" tone={documentBasis.unreadableDocuments.length ? "warn" : "ok"} />
+              </div>
+              {coverageAudit ? (
+                <section className="coverage-audit">
+                  <div className="coverage-audit__header">
+                    <div>
+                      <h3>Dokumentdekning</h3>
+                      <p>Side- og kildekontroll beregnes fra lokal database, ikke fra begrenset kildevisning i UI.</p>
+                    </div>
+                    <span className="status-chip">
+                      {coverageAudit.pages_with_sources} av {coverageAudit.total_pages} sider med kilde
+                    </span>
+                  </div>
+                  <div className="coverage-audit__list">
+                    {coverageAudit.documents.map((document) => (
+                      <article key={document.document_id} className="coverage-audit-row">
+                        <div>
+                          <strong>{document.original_name}</strong>
+                          <span>
+                            {document.pages_with_sources} av {document.page_count} sider kan brukes som kilde · {Math.round(document.source_coverage_percent)} %
+                          </span>
+                        </div>
+                        <div>
+                          <span className={document.status === "ready" ? "status-chip status-chip--ok" : "status-chip status-chip--warn"}>
+                            {document.status === "ready" ? "Klar" : document.status === "partially_ready" ? "Delvis klar" : "Klargjøres"}
+                          </span>
+                          {document.missing_page_ranges.length > 0 ? (
+                            <small>Mangler sider: {document.missing_page_ranges.join(", ")}</small>
+                          ) : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+              {sources.length > 0 ? (
+                <div className="source-preview-grid">
+                  {sources.slice(0, 8).map((source) => (
+                    <button key={source.id} className="source-preview-card" onClick={() => openSource(source.id)}>
+                      <strong>{sourceTitle(source)}</strong>
+                      <span className="line-clamp">{source.text_excerpt}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <div className="panel-actions">
+                <button className="button-secondary" onClick={handleReindex} disabled={!hasDocuments}>Oppdater kildeutdrag</button>
+                <button className="button-secondary" onClick={() => void handleExportImportDiagnostics()}>Export JSON/CSV</button>
+              </div>
+            </div>
           ) : null}
           {deviations.length > 0 ? (
             <div className="warning-notice">{deviations.join(" ")}</div>
@@ -3079,22 +3308,11 @@ export default function App() {
             <div className="warning-notice">{dbSecurity.warnings.join(" ")}</div>
           ) : null}
           {!hasDocuments ? <div className="blocked-hint">Kontrollgrunnlag vises etter import.</div> : null}
-          {sources.length > 0 ? (
-            <div className="source-preview-grid">
-              {sources.slice(0, 8).map((source) => (
-                <button key={source.id} className="source-preview-card" onClick={() => openSource(source.id)}>
-                  <strong>{sourceTitle(source)}</strong>
-                  <span className="line-clamp">{source.text_excerpt}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
           {reindexStatus ? <div className="notice">{reindexStatus}</div> : null}
         </section>
       </>
     );
   }
-
   function DraftView() {
     return (
       <>
@@ -3174,8 +3392,8 @@ export default function App() {
             <CaseRoomView
               selectedCase={selectedCase}
               documents={documents}
-              sources={sources}
-              sourcesById={sourceById}
+              sources={aiReadySources}
+              sourcesById={aiReadySourceById}
               importQueue={importQueue}
               isImporting={isImporting}
               importNow={importNow}
@@ -3278,8 +3496,8 @@ export default function App() {
         }
         return (
           <LitigationSimulationView
-            readinessVerdict={caseReadiness.verdict}
-            sources={sources}
+            readinessVerdict={userFacingReadinessVerdict}
+            sources={aiReadySources}
             onOpenSource={openSource}
           />
         );
@@ -3304,7 +3522,7 @@ export default function App() {
   const shellClassName = [
     "app-shell",
     !showNavigation ? "app-shell--guided" : "",
-    showNavigation && activeView === "control" ? "app-shell--with-panel" : "",
+    showNavigation && activeView === "control" && showControlTechnicalDetails ? "app-shell--with-panel" : "",
     showNavigation && isCaseRoomView ? "app-shell--case-room" : ""
   ].filter(Boolean).join(" ");
 
@@ -3315,7 +3533,7 @@ export default function App() {
           activeView={activeView}
           onNavigate={setActiveView}
           hasDocuments={hasDocuments}
-          readinessVerdict={caseReadiness.verdict}
+          readinessVerdict={userFacingReadinessVerdict}
           onNewCase={() => void handleCreateCase()}
           onNewCaseInNewWindow={() => void handleNewCaseInNewWindow()}
           onOpenCaseSwitcher={() => setCasePickerOpen(true)}
@@ -3400,7 +3618,7 @@ export default function App() {
 
         {caseCreationError ? <div className="error-notice" role="alert">{caseCreationError}</div> : null}
 
-        {showNavigation && !isCaseRoomView ? (
+        {showNavigation && !isCaseRoomView && activeView !== "control" ? (
           <div className="command-center-stack">
             <WorkroomHeader
               workroom={activeWorkroom}
@@ -3419,7 +3637,7 @@ export default function App() {
 
         {renderView()}
       </main>
-      {showNavigation && activeView === "control" ? (
+      {showNavigation && activeView === "control" && showControlTechnicalDetails ? (
         <SourcePanel
           selectedCase={selectedCase}
           coverage={caseReadiness.sourceCoveragePercent}

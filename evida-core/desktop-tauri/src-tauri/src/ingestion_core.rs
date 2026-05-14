@@ -66,7 +66,9 @@ pub fn detect_file_type(path: &Path) -> Result<FileTypeDetection> {
     let lower_ext = extension.as_deref().unwrap_or("");
     let (detected_file_type, detected_mime_type) = match signature.as_slice() {
         [0x25, 0x50, 0x44, 0x46, ..] => ("pdf", "application/pdf"),
-        [0x50, 0x4b, 0x03, 0x04, ..] | [0x50, 0x4b, 0x05, 0x06, ..] | [0x50, 0x4b, 0x07, 0x08, ..] => {
+        [0x50, 0x4b, 0x03, 0x04, ..]
+        | [0x50, 0x4b, 0x05, 0x06, ..]
+        | [0x50, 0x4b, 0x07, 0x08, ..] => {
             if lower_ext == "docx" {
                 (
                     "docx",

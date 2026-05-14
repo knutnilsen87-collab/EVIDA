@@ -1,9 +1,9 @@
-﻿use crate::domain::{
-    AppSetting, ArgumentItem, AuditEvent, AuditVerificationReport, CaseAiMessage, CaseSummary, ChronologyEvent,
-    ContradictionItem, DatabaseSecurityStatus, DocumentEngineStatus, CaseCoverageAudit,
-    DocumentIngestionReport, DocumentSummary, EvidenceItem, ImportControlResult,
-    ImportHealthSummary, ImportItem, ImportSession, MaintenanceReport, ReindexReport,
-    EvidenceQualityReport, ManualReviewAction, ManualReviewItem, OcrResult, RiskItem,
+use crate::domain::{
+    AppSetting, ArgumentItem, AuditEvent, AuditVerificationReport, CaseAiMessage,
+    CaseCoverageAudit, CaseSummary, ChronologyEvent, ContradictionItem, DatabaseSecurityStatus,
+    DocumentEngineStatus, DocumentIngestionReport, DocumentSummary, EvidenceItem,
+    EvidenceQualityReport, ImportControlResult, ImportHealthSummary, ImportItem, ImportSession,
+    MaintenanceReport, ManualReviewAction, ManualReviewItem, OcrResult, ReindexReport, RiskItem,
     SourceObjectSummary, SourceSearchResult, WorkItems,
 };
 use chrono::Utc;
@@ -33,9 +33,13 @@ pub fn rename_case(case_id: String, name: String) -> Result<CaseSummary, String>
 }
 
 #[tauri::command]
-pub fn set_case_number(case_id: String, case_number: Option<String>) -> Result<CaseSummary, String> {
+pub fn set_case_number(
+    case_id: String,
+    case_number: Option<String>,
+) -> Result<CaseSummary, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
-    crate::db::set_case_number(&conn, &case_id, case_number.as_deref()).map_err(|error| error.to_string())
+    crate::db::set_case_number(&conn, &case_id, case_number.as_deref())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -69,7 +73,10 @@ pub fn list_cases() -> Result<Vec<CaseSummary>, String> {
 }
 
 fn case_window_label(case_id: &str) -> String {
-    format!("case-window-{}", case_id.replace(|value: char| !value.is_ascii_alphanumeric(), "-"))
+    format!(
+        "case-window-{}",
+        case_id.replace(|value: char| !value.is_ascii_alphanumeric(), "-")
+    )
 }
 
 fn case_documents_window_url(case_id: &str) -> String {
@@ -113,9 +120,15 @@ pub fn open_case_window(app: AppHandle, case_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_current_window_title(app: AppHandle, window_label: String, title: String) -> Result<(), String> {
+pub fn set_current_window_title(
+    app: AppHandle,
+    window_label: String,
+    title: String,
+) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(&window_label) {
-        window.set_title(&title).map_err(|error| error.to_string())?;
+        window
+            .set_title(&title)
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -179,7 +192,10 @@ fn issue_for_extraction(
             Some("UNSUPPORTED_FILE_TYPE"),
             Some("warning"),
             "Unsupported - filtypen er ikke støttet av importmotoren.".to_string(),
-            Some(format!("extension_or_mime_not_supported:{:?}", extraction.mime_type)),
+            Some(format!(
+                "extension_or_mime_not_supported:{:?}",
+                extraction.mime_type
+            )),
             "Last opp filen som PDF, DOCX, TXT eller et støttet bildeformat.",
             false,
             true,
@@ -197,7 +213,9 @@ fn issue_for_extraction(
             false,
         );
     }
-    if extraction.ocr_status == "partial_needs_ocr" || (sources_created > 0 && pages_requires_ocr > 0) {
+    if extraction.ocr_status == "partial_needs_ocr"
+        || (sources_created > 0 && pages_requires_ocr > 0)
+    {
         return (
             "partial",
             Some("PARTIAL_TEXT_EXTRACTION"),
@@ -245,7 +263,17 @@ fn issue_for_extraction(
     )
 }
 
-fn issue_for_import_error(error: &str, path: &Path) -> (&'static str, &'static str, &'static str, String, &'static str, bool) {
+fn issue_for_import_error(
+    error: &str,
+    path: &Path,
+) -> (
+    &'static str,
+    &'static str,
+    &'static str,
+    String,
+    &'static str,
+    bool,
+) {
     if !path.exists() {
         return (
             "failed",
@@ -266,7 +294,10 @@ fn issue_for_import_error(error: &str, path: &Path) -> (&'static str, &'static s
             false,
         );
     }
-    if std::fs::metadata(path).map(|metadata| metadata.len() == 0).unwrap_or(false) {
+    if std::fs::metadata(path)
+        .map(|metadata| metadata.len() == 0)
+        .unwrap_or(false)
+    {
         return (
             "failed",
             "ZERO_BYTE_FILE",
@@ -318,9 +349,13 @@ fn issue_for_import_error(error: &str, path: &Path) -> (&'static str, &'static s
 }
 
 #[tauri::command]
-pub fn start_import_session(case_id: String, total_files_seen: i64) -> Result<ImportSession, String> {
+pub fn start_import_session(
+    case_id: String,
+    total_files_seen: i64,
+) -> Result<ImportSession, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
-    crate::db::create_import_session(&conn, &case_id, total_files_seen).map_err(|error| error.to_string())
+    crate::db::create_import_session(&conn, &case_id, total_files_seen)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -332,7 +367,8 @@ pub fn complete_import_session(import_session_id: String) -> Result<ImportSessio
 #[tauri::command]
 pub fn pause_import_session(import_session_id: String) -> Result<ImportControlResult, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
-    let session = crate::db::pause_import_session(&conn, &import_session_id).map_err(|error| error.to_string())?;
+    let session = crate::db::pause_import_session(&conn, &import_session_id)
+        .map_err(|error| error.to_string())?;
     Ok(ImportControlResult {
         session,
         message: "Importen er satt på pause.".to_string(),
@@ -342,7 +378,8 @@ pub fn pause_import_session(import_session_id: String) -> Result<ImportControlRe
 #[tauri::command]
 pub fn resume_import_session(import_session_id: String) -> Result<ImportControlResult, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
-    let session = crate::db::resume_import_session(&conn, &import_session_id).map_err(|error| error.to_string())?;
+    let session = crate::db::resume_import_session(&conn, &import_session_id)
+        .map_err(|error| error.to_string())?;
     Ok(ImportControlResult {
         session,
         message: "Importen fortsetter.".to_string(),
@@ -352,7 +389,8 @@ pub fn resume_import_session(import_session_id: String) -> Result<ImportControlR
 #[tauri::command]
 pub fn cancel_import_session(import_session_id: String) -> Result<ImportControlResult, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
-    let session = crate::db::cancel_import_session(&conn, &import_session_id).map_err(|error| error.to_string())?;
+    let session = crate::db::cancel_import_session(&conn, &import_session_id)
+        .map_err(|error| error.to_string())?;
     Ok(ImportControlResult {
         session,
         message: "Importen er avbrutt uten å slette importloggen.".to_string(),
@@ -372,7 +410,11 @@ pub fn list_import_items(case_id: String) -> Result<Vec<ImportItem>, String> {
 }
 
 #[tauri::command]
-pub fn search_sources(case_id: String, query: String, limit: Option<i64>) -> Result<Vec<SourceSearchResult>, String> {
+pub fn search_sources(
+    case_id: String,
+    query: String,
+    limit: Option<i64>,
+) -> Result<Vec<SourceSearchResult>, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
     crate::db::search_source_objects(&conn, &case_id, &query, limit.unwrap_or(20))
         .map_err(|error| error.to_string())
@@ -416,8 +458,14 @@ pub fn record_document_control_action(
     note: Option<String>,
 ) -> Result<MaintenanceReport, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
-    crate::db::record_document_control_action(&conn, &case_id, &document_id, &action, note.as_deref())
-        .map_err(|error| error.to_string())?;
+    crate::db::record_document_control_action(
+        &conn,
+        &case_id,
+        &document_id,
+        &action,
+        note.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
     Ok(MaintenanceReport {
         message: "Dokumentkontroll lagret i audit trail.".to_string(),
         path: None,
@@ -442,7 +490,8 @@ pub fn export_evidence_quality_package(case_id: String) -> Result<MaintenanceRep
 #[tauri::command]
 pub fn remove_import_item_from_case(import_item_id: String) -> Result<ImportItem, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
-    crate::db::remove_import_item_from_case(&conn, &import_item_id).map_err(|error| error.to_string())
+    crate::db::remove_import_item_from_case(&conn, &import_item_id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -472,8 +521,12 @@ pub async fn register_document_in_session(
             if file_path.is_file() { 0 } else { 1 },
         );
 
-        let fail_item = |conn: &rusqlite::Connection, item_id: &str, error: String| -> Result<ImportItem, String> {
-            let (status, issue_code, severity, message, action, can_retry) = issue_for_import_error(&error, file_path);
+        let fail_item = |conn: &rusqlite::Connection,
+                         item_id: &str,
+                         error: String|
+         -> Result<ImportItem, String> {
+            let (status, issue_code, severity, message, action, can_retry) =
+                issue_for_import_error(&error, file_path);
             let updated = crate::db::update_import_item(
                 conn,
                 item_id,
@@ -569,7 +622,9 @@ pub async fn register_document_in_session(
             Ok(value) => value,
             Err(error) => return fail_item(&conn, &item.id, error.to_string()),
         };
-        if crate::db::document_exists_for_sha(&conn, &case_id, &sha256).map_err(|error| error.to_string())? {
+        if crate::db::document_exists_for_sha(&conn, &case_id, &sha256)
+            .map_err(|error| error.to_string())?
+        {
             let duplicate = crate::db::update_import_item(
                 &conn,
                 &item.id,
@@ -691,7 +746,8 @@ pub async fn register_document_in_session(
                     )
                     .map_err(|update_error| update_error.to_string())?;
                     let _ = crate::db::recalculate_import_session(&conn, &import_session_id, false);
-                    return crate::db::get_import_item(&conn, &item.id).map_err(|error| error.to_string());
+                    return crate::db::get_import_item(&conn, &item.id)
+                        .map_err(|error| error.to_string());
                 }
                 return fail_item(&conn, &item.id, text);
             }
@@ -739,7 +795,11 @@ pub async fn register_document_in_session(
             &case_id,
             &path,
             &original_name,
-            if status == "ready" { "completed" } else { "failed" },
+            if status == "ready" {
+                "completed"
+            } else {
+                "failed"
+            },
             100,
             Some(report.pages_created),
             Some(extraction.page_count),
@@ -891,7 +951,10 @@ pub fn choose_document_paths() -> Result<Vec<String>, String> {
         .set_title("Velg dokumenter")
         .add_filter(
             "Dokumenter",
-            &["pdf", "docx", "txt", "md", "markdown", "csv", "log", "png", "jpg", "jpeg", "tif", "tiff", "bmp"],
+            &[
+                "pdf", "docx", "txt", "md", "markdown", "csv", "log", "png", "jpg", "jpeg", "tif",
+                "tiff", "bmp",
+            ],
         )
         .pick_files();
 
@@ -912,8 +975,7 @@ pub fn choose_document_folder_paths() -> Result<Vec<String>, String> {
     };
 
     let mut paths = Vec::new();
-    collect_import_file_paths(&folder, &mut paths)
-        .map_err(|error| error.to_string())?;
+    collect_import_file_paths(&folder, &mut paths).map_err(|error| error.to_string())?;
     paths.sort();
     Ok(paths
         .into_iter()
@@ -931,8 +993,7 @@ pub fn expand_import_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
         }
         let path = PathBuf::from(trimmed);
         if path.is_dir() {
-            collect_import_file_paths(&path, &mut expanded)
-                .map_err(|error| error.to_string())?;
+            collect_import_file_paths(&path, &mut expanded).map_err(|error| error.to_string())?;
         } else if path.is_file() {
             expanded.push(path);
         } else {
@@ -985,7 +1046,9 @@ pub fn get_document_engine_status() -> Result<DocumentEngineStatus, String> {
         warnings.push("Teksthenting fra bilder krever Tesseract i PATH.".to_string());
     }
     if !pdftoppm_available {
-        warnings.push("Teksthenting fra skannede PDF-sider krever PDF-siderenderer i PATH.".to_string());
+        warnings.push(
+            "Teksthenting fra skannede PDF-sider krever PDF-siderenderer i PATH.".to_string(),
+        );
     }
 
     Ok(DocumentEngineStatus {
@@ -1057,7 +1120,10 @@ pub fn open_original_folder(path: String) -> Result<MaintenanceReport, String> {
     let folder = if target.is_dir() {
         target.clone()
     } else {
-        target.parent().map(Path::to_path_buf).unwrap_or_else(|| target.clone())
+        target
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| target.clone())
     };
     if !folder.exists() {
         return Err(format!("Mappen finnes ikke: {}", folder.display()));
@@ -1082,6 +1148,17 @@ pub fn open_original_folder(path: String) -> Result<MaintenanceReport, String> {
 pub fn export_diagnostics() -> Result<MaintenanceReport, String> {
     let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
     crate::db::export_diagnostics(&conn).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn create_encrypted_backup() -> Result<MaintenanceReport, String> {
+    let conn = crate::db::open_connection().map_err(|error| error.to_string())?;
+    crate::db::create_encrypted_backup(&conn).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn restore_encrypted_backup(path: String) -> Result<MaintenanceReport, String> {
+    crate::db::restore_encrypted_backup(&PathBuf::from(path)).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1195,13 +1272,16 @@ pub fn ask_case_ai(
         .map_err(|error| error.to_string())?
         .and_then(|value| serde_json::from_str::<bool>(&value).ok())
         .unwrap_or(false);
-    let allow_source_excerpt_sending = crate::db::get_setting(&conn, "security.allow_source_excerpt_sending")
-        .map_err(|error| error.to_string())?
-        .and_then(|value| serde_json::from_str::<bool>(&value).ok())
-        .unwrap_or(false);
+    let allow_source_excerpt_sending =
+        crate::db::get_setting(&conn, "security.allow_source_excerpt_sending")
+            .map_err(|error| error.to_string())?
+            .and_then(|value| serde_json::from_str::<bool>(&value).ok())
+            .unwrap_or(false);
 
     if !external_ai_enabled {
-        return Err("EXTERNAL_AI_DISABLED_BY_SETTINGS: Ekstern AI er av i innstillinger.".to_string());
+        return Err(
+            "EXTERNAL_AI_DISABLED_BY_SETTINGS: Ekstern AI er av i innstillinger.".to_string(),
+        );
     }
     if !allow_source_excerpt_sending {
         return Err("EXTERNAL_AI_SOURCE_EXCERPTS_DISABLED: Sending av kildeutdrag er ikke godkjent i innstillinger.".to_string());
@@ -1213,7 +1293,8 @@ pub fn ask_case_ai(
         return Err("AI_PROVIDER_NOT_CONFIGURED: OPENAI_API_KEY er tom.".to_string());
     }
 
-    let sources = crate::db::list_source_objects(&conn, &case_id).map_err(|error| error.to_string())?;
+    let sources =
+        crate::db::list_source_objects(&conn, &case_id).map_err(|error| error.to_string())?;
     if sources.is_empty() {
         return Err("AI_PROVIDER_NO_SOURCES: Saken har ingen sporbare kildeutdrag.".to_string());
     }
@@ -1253,14 +1334,48 @@ pub fn ask_case_ai(
     });
 
     let provider_text = call_openai_responses(&request_body, &api_key)?;
-    let provider_json = parse_provider_answer(&provider_text);
+    let first_provider_json = parse_provider_answer(&provider_text);
     let allowed_source_ids = selected_sources
         .iter()
-        .map(|source| source.id.as_str())
+        .map(|source| source.id.clone())
         .collect::<HashSet<_>>();
+    let first_validation_reasons = validate_provider_structured_answer(
+        &first_provider_json,
+        &allowed_source_ids,
+        coverage < 95.0 || pending_ocr_pages > 0 || !deviations.is_empty(),
+    );
+    let (provider_json, validation_status) = if first_validation_reasons.is_empty() {
+        (first_provider_json, "provider_validated")
+    } else {
+        let retry_request_body = json!({
+            "model": model,
+            "instructions": "Your previous answer failed Evida validation. Rewrite it once. Return only valid JSON with exactly these keys: direct_answer, partner_assessment, reasoning_points, uncertainty, next_best_step, suggested_followups, source_ids, answer_quality. Do not include document titles, filenames, Bates labels, stress-test labels or source metadata in the main answer. Use only SOURCE_ID values from the provided source excerpts. If the evidence is insufficient, say that directly. Never expose provider/debug text.",
+            "input": format!(
+                "Validation failed for these reasons: {}\n\nRewrite the answer for this original task using only the source excerpts below.\n\n{}",
+                first_validation_reasons.join(", "),
+                input
+            )
+        });
+        let retry_json = call_openai_responses(&retry_request_body, &api_key)
+            .map(|text| parse_provider_answer(&text))
+            .unwrap_or_else(|_| json!({}));
+        let retry_validation_reasons = validate_provider_structured_answer(
+            &retry_json,
+            &allowed_source_ids,
+            coverage < 95.0 || pending_ocr_pages > 0 || !deviations.is_empty(),
+        );
+        if retry_validation_reasons.is_empty() {
+            (retry_json, "provider_retry_validated")
+        } else {
+            (
+                safe_provider_fallback_json(&next_action_title),
+                "provider_validation_fallback",
+            )
+        }
+    };
     let cited_source_ids = extract_provider_source_ids(&provider_json)
         .into_iter()
-        .filter(|source_id| allowed_source_ids.contains(source_id.as_str()))
+        .filter(|source_id| allowed_source_ids.contains(source_id))
         .collect::<Vec<_>>();
     let source_ids = if cited_source_ids.is_empty() {
         selected_sources
@@ -1271,7 +1386,10 @@ pub fn ask_case_ai(
     } else {
         cited_source_ids
     };
-    let cited_source_set = source_ids.iter().map(String::as_str).collect::<HashSet<_>>();
+    let cited_source_set = source_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
     let validated_sources = selected_sources
         .iter()
         .filter(|source| cited_source_set.contains(source.id.as_str()))
@@ -1327,6 +1445,7 @@ pub fn ask_case_ai(
         "retrieval_snapshot": {
             "candidate_source_ids": selected_sources.iter().map(|source| source.id.clone()).collect::<Vec<_>>(),
             "validated_source_ids": source_ids.clone(),
+            "answer_validation_status": validation_status,
             "coverage": coverage,
             "pending_ocr_pages": pending_ocr_pages,
             "deviations": deviations
@@ -1363,7 +1482,10 @@ fn select_relevant_sources(
         .cloned()
         .map(|source| {
             let text = source.text_excerpt.to_lowercase();
-            let score = terms.iter().filter(|term| text.contains(term.as_str())).count();
+            let score = terms
+                .iter()
+                .filter(|term| text.contains(term.as_str()))
+                .count();
             (score, source)
         })
         .collect::<Vec<_>>();
@@ -1410,7 +1532,11 @@ fn clean_source_excerpt_for_ai(value: &str) -> String {
         .collect()
 }
 
-fn provider_answer_text(value: &Value, default_uncertainty: &str, default_next_step: &str) -> String {
+fn provider_answer_text(
+    value: &Value,
+    default_uncertainty: &str,
+    default_next_step: &str,
+) -> String {
     let raw_direct_answer = value
         .get("direct_answer")
         .or_else(|| value.get("answer"))
@@ -1493,6 +1619,136 @@ fn provider_answer_field(value: &Value, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn validate_provider_structured_answer(
+    value: &Value,
+    allowed_source_ids: &HashSet<String>,
+    weak_source_basis: bool,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+    let direct_answer = value
+        .get("direct_answer")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if direct_answer.is_empty() {
+        reasons.push("DIRECT_ANSWER_EMPTY".to_string());
+    }
+    if direct_answer.len() < 30 {
+        reasons.push("DIRECT_ANSWER_TOO_SHORT".to_string());
+    }
+
+    for key in [
+        "direct_answer",
+        "partner_assessment",
+        "uncertainty",
+        "next_best_step",
+    ] {
+        if value
+            .get(key)
+            .and_then(Value::as_str)
+            .map(contains_blocked_answer_metadata)
+            .unwrap_or(false)
+        {
+            reasons.push(format!("MAIN_ANSWER_CONTAINS_SOURCE_METADATA:{key}"));
+        }
+    }
+
+    for key in ["reasoning_points", "suggested_followups"] {
+        if let Some(items) = value.get(key).and_then(Value::as_array) {
+            if items
+                .iter()
+                .filter_map(Value::as_str)
+                .any(contains_blocked_answer_metadata)
+            {
+                reasons.push(format!("MAIN_ANSWER_CONTAINS_SOURCE_METADATA:{key}"));
+            }
+        } else {
+            reasons.push(format!("MISSING_ARRAY:{key}"));
+        }
+    }
+
+    let uncertainty = value
+        .get("uncertainty")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if weak_source_basis && uncertainty.is_empty() {
+        reasons.push("UNCERTAINTY_REQUIRED_FOR_WEAK_BASIS".to_string());
+    }
+
+    let source_ids = value.get("source_ids").and_then(Value::as_array);
+    match source_ids {
+        Some(items) => {
+            for item in items {
+                match item.as_str() {
+                    Some(source_id) if allowed_source_ids.contains(source_id) => {}
+                    Some(source_id) => reasons.push(format!("INVALID_SOURCE_ID:{source_id}")),
+                    None => reasons.push("INVALID_SOURCE_ID_TYPE".to_string()),
+                }
+            }
+        }
+        None => reasons.push("MISSING_ARRAY:source_ids".to_string()),
+    }
+
+    let answer_quality = value.get("answer_quality").and_then(Value::as_object);
+    match answer_quality {
+        Some(object) => {
+            if object
+                .get("answered_user_question")
+                .and_then(Value::as_bool)
+                != Some(true)
+            {
+                reasons.push("QUESTION_NOT_ANSWERED".to_string());
+            }
+            if object
+                .get("question_type")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+            {
+                reasons.push("QUESTION_TYPE_MISSING".to_string());
+            }
+            let confidence = object
+                .get("confidence")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if !matches!(confidence, "low" | "medium" | "high") {
+                reasons.push("CONFIDENCE_INVALID".to_string());
+            }
+        }
+        None => reasons.push("ANSWER_QUALITY_MISSING".to_string()),
+    }
+
+    reasons.sort();
+    reasons.dedup();
+    reasons
+}
+
+fn safe_provider_fallback_json(next_step: &str) -> Value {
+    json!({
+        "direct_answer": "Jeg klarte ikke å lage et godt nok saksbasert svar på dette spørsmålet akkurat nå.",
+        "partner_assessment": "Kildegrunnlaget som ble hentet ser ut til å være for preget av dokumentmetadata eller mangler tydelig saksinnhold.",
+        "reasoning_points": [
+            "Evida stoppet provider-svaret i kvalitetskontrollen.",
+            "Rått eller uvalidert AI-svar vises ikke til bruker."
+        ],
+        "uncertainty": "Høy. Svaret er stoppet av kvalitetskontroll, ikke av en juridisk vurdering.",
+        "next_best_step": next_step,
+        "suggested_followups": [
+            "Se behandlingsstatus",
+            "Hvilke kilder er klare",
+            "Hva bør kontrolleres først"
+        ],
+        "source_ids": [],
+        "answer_quality": {
+            "answered_user_question": false,
+            "question_type": "general",
+            "confidence": "low"
+        }
+    })
+}
+
 fn contains_blocked_answer_metadata(value: &str) -> bool {
     let lower = value.to_lowercase();
     lower.contains("evida stresstest")
@@ -1515,13 +1771,17 @@ fn command_available(command: &str) -> bool {
     Command::new(command)
         .arg("--version")
         .output()
-        .map(|output| output.status.success() || !output.stdout.is_empty() || !output.stderr.is_empty())
+        .map(|output| {
+            output.status.success() || !output.stdout.is_empty() || !output.stderr.is_empty()
+        })
         .unwrap_or(false)
 }
 
 fn call_openai_responses(request_body: &Value, api_key: &str) -> Result<String, String> {
-    let request_path = env::temp_dir().join(format!("evida-openai-request-{}.json", Uuid::new_v4()));
-    let response_path = env::temp_dir().join(format!("evida-openai-response-{}.json", Uuid::new_v4()));
+    let request_path =
+        env::temp_dir().join(format!("evida-openai-request-{}.json", Uuid::new_v4()));
+    let response_path =
+        env::temp_dir().join(format!("evida-openai-response-{}.json", Uuid::new_v4()));
     fs::write(
         &request_path,
         serde_json::to_string(request_body).map_err(|error| error.to_string())?,
@@ -1657,6 +1917,55 @@ mod tests {
     }
 
     #[test]
+    fn provider_structured_answer_validation_blocks_invalid_sources_and_metadata() {
+        let allowed = HashSet::from(["SRC-1".to_string(), "SRC-2".to_string()]);
+        let provider = json!({
+            "direct_answer": "ØKOKRIM - EVIDA STRESSTEST Bates OKO-0001",
+            "partner_assessment": "Dette er en vurdering.",
+            "reasoning_points": ["Punkt uten metadata"],
+            "uncertainty": "Middels.",
+            "next_best_step": "Åpne kilden.",
+            "suggested_followups": ["Vis kilder"],
+            "source_ids": ["SRC-404"],
+            "answer_quality": {
+                "answered_user_question": true,
+                "question_type": "case_content",
+                "confidence": "medium"
+            }
+        });
+
+        let reasons = validate_provider_structured_answer(&provider, &allowed, true);
+
+        assert!(reasons
+            .iter()
+            .any(|reason| reason.starts_with("INVALID_SOURCE_ID")));
+        assert!(reasons
+            .iter()
+            .any(|reason| reason.starts_with("MAIN_ANSWER_CONTAINS_SOURCE_METADATA")));
+    }
+
+    #[test]
+    fn provider_structured_answer_validation_accepts_safe_schema() {
+        let allowed = HashSet::from(["SRC-1".to_string(), "SRC-2".to_string()]);
+        let provider = json!({
+            "direct_answer": "Kildene gir et foreløpig grunnlag, men de støtter ikke en sikker konklusjon ennå.",
+            "partner_assessment": "Dette må behandles som en foreløpig vurdering.",
+            "reasoning_points": ["Det finnes kildegrunnlag.", "Usikkerhet er synlig."],
+            "uncertainty": "Middels.",
+            "next_best_step": "Åpne kilden og kontroller utdraget.",
+            "suggested_followups": ["Vis kilder"],
+            "source_ids": ["SRC-1"],
+            "answer_quality": {
+                "answered_user_question": true,
+                "question_type": "case_content",
+                "confidence": "medium"
+            }
+        });
+
+        assert!(validate_provider_structured_answer(&provider, &allowed, true).is_empty());
+    }
+
+    #[test]
     fn provider_source_ids_are_deduplicated_from_known_shapes() {
         let provider = json!({
             "sources": ["SRC-2", { "source_id": "SRC-1" }],
@@ -1664,7 +1973,10 @@ mod tests {
             "citations": [{ "sourceId": "SRC-3" }, { "id": "SRC-2" }]
         });
 
-        assert_eq!(extract_provider_source_ids(&provider), vec!["SRC-1", "SRC-2", "SRC-3"]);
+        assert_eq!(
+            extract_provider_source_ids(&provider),
+            vec!["SRC-1", "SRC-2", "SRC-3"]
+        );
     }
 
     #[test]

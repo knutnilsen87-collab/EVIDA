@@ -1,40 +1,40 @@
 {
-  "product": "Evida",
-  "version": "0.1.0-alpha",
-  "status": "pre-alpha evaluation build",
-  "generated_at": "2026-05-12T19:23:44.910153Z",
-  "local_processing": true,
-  "real_client_data_allowed": false,
-  "artifacts": [
-    {
-      "file": "Evida installer.exe",
-      "sha256": "db180b8460172dce6760ecdf128e6a81757f63fbbe8e69f6594fef97a01b3f4f",
-      "bytes": 6752730,
-      "updated_at": "2026-05-12T19:10:23.452945Z"
-    },
-    {
-      "file": "Evida installer.msi",
-      "sha256": "17b4aaab7e90907bd196b7bbc99644123ec11819888bbaad61079525466de957",
-      "bytes": 8642560,
-      "updated_at": "2026-05-12T19:10:07.613000Z"
-    },
-    {
-      "file": "Evida.exe",
-      "sha256": "b720e498a9dcb05898567995f876974c4c563793d3168c65ddc12e0dac6ef208",
-      "bytes": 17098240,
-      "updated_at": "2026-05-12T19:10:23.797614Z"
-    },
-    {
-      "file": "Evida_0.1.0_x64-setup.exe",
-      "sha256": "db180b8460172dce6760ecdf128e6a81757f63fbbe8e69f6594fef97a01b3f4f",
-      "bytes": 6752730,
-      "updated_at": "2026-05-12T19:10:23.452945Z"
-    },
-    {
-      "file": "Evida_0.1.0_x64_en-US.msi",
-      "sha256": "17b4aaab7e90907bd196b7bbc99644123ec11819888bbaad61079525466de957",
-      "bytes": 8642560,
-      "updated_at": "2026-05-12T19:10:07.613000Z"
-    }
-  ]
+    "product":  "Evida",
+    "version":  "0.1.0-alpha",
+    "status":  "pre-alpha evaluation build",
+    "generated_at":  "2026-05-14T13:40:31.7348906Z",
+    "local_processing":  true,
+    "real_client_data_allowed":  false,
+    "artifacts":  [
+                      {
+                          "file":  "Evida installer.exe",
+                          "sha256":  "21eb91650c7cb231f172522aba5e44d28f56f471b250a7befed6be3e5cd1012d",
+                          "bytes":  6768260,
+                          "updated_at":  "2026-05-14T13:40:21.4380158Z"
+                      },
+                      {
+                          "file":  "Evida installer.msi",
+                          "sha256":  "221fae2eae4040fcd4abf94195e2f5ed87f5cec94dac74ad95c64b1627768b32",
+                          "bytes":  8667136,
+                          "updated_at":  "2026-05-14T13:40:02.0970000Z"
+                      },
+                      {
+                          "file":  "Evida.exe",
+                          "sha256":  "397d1e8bda32b26f585f8ba08a83bd3fefcbf4984c656536a7ec8624fb3cf0bf",
+                          "bytes":  17152000,
+                          "updated_at":  "2026-05-14T13:40:22.2241010Z"
+                      },
+                      {
+                          "file":  "Evida_0.1.0_x64-setup.exe",
+                          "sha256":  "21eb91650c7cb231f172522aba5e44d28f56f471b250a7befed6be3e5cd1012d",
+                          "bytes":  6768260,
+                          "updated_at":  "2026-05-14T13:40:21.4380158Z"
+                      },
+                      {
+                          "file":  "Evida_0.1.0_x64_en-US.msi",
+                          "sha256":  "221fae2eae4040fcd4abf94195e2f5ed87f5cec94dac74ad95c64b1627768b32",
+                          "bytes":  8667136,
+                          "updated_at":  "2026-05-14T13:40:02.0970000Z"
+                      }
+                  ]
 }

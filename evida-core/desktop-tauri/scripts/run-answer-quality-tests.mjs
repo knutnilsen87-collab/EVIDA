@@ -28,6 +28,7 @@ const {
 const fixtures = JSON.parse(
   await readFile(new URL("../../../docs/fixtures/ai_answer_golden_tests.json", import.meta.url), "utf8")
 );
+const caseRoomSource = await readFile(new URL("../src/components/CaseRoomView.tsx", import.meta.url), "utf8");
 const allowedSourceIds = ["SRC-1", "SRC-2", "SRC-3"];
 
 const answerByIntent = {
@@ -139,5 +140,7 @@ const fallback = createSafeFallbackStructuredAnswer({
   nextBestStep: "Åpne Kontrollstatus."
 });
 assert.equal(mainAnswerHasBlockedMetadata(structuredToDisplayAnswer(fallback)), false, "fallback is safe");
+assert.match(caseRoomSource, /validateStructuredAnswer/, "CaseRoom display gate uses structured answer validation");
+assert.match(caseRoomSource, /structuredValidation\.ok/, "CaseRoom blocks answers that fail structured validation");
 
-console.log(`answer quality tests passed (${fixtures.length + 3} assertions).`);
+console.log(`answer quality tests passed (${fixtures.length + 5} assertions).`);

@@ -1,6 +1,10 @@
 use anyhow::Result;
 use sha2::{Digest, Sha256};
-use std::{fs::File, io::{BufReader, Read}, path::Path};
+use std::{
+    fs::File,
+    io::{BufReader, Read},
+    path::Path,
+};
 
 pub fn sha256_file(path: impl AsRef<Path>) -> Result<String> {
     let file = File::open(path)?;

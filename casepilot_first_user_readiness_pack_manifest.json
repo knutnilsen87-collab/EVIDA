@@ -1,0 +1,32 @@
+{
+  "created_at": "2026-05-13T09:33:55.438259+00:00",
+  "root": "/mnt/data/casepilot_first_user_readiness_pack",
+  "zip": "/mnt/data/casepilot_first_user_readiness_pack.zip",
+  "file_count": 24,
+  "files": [
+    ".github/pull_request_template.md",
+    "AGENTS.md",
+    "configs/first-user/first_user_status_bundle.schema.json",
+    "configs/first-user/status_bundle.first_user.template.json",
+    "docs/first-user/AI_SOURCE_CONTROL_READINESS.md",
+    "docs/first-user/APPROVAL_CHECKLIST.md",
+    "docs/first-user/CODEX_EXECUTION_BRIEF.md",
+    "docs/first-user/DOCUMENT_UPLOAD_READINESS.md",
+    "docs/first-user/FIRST_USER_DOD.md",
+    "docs/first-user/FIRST_USER_READINESS_MATRIX.md",
+    "docs/first-user/FIRST_USER_SCOPE.md",
+    "docs/first-user/MANUAL_SMOKE_TEST.md",
+    "docs/first-user/PRODUCT_INVARIANTS.md",
+    "docs/first-user/README.md",
+    "scripts/check-first-user-status-bundle.py",
+    "scripts/first-user-gauntlet.sh",
+    "tests/golden/first_user/01_create_case_and_workspace.md",
+    "tests/golden/first_user/02_document_upload_valid_files.md",
+    "tests/golden/first_user/03_document_upload_failure_modes.md",
+    "tests/golden/first_user/04_source_bound_ai_overview.md",
+    "tests/golden/first_user/05_unsupported_claim_block.md",
+    "tests/golden/first_user/06_export_and_audit.md",
+    "tests/golden/first_user/07_restart_and_persistence.md",
+    "tests/golden/first_user/08_backup_restore.md"
+  ]
+}

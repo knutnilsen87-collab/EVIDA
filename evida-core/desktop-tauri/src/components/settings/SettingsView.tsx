@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { DatabaseSecurityStatus, SecuritySettings } from "../../types";
-import { getSetting, setSetting } from "../../lib/api";
+import { createEncryptedBackup, getSetting, restoreEncryptedBackup, setSetting } from "../../lib/api";
 
 type Props = {
   open: boolean;
@@ -105,6 +105,7 @@ export function SettingsView({ open, dbSecurity, onClose, onOpenDataFolder }: Pr
   const [activeTab, setActiveTab] = useState("Sikkerhet");
   const [security, setSecurity] = useState<SecuritySettings>(DEFAULT_SECURITY_SETTINGS);
   const [status, setStatus] = useState("");
+  const [restorePath, setRestorePath] = useState("");
 
   useEffect(() => {
     if (!open) {
@@ -127,6 +128,20 @@ export function SettingsView({ open, dbSecurity, onClose, onOpenDataFolder }: Pr
       await setSetting(`security.${key}`, JSON.stringify(value));
     }
     setStatus("Innstillingene er lagret.");
+  }
+
+  async function handleCreateEncryptedBackup() {
+    const report = await createEncryptedBackup();
+    setStatus(report.path ? `${report.message} ${report.path}` : report.message);
+  }
+
+  async function handleRestoreEncryptedBackup() {
+    if (!restorePath.trim()) {
+      setStatus("Lim inn filbanen til en .evida-backup.json-fil først.");
+      return;
+    }
+    const report = await restoreEncryptedBackup(restorePath.trim());
+    setStatus(report.path ? `${report.message} ${report.path}` : report.message);
   }
 
   if (!open) {
@@ -269,6 +284,12 @@ export function SettingsView({ open, dbSecurity, onClose, onOpenDataFolder }: Pr
                 <h3>Lagring</h3>
                 <p>{dbSecurity?.database_path || "Databaseplassering er ikke tilgjengelig i nettmodus."}</p>
                 <button type="button" className="button-primary" onClick={onOpenDataFolder}>Åpne lokal datamappe</button>
+                <button type="button" className="button-secondary" onClick={() => void handleCreateEncryptedBackup()}>Opprett kryptert backup</button>
+                <label className="settings-field">
+                  Gjenopprett fra backupfil
+                  <input value={restorePath} onChange={(event) => setRestorePath(event.target.value)} placeholder="C:\path\to\evida-backup.evida-backup.json" />
+                </label>
+                <button type="button" className="button-secondary" onClick={() => void handleRestoreEncryptedBackup()}>Gjenopprett kryptert backup</button>
                 <SettingCheck checked={security.automatic_local_backup} label="Automatisk lokal backup" onChange={(checked) => void updateSecurity({ automatic_local_backup: checked })} />
                 <SettingCheck checked={security.encrypted_backup} label="Kryptert backup" onChange={(checked) => void updateSecurity({ encrypted_backup: checked })} />
                 <label className="settings-field">

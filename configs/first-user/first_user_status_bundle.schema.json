@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "First User Status Bundle Minimal Schema",
+  "type": "object",
+  "required": [
+    "bundle_id",
+    "bundle_version",
+    "release_candidate_id",
+    "commit_sha",
+    "current_state",
+    "scope_lock",
+    "invariant_layer",
+    "verification_layer",
+    "closure_layer"
+  ],
+  "properties": {
+    "bundle_id": {
+      "type": "string"
+    },
+    "bundle_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "release_candidate_id": {
+      "type": "string"
+    },
+    "commit_sha": {
+      "type": "string"
+    },
+    "current_state": {
+      "type": "object",
+      "required": [
+        "status",
+        "first_user_allowed"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "partial",
+            "blocked",
+            "deferred"
+          ]
+        },
+        "first_user_allowed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "scope_lock": {
+      "type": "object",
+      "required": [
+        "allowed_data",
+        "real_client_data_allowed",
+        "document_upload_required",
+        "source_bound_ai_required"
+      ],
+      "properties": {
+        "allowed_data": {
+          "type": "string"
+        },
+        "real_client_data_allowed": {
+          "type": "boolean"
+        },
+        "external_ai_raw_document_upload_allowed": {
+          "type": "boolean"
+        },
+        "document_upload_required": {
+          "type": "boolean"
+        },
+        "source_bound_ai_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "invariant_layer": {
+      "type": "object",
+      "required": [
+        "broken_invariants",
+        "untested_invariants"
+      ],
+      "properties": {
+        "broken_invariants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "untested_invariants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "verification_layer": {
+      "type": "object",
+      "required": [
+        "verification_status",
+        "p0_status",
+        "document_upload_status",
+        "ai_source_control_status",
+        "audit_status"
+      ],
+      "properties": {
+        "verification_status": {
+          "enum": [
+            "pass",
+            "partial",
+            "blocked"
+          ]
+        },
+        "p0_status": {
+          "enum": [
+            "pass",
+            "partial",
+            "blocked"
+          ]
+        },
+        "document_upload_status": {
+          "enum": [
+            "pass",
+            "partial",
+            "blocked"
+          ]
+        },
+        "ai_source_control_status": {
+          "enum": [
+            "pass",
+            "partial",
+            "blocked"
+          ]
+        },
+        "audit_status": {
+          "enum": [
+            "pass",
+            "partial",
+            "blocked"
+          ]
+        }
+      }
+    },
+    "closure_layer": {
+      "type": "object",
+      "required": [
+        "closure_decision",
+        "approved_by_review"
+      ],
+      "properties": {
+        "closure_decision": {
+          "enum": [
+            "approved_for_controlled_first_user",
+            "blocked",
+            "deferred"
+          ]
+        },
+        "approved_by_review": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

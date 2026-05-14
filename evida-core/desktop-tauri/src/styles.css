@@ -891,6 +891,11 @@ p {
   font-size: 13px;
 }
 
+.import-queue__header > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
 .import-queue-row {
   padding: 11px 12px;
   border: 1px solid #e5e0d7;
@@ -2799,6 +2804,22 @@ textarea {
   justify-content: flex-end;
   align-content: flex-start;
   gap: 8px;
+  max-width: 340px;
+}
+
+.review-confirmation {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  width: 100%;
+  color: #4f4942;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.document-basis-row__details {
+  margin-top: 2px;
 }
 
 .coverage-audit__header,
@@ -3931,6 +3952,36 @@ textarea {
 .import-health-section h3 {
   margin: 0;
   font-size: 1rem;
+}
+
+.next-step-panel {
+  border-color: #cfd8c8;
+  background: #fbfdf8;
+}
+
+.technical-disclosure {
+  display: grid;
+  gap: 10px;
+}
+
+.technical-disclosure summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.technical-disclosure__content {
+  display: grid;
+  gap: 12px;
+}
+
+.compact-gap-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.compact-gap-list li {
+  margin: 3px 0;
 }
 
 .import-health-groups,
