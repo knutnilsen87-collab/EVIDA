@@ -18,6 +18,7 @@ function Write-Utf8NoBomText {
         [string]$Text
     )
     $encoding = New-Object System.Text.UTF8Encoding($false)
+    $Text = $Text -replace "`r`n", "`n"
     [System.IO.File]::WriteAllText($Path, $Text, $encoding)
 }
 
@@ -27,7 +28,7 @@ function Write-Utf8NoBomLines {
         [string[]]$Lines
     )
     $encoding = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllLines($Path, $Lines, $encoding)
+    [System.IO.File]::WriteAllText($Path, (($Lines -join "`n") + "`n"), $encoding)
 }
 
 if (-not $SkipBuild) {

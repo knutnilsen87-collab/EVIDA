@@ -1,7 +1,7 @@
 {
     "artifact":  "evidence.first_user.current",
     "generated_at":  "2026-05-13T11:38:36Z",
-    "updated_at":  "2026-05-15T08:36:58.9791108+02:00",
+    "updated_at":  "2026-05-15T08:44:37.1267382+02:00",
     "release_candidate_id":  "evida-0.1.0-alpha-local-2026-05-13",
     "scope":  "controlled first-user evaluation with synthetic/redacted test data only",
     "verdict":  "blocked",
@@ -53,7 +53,7 @@
                               "kind":  "command",
                               "ref":  "powershell -NoProfile -ExecutionPolicy Bypass -File ops/Test-EvidaRelease.ps1",
                               "result":  "PASS",
-                              "notes":  "Release artifact checksums and manifest verified."
+                              "notes":  "Fresh Tauri release build regenerated Evida.exe, installer artifacts, release manifest, and checksums; release verification passed."
                           },
                           {
                               "id":  "EV-FIRST-USER-PACK",
