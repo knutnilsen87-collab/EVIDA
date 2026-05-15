@@ -14,26 +14,26 @@ P0 must be `PASS` before first-user release.
 | FU-006 | Workspace | Create workspace | P0 | integration/e2e | smoke | Desktop | BLOCKED |
 | FU-007 | Workspace | Create case | P0 | integration/e2e | smoke | Product/Desktop | PASS |
 | FU-008 | Workspace | Restart preserves case | P0 | persistence test | close/reopen smoke | Desktop | BLOCKED |
-| FU-009 | Upload | Accept valid PDF | P0 | upload test | fixture smoke | Document | BLOCKED |
-| FU-010 | Upload | Accept valid DOCX | P0 | upload test | fixture smoke | Document | BLOCKED |
+| FU-009 | Upload | Accept valid PDF | P0 | Rust safety test + document stress suite | fixture smoke | Document | PASS |
+| FU-010 | Upload | Accept valid DOCX | P0 | Rust safety test + document stress suite | fixture smoke | Document | PASS |
 | FU-011 | Upload | Accept valid TXT | P0 | upload test | fixture smoke | Document | PASS |
-| FU-012 | Upload | Reject unsupported type | P0 | negative test | fixture smoke | Document | BLOCKED |
-| FU-013 | Upload | Reject MIME mismatch | P0 | negative test | fixture smoke | Document/Security | BLOCKED |
-| FU-014 | Upload | Handle corrupt PDF safely | P0 | negative test | fixture smoke | Document | BLOCKED |
-| FU-015 | Upload | Handle password PDF safely | P0 | negative test | fixture smoke | Document | BLOCKED |
-| FU-016 | Upload | Handle image-only scan explicitly | P0 | fixture test | UI status smoke | Document/OCR | BLOCKED |
-| FU-017 | Upload | Size limit enforced | P0 | negative test | N/A | Document | BLOCKED |
+| FU-012 | Upload | Reject unsupported type | P0 | Rust safety/extraction tests + document stress suite | fixture smoke | Document | PASS |
+| FU-013 | Upload | Reject MIME mismatch | P0 | Rust safety test + document stress suite | fixture smoke | Document/Security | PASS |
+| FU-014 | Upload | Handle corrupt PDF safely | P0 | Rust extraction test + document stress suite | fixture smoke | Document | PASS |
+| FU-015 | Upload | Handle password PDF safely | P0 | document stress suite | fixture smoke | Document | PASS |
+| FU-016 | Upload | Handle image-only scan explicitly | P0 | document stress suite | UI status smoke | Document/OCR | PASS |
+| FU-017 | Upload | Size limit enforced | P0 | Rust safety test | N/A | Document | PASS |
 | FU-018 | Upload | Hash every accepted document | P0 | integration test | artifact inspect | Document | PASS |
 | FU-019 | Upload | Duplicate detection | P1 | integration test | smoke | Document | PASS |
 | FU-020 | Upload | Source objects created | P0 | integration test | UI/source inspect | Document/AI | PASS |
-| FU-021 | Upload | Failed docs excluded from AI | P0 | negative AI test | smoke | Document/AI | PARTIAL |
+| FU-021 | Upload | Failed docs excluded from AI | P0 | Rust/source-object tests + document stress suite | smoke | Document/AI | PASS |
 | FU-022 | Upload | Upload status visible in UI | P0 | e2e/UI test | smoke | Product/UI | PASS |
 | FU-023 | Upload | Upload audit events created | P0 | audit test | audit inspect | Platform | PASS |
 | FU-024 | Upload | Sensitive document text not logged | P0 | log scan | N/A | Security | PARTIAL |
 | FU-025 | AI | Source-bound answer from one doc | P0 | AI eval | smoke | AI | PASS |
 | FU-026 | AI | Source-bound answer from multiple docs | P0 | AI eval | smoke | AI | BLOCKED |
 | FU-027 | AI | Unsupported claim blocked | P0 | AI eval | adversarial smoke | AI | PASS |
-| FU-028 | AI | Prompt injection ignored | P0 | adversarial eval | smoke | AI/Security | PARTIAL |
+| FU-028 | AI | Prompt injection ignored | P0 | adversarial provider validation test | smoke | AI/Security | PASS |
 | FU-029 | AI | Retrieval snapshot saved | P0 | artifact test | inspect | AI/Platform | PASS |
 | FU-030 | AI | External raw upload disabled by default | P0 | config test | settings inspect | AI/Security | PASS |
 | FU-031 | Audit | Audit hash/tamper verification | P0 | tamper test | inspect | Platform | PASS |
@@ -43,7 +43,7 @@ P0 must be `PASS` before first-user release.
 | FU-035 | Export | Export includes timestamp/source basis | P1 | export assertion | inspect | Product | BLOCKED |
 | FU-036 | Data | Local data persists after restart | P0 | persistence test | smoke | Desktop | PARTIAL |
 | FU-037 | Data | Backup/restore tested | P1/P0 real data | restore test | manual restore | Platform | PASS |
-| FU-038 | Security | No secrets in repo | P0 | gitleaks | N/A | Security | BLOCKED |
+| FU-038 | Security | No secrets in repo | P0 | gitleaks | N/A | Security | PASS |
 | FU-039 | Security | Dependency scan has no release-blocking issues | P0 | dependency scan | review | Security | BLOCKED |
 | FU-040 | Security | Prod-unsafe config blocked or pilot-labeled | P0 | config/startup test | inspect | Platform | PASS |
 | FU-041 | UX | User-visible errors are safe and useful | P1 | UI/e2e | smoke | Product/UI | BLOCKED |
@@ -59,7 +59,7 @@ P0 must be `PASS` before first-user release.
 
 ## Current Evidence Snapshot
 
-Updated 2026-05-14 from local automated gates. The matrix is intentionally not all green: any remaining `BLOCKED` or `PARTIAL` P0 row means first-user release is still NO-GO.
+Updated 2026-05-15 from local automated gates. The matrix is intentionally not all green: any remaining `BLOCKED` or `PARTIAL` P0 row means first-user release is still NO-GO.
 
 Evidence artifacts:
 
@@ -67,3 +67,4 @@ Evidence artifacts:
 - `artifacts/first-user/invariant_evaluation.first_user.json`
 - `artifacts/first-user/status_bundle.first_user.final.json`
 - `artifacts/production-dod/evida-production-dod-report.json`
+- `artifacts/document-upload-stress/evida-document-upload-stress-report.json`

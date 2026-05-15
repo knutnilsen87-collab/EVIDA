@@ -1,7 +1,7 @@
 {
     "artifact":  "evidence.first_user.current",
     "generated_at":  "2026-05-13T11:38:36Z",
-    "updated_at":  "2026-05-15T10:08:51.3240439+02:00",
+    "updated_at":  "2026-05-15T14:25:05+02:00",
     "release_candidate_id":  "evida-0.1.0-alpha-local-2026-05-13",
     "scope":  "controlled first-user evaluation with synthetic/redacted test data only",
     "verdict":  "blocked",
@@ -32,7 +32,14 @@
                               "kind":  "command",
                               "ref":  "cargo test --manifest-path src-tauri/Cargo.toml --jobs 1 -- --test-threads=1",
                               "result":  "PASS",
-                              "notes":  "18 passed, 1 ignored. Includes audit tamper test, case/document/source smoke, AI exchange persistence, and encrypted backup restore roundtrip."
+                              "notes":  "26 passed, 2 ignored. Includes upload safety failure modes, extraction failure modes, prompt-injection answer validation, audit tamper test, case/document/source smoke, AI exchange persistence, and encrypted backup restore roundtrip."
+                          },
+                          {
+                              "id":  "EV-DOCUMENT-STRESS",
+                              "kind":  "command",
+                              "ref":  "powershell -NoProfile -ExecutionPolicy Bypass -File ops/Test-EvidaDocumentUploadStressSuite.ps1",
+                              "result":  "PASS",
+                              "notes":  "391 files tested with 0 deviations; actual statuses duplicate=1, failed=33, ocr_required=36, partial=9, ready=308, unsupported=4; total_pages=4012; total_sources=7962."
                           },
                           {
                               "id":  "EV-FRONTEND-BUILD",
@@ -44,7 +51,7 @@
                           {
                               "id":  "EV-DOCUMENT-CONTROL-UX",
                               "kind":  "command",
-                              "ref":  "npm.cmd test && npm.cmd run build",
+                              "ref":  "npm.cmd test \u0026\u0026 npm.cmd run build",
                               "result":  "PASS",
                               "notes":  "Verified aggregate import outcome rules, stale processing suppression after all documents are terminal, no ETA after completion, manual-review routing/removal, document-control workspace presence, no-text manual review AI exclusion, incomplete page-count handling, in-app document preview actions, filtered document lists, scroll-neutral Saksrom import status updates with browser scroll anchoring disabled, visible sidebar action contrast in light/dark mode, limited-source Saksrom copy, and explicit external-provider policy gating."
                           },
@@ -67,7 +74,7 @@
                               "kind":  "artifact",
                               "ref":  "artifacts/production-dod/evida-production-dod-report.json",
                               "result":  "BLOCKED",
-                              "notes":  "Fail-closed aggregate DoD report. Blocks on first-user approval, Maven, signing, SBOM/security scan."
+                              "notes":  "Fail-closed aggregate DoD report. Blocks on first-user approval, clean-machine smoke, Windows code signing, and signed SBOM/CI SCA/SAST."
                           }
                       ],
     "first_user_pack":  {

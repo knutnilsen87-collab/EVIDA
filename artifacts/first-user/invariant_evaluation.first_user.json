@@ -1,14 +1,14 @@
 {
   "artifact": "invariant_evaluation.first_user",
-  "generated_at": "2026-05-13T11:38:36Z",
+  "generated_at": "2026-05-15T12:25:05Z",
   "release_candidate_id": "evida-0.1.0-alpha-local-2026-05-13",
   "verdict": "blocked",
   "critical_invariants": [
     {
       "id": "INV-DOC-001",
-      "status": "incomplete",
-      "evidence": ["EV-DESKTOP-HARDENING"],
-      "reason": "Failed/needs-review documents are represented and UI-level answer eligibility is tested, but full retrieval exclusion for every failed upload fixture is not complete."
+      "status": "pass",
+      "evidence": ["EV-RUST-FULL", "EV-DOCUMENT-STRESS", "EV-DESKTOP-HARDENING"],
+      "reason": "Failed/unsupported/duplicate/OCR-required upload outcomes are terminally classified in Rust tests and the 391-file stress suite has zero deviations; failed and unsupported outcomes create zero source objects, and Saksrom answer eligibility is covered by UI readiness tests."
     },
     {
       "id": "INV-DOC-002",
@@ -48,9 +48,9 @@
     },
     {
       "id": "INV-AI-002",
-      "status": "incomplete",
-      "evidence": ["EV-DESKTOP-HARDENING"],
-      "reason": "Prompt-injection coverage exists in readiness docs, but a dedicated uploaded-document prompt-injection eval artifact is still required."
+      "status": "pass",
+      "evidence": ["EV-RUST-FULL", "EV-DESKTOP-HARDENING"],
+      "reason": "Provider answer validation now blocks prompt-injection echoes such as 'ignorer alle tidligere instruksjoner', in addition to existing untrusted-source prompting and safe fallback tests."
     },
     {
       "id": "INV-AUDIT-001",
@@ -91,10 +91,8 @@
   ],
   "broken_invariants": [],
   "untested_or_incomplete_invariants": [
-    "INV-DOC-001",
     "INV-DATA-001",
     "INV-DATA-002",
-    "INV-AI-002",
     "INV-AUDIT-001",
     "INV-EXPORT-001"
   ]

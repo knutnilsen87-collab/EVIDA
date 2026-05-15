@@ -5,7 +5,7 @@
     "release_candidate_id":  "evida-0.1.0-alpha-local-2026-05-13",
     "commit_sha":  "local-working-tree",
     "created_at":  "2026-05-13T11:38:36Z",
-    "updated_at":  "2026-05-15T10:08:51.3240439+02:00",
+    "updated_at":  "2026-05-15T14:25:05+02:00",
     "current_state":  {
                           "lifecycle_state":  "evidence_collected",
                           "status":  "blocked",
@@ -14,7 +14,7 @@
                       },
     "summary":  {
                     "short_summary":  "Automated evidence has improved, but first-user release remains blocked.",
-                    "technical_summary":  "Desktop/release gates pass; Maven/backend tests and gitleaks secret scan pass locally. The current working tree adds a central import outcome/next-action model, a dedicated document-control workspace, filtered document lists, clearer manual-review actions, completed-import ETA suppression, limited-source Saksrom behavior, an explicit external-provider policy gate, demo-login gating, layout hardening for the upload/control flow, scroll-neutral import/status containers with browser scroll anchoring disabled, fail-closed terminal import rules so stale processing signals cannot show 'Import pågår' when every selected document is already terminal, and explicit sidebar action contrast rules for light/dark mode. These changes are covered by frontend readiness tests/build. First-user approval remains blocked by incomplete critical invariants, unsigned Windows artifacts, missing signed SBOM/CI SCA/SAST, missing clean-machine smoke, and missing approvals.",
+                    "technical_summary":  "Desktop/release gates pass; Maven/backend tests, Rust tests, document-upload stress suite, frontend tests/build, release verification, and gitleaks secret scan pass locally. The current working tree adds upload safety and extraction failure-mode tests, prompt-injection echo blocking in provider answer validation, a central import outcome/next-action model, a dedicated document-control workspace, filtered document lists, clearer manual-review actions, completed-import ETA suppression, limited-source Saksrom behavior, an explicit external-provider policy gate, demo-login gating, layout hardening for the upload/control flow, scroll-neutral import/status containers with browser scroll anchoring disabled, fail-closed terminal import rules so stale processing signals cannot show 'Import pågår' when every selected document is already terminal, and explicit sidebar action contrast rules for light/dark mode. First-user approval remains blocked by operational/manual gates, unsigned Windows artifacts, missing signed SBOM/CI SCA/SAST, missing clean-machine smoke, and missing approvals.",
                     "user_visible_summary":  "Not approved for first user yet."
                 },
     "scope_lock":  {
@@ -43,10 +43,8 @@
 
                                                   ],
                             "untested_invariants":  [
-                                                        "INV-DOC-001",
                                                         "INV-DATA-001",
                                                         "INV-DATA-002",
-                                                        "INV-AI-002",
                                                         "INV-AUDIT-001"
                                                     ],
                             "evaluation_ref":  "artifacts/first-user/invariant_evaluation.first_user.json"
@@ -109,7 +107,6 @@
     "ambiguity_layer":  {
                             "flags":  [
                                           "coverage_partial",
-                                          "critical_invariant_incomplete",
                                           "manual_approval_missing",
                                           "unsigned_release"
                                       ]

@@ -265,11 +265,51 @@ fn blocked(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::OpenOptions;
     use uuid::Uuid;
+
+    fn temp_file(name: &str, extension: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("evida-{name}-{}.{}", Uuid::new_v4(), extension))
+    }
+
+    #[test]
+    fn supported_pdf_docx_and_text_files_pass_safety_gate() {
+        let fixtures = [
+            (
+                temp_file("supported", "pdf"),
+                b"%PDF-1.7\n1 0 obj".as_slice(),
+                "pdf",
+            ),
+            (
+                temp_file("supported", "docx"),
+                b"PK\x03\x04docx".as_slice(),
+                "docx",
+            ),
+            (
+                temp_file("supported", "txt"),
+                b"Lesbar tekst".as_slice(),
+                "txt",
+            ),
+        ];
+
+        for (path, bytes, expected_type) in fixtures {
+            fs::write(&path, bytes).expect("write supported fixture");
+
+            let detection = detect_file_type(&path).expect("detect");
+            let safety = assess_file_safety(&path, &detection);
+
+            assert_eq!(detection.detected_file_type, expected_type);
+            assert!(detection.supported);
+            assert!(!detection.type_mismatch);
+            assert!(safety.allowed);
+
+            let _ = fs::remove_file(path);
+        }
+    }
 
     #[test]
     fn detects_pdf_by_magic_even_when_extension_is_wrong() {
-        let path = std::env::temp_dir().join(format!("evida-magic-{}.txt", Uuid::new_v4()));
+        let path = temp_file("magic", "txt");
         fs::write(&path, b"%PDF-1.7\n1 0 obj").expect("write pdf-like file");
 
         let detection = detect_file_type(&path).expect("detect");
@@ -285,7 +325,7 @@ mod tests {
 
     #[test]
     fn zero_byte_file_is_explicit_failure() {
-        let path = std::env::temp_dir().join(format!("evida-zero-{}.pdf", Uuid::new_v4()));
+        let path = temp_file("zero", "pdf");
         fs::write(&path, []).expect("write empty file");
 
         let detection = detect_file_type(&path).expect("detect");
@@ -294,6 +334,52 @@ mod tests {
         assert!(!safety.allowed);
         assert_eq!(safety.issue_code.as_deref(), Some("ZERO_BYTE_FILE"));
         assert!(safety.user_message.contains("tom"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn unsupported_type_is_blocked_before_processing() {
+        let path = temp_file("unsupported", "exe");
+        fs::write(&path, b"MZ fake executable").expect("write unsupported fixture");
+
+        let detection = detect_file_type(&path).expect("detect");
+        let safety = assess_file_safety(&path, &detection);
+
+        assert_eq!(detection.detected_file_type, "unknown");
+        assert!(!detection.supported);
+        assert!(!safety.allowed);
+        assert_eq!(safety.issue_code.as_deref(), Some("UNSUPPORTED_FILE_TYPE"));
+        assert!(!safety.retryable);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn oversized_file_is_blocked_before_content_processing() {
+        let path = temp_file("oversized", "pdf");
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&path)
+            .expect("create sparse oversized file");
+        file.set_len(MAX_IMPORT_BYTES + 1)
+            .expect("set oversized length");
+        drop(file);
+
+        let detection = FileTypeDetection {
+            extension: Some("pdf".to_string()),
+            detected_mime_type: "application/pdf".to_string(),
+            detected_file_type: "pdf".to_string(),
+            magic_signature: "%PDF".to_string(),
+            type_mismatch: false,
+            supported: true,
+        };
+        let safety = assess_file_safety(&path, &detection);
+
+        assert!(!safety.allowed);
+        assert_eq!(safety.issue_code.as_deref(), Some("FILE_TOO_LARGE"));
+        assert!(safety.retryable);
 
         let _ = fs::remove_file(path);
     }

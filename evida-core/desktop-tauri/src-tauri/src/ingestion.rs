@@ -508,3 +508,91 @@ fn mime_type_for_path(path: &Path) -> String {
     }
     .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    fn temp_file(name: &str, extension: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "evida-extract-{name}-{}.{}",
+            Uuid::new_v4(),
+            extension
+        ))
+    }
+
+    #[test]
+    fn text_document_extracts_readable_source_chunks() {
+        let path = temp_file("text", "txt");
+        fs::write(
+            &path,
+            "Fakturaen ble betalt 12.03.2024. Belopet fremgar av kontoutskriften.",
+        )
+        .expect("write text fixture");
+
+        let extraction = extract_document(&path).expect("extract text");
+
+        assert_eq!(extraction.mime_type.as_deref(), Some("text/plain"));
+        assert_eq!(extraction.page_count, 1);
+        assert_eq!(extraction.ocr_status, "not_required");
+        assert_eq!(extraction.pages.len(), 1);
+        assert_eq!(extraction.pages[0].text_status, "extracted");
+        assert!(!extraction.chunks.is_empty());
+        assert!(extraction.chunks[0].text.contains("Fakturaen"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn empty_text_document_is_terminal_without_fake_sources() {
+        let path = temp_file("empty", "txt");
+        fs::write(&path, "   \n\t").expect("write empty text fixture");
+
+        let extraction = extract_document(&path).expect("extract empty text");
+
+        assert_eq!(extraction.page_count, 1);
+        assert_eq!(extraction.ocr_status, "empty");
+        assert!(extraction.chunks.is_empty());
+        assert_eq!(extraction.pages[0].text_status, "empty");
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn corrupt_pdf_does_not_create_source_chunks() {
+        let path = temp_file("corrupt", "pdf");
+        fs::write(&path, b"%PDF-1.7\n%% corrupt body").expect("write corrupt pdf fixture");
+
+        let extraction = extract_document(&path).expect("extract corrupt pdf safely");
+
+        assert_eq!(extraction.mime_type.as_deref(), Some("application/pdf"));
+        assert_eq!(extraction.ocr_status, "failed");
+        assert_eq!(extraction.page_count, 0);
+        assert!(extraction.pages.is_empty());
+        assert!(extraction.chunks.is_empty());
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn unsupported_extension_is_reported_without_extraction() {
+        let path = temp_file("unsupported", "exe");
+        fs::write(&path, b"MZ fake executable").expect("write unsupported fixture");
+
+        let extraction = extract_document(&path).expect("extract unsupported safely");
+
+        assert_eq!(
+            extraction.mime_type.as_deref(),
+            Some("application/octet-stream")
+        );
+        assert_eq!(extraction.ocr_status, "unsupported_file_type");
+        assert!(extraction.chunks.is_empty());
+        assert!(extraction
+            .warnings
+            .iter()
+            .any(|warning| warning == "unsupported_file_type"));
+
+        let _ = fs::remove_file(path);
+    }
+}
