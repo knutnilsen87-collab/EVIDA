@@ -2,6 +2,7 @@ import type { DocumentBasisRow, DocumentBasisSummary } from "./documentBasis";
 
 export type FirstUserPrimaryActionLabel =
   | "Se dokumenter som trenger kontroll"
+  | "Start kontroll"
   | "Åpne foreløpig Saksrom"
   | "Åpne Saksrom"
   | "Se dokumenter som ikke ble brukt";
@@ -234,7 +235,7 @@ export function deriveControlNextStep(input: ControlNextStepInput): ControlNextS
     return {
       title: "Neste steg",
       message: "Kontroller dokumentene som trenger manuell vurdering før de kan brukes som kildegrunnlag.",
-      primaryAction: { label: "Se dokumenter som trenger kontroll", target: "review" },
+      primaryAction: { label: "Start kontroll", target: "review" },
       isPreliminary: true
     };
   }
@@ -339,9 +340,9 @@ export function summarizeImportProgress(args: {
     state === "processing"
       ? "Behandler dokumenter"
       : state === "complete_with_errors"
-        ? "Import ferdig med feil"
+        ? "Import ferdig – handling kreves"
         : state === "complete_with_attention"
-          ? "Import ferdig – kontroll kreves"
+          ? "Import ferdig – handling kreves"
           : "Import fullført";
   const activeItem = args.items.find((item) => !isImportTerminalStatus(item.status));
   const currentPhase = hasNonTerminal

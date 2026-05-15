@@ -90,4 +90,9 @@ assert.equal(
   "ETA is unavailable before first processed page"
 );
 
-console.log("processing tests passed (25 assertions).");
+const caseRoomSource = await readFile(new URL("../src/components/CaseRoomView.tsx", import.meta.url), "utf8");
+assert.match(caseRoomSource, /pageCountingComplete/, "case room distinguishes known page totals from partial page counts");
+assert.match(caseRoomSource, /sider telt så langt/, "case room shows counted pages before treating them as processed total");
+assert.match(caseRoomSource, /dokumenter gjenstår sidetelling/, "case room does not show zero pages remaining while page count is incomplete");
+
+console.log("processing tests passed.");

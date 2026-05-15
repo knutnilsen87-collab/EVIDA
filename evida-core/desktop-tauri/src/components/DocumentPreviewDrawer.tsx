@@ -5,6 +5,8 @@ interface DocumentPreviewDrawerProps {
   document: DocumentSummary | null;
   sources: SourceObjectSummary[];
   isOpen: boolean;
+  approvalState?: "idle" | "saving" | "approved";
+  attentionRemaining?: number;
   onClose: () => void;
   onApproveAsSource: (documentId: string) => void;
   onExcludeFromCase: (documentId: string) => void;
@@ -55,6 +57,8 @@ export function DocumentPreviewDrawer({
   document,
   sources,
   isOpen,
+  approvalState = "idle",
+  attentionRemaining,
   onClose,
   onApproveAsSource,
   onExcludeFromCase,
@@ -69,6 +73,8 @@ export function DocumentPreviewDrawer({
   const extractedText = sourceText(sources);
   const sourceCoverage = Math.round(document.source_coverage_percent || 0);
   const hasExtractedText = extractedText.trim().length > 0;
+  const hasUsableSources = document.source_count > 0;
+  const approveLabel = hasUsableSources ? "Godkjenn som kilde" : "Marker som kontrollert";
 
   return (
     <div className="drawer-backdrop" role="presentation" onClick={onClose}>
@@ -128,13 +134,28 @@ export function DocumentPreviewDrawer({
         </div>
 
         <div className="document-preview-actions">
-          <button className="button-primary" type="button" onClick={() => onApproveAsSource(document.id)}>
-            Godkjenn som kilde
+          {approvalState === "approved" ? (
+            <div className="document-approval-feedback" role="status">
+              <strong>✓ Kontrollert</strong>
+              {typeof attentionRemaining === "number" && attentionRemaining > 0 ? (
+                <span>Neste dokument åpnes automatisk.</span>
+              ) : (
+                <span>Alle dokumenter er kontrollert.</span>
+              )}
+            </div>
+          ) : null}
+          <button
+            className="button-primary"
+            type="button"
+            disabled={approvalState === "saving" || approvalState === "approved"}
+            onClick={() => onApproveAsSource(document.id)}
+          >
+            {approvalState === "saving" ? "Godkjenner ..." : approvalState === "approved" ? "Godkjent" : approveLabel}
           </button>
-          <button className="button-secondary" type="button" onClick={() => onExcludeFromCase(document.id)}>
+          <button className="button-secondary" type="button" disabled={approvalState === "saving"} onClick={() => onExcludeFromCase(document.id)}>
             Ikke bruk som kilde
           </button>
-          <button className="button-secondary" type="button" onClick={() => onReplaceFile(document.id)}>
+          <button className="button-secondary" type="button" disabled={approvalState === "saving"} onClick={() => onReplaceFile(document.id)}>
             Erstatt fil
           </button>
           <button className="button-ghost" type="button" onClick={onClose}>

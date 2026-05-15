@@ -117,4 +117,27 @@ const approved = deriveDocumentBasisSummary({
 assert.equal(approved.readyDocuments.length, 1, "manual approval can release partial text for preliminary AI use");
 assert.equal(approved.readyDocuments[0].approvedBy, "local-user", "approval actor is exposed");
 
-console.log("document basis tests passed (11 assertions).");
+const approvedWithoutText = deriveDocumentBasisSummary({
+  documents: [document({ id: "DOC-scan", ocr_status: "needs_ocr", source_count: 0, source_coverage_percent: 0, pending_ocr_page_count: 10 })],
+  importItems: [],
+  manualReviewItems: [],
+  audit: [
+    {
+      id: "AUD-2",
+      case_id: "CASE-1",
+      actor: "local-user",
+      action: "DOCUMENT_MANUAL_REVIEW_APPROVED",
+      target_type: "document",
+      target_id: "DOC-scan",
+      result: "PASS",
+      created_at: "2026-05-12T11:10:00Z"
+    }
+  ],
+  hasActiveProcessing: false
+});
+
+assert.equal(approvedWithoutText.needsReviewDocuments.length, 0, "manual approval removes no-text document from control list");
+assert.equal(approvedWithoutText.readyDocuments[0].label, "Kontrollert", "no-text approval is labeled as controlled");
+assert.equal(canUseDocumentInAnswer(approvedWithoutText.readyDocuments[0]), false, "no-text approval does not create an AI-citable source");
+
+console.log("document basis tests passed.");

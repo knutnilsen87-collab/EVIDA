@@ -62,6 +62,7 @@ interface CaseRoomViewProps {
   readiness: ReadinessResult;
   preliminaryBanner?: string;
   nextActionTitle: string;
+  systemStatus: CaseRoomSystemStatus;
   onOpenSource: (sourceId: string) => void;
   onOpenControl: () => void;
   onOpenSimulation: () => void;
@@ -82,6 +83,22 @@ interface CaseRoomImportItem {
   pagesTotal?: number;
   sources?: number;
   startedAt?: number;
+}
+
+interface CaseRoomSystemStatus {
+  totalDocuments: number;
+  readyDocuments: number;
+  attentionDocuments: number;
+  failedDocuments: number;
+  processingDocuments: number;
+  remainingDocuments: number;
+  sourceCoveragePercent: number;
+  ocrCoveragePercent?: number;
+  pendingOcrPages: number;
+  isImporting: boolean;
+  currentPhaseLabel: string;
+  etaLabel: string;
+  nextActionTitle: string;
 }
 
 interface CaseAnswer {
@@ -474,6 +491,10 @@ function importLiveProgressPercent(item: CaseRoomImportItem | undefined, nowMs: 
   */
 }
 
+function pageCountForImportItem(item: CaseRoomImportItem) {
+  return item.pagesTotal || item.pages || 0;
+}
+
 function activeIntakeWorkState(stage: DocumentProcessingStage | LegacyImportStage | ImportItemStatus | undefined) {
   const stepViews = processingStepViews(toProcessingStage(stage));
   return {
@@ -852,6 +873,121 @@ function qualityGateCaseAnswer(
   };
 }
 
+const SYSTEM_STATUS_PATTERNS = [
+  "hvor lenge",
+  "hvor lang tid",
+  "eta",
+  "ferdig",
+  "klar",
+  "opplastet",
+  "lastet opp",
+  "gjenstår",
+  "gjenstar",
+  "mangler",
+  "hva må jeg gjøre",
+  "hva ma jeg gjore",
+  "står på",
+  "star pa",
+  "prosent",
+  "kildedekning",
+  "ocr",
+  "kontroll",
+  "import",
+  "behandling",
+  "dokumentene",
+  "alle dokumenter",
+  "kan jeg bruke saken"
+];
+
+function isSystemStatusQuestion(question: string) {
+  const normalized = question.toLowerCase();
+  return SYSTEM_STATUS_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
+function buildSystemStatusAnswer(status: CaseRoomSystemStatus): CaseAnswer {
+  const total = status.totalDocuments;
+  const completed = Math.max(0, total - status.remainingDocuments);
+  const coverageLine = `Kildedekning: ${Math.round(status.sourceCoveragePercent)} %.`;
+  const ocrLine =
+    typeof status.ocrCoveragePercent === "number"
+      ? `OCR/dekning: ${Math.round(status.ocrCoveragePercent)} %.`
+      : status.pendingOcrPages > 0
+        ? `${status.pendingOcrPages} sider venter på OCR/tekst.`
+        : "OCR/dekning: ferdig for kjente sider.";
+
+  if (status.isImporting && (status.remainingDocuments > 0 || status.processingDocuments > 0)) {
+    const etaLine = status.etaLabel && status.etaLabel !== "Ferdig" ? status.etaLabel : "ETA beregnes ...";
+    return {
+      answer: [
+        "Importen pågår fortsatt.",
+        "",
+        `${completed} av ${total} dokumenter er behandlet.`,
+        `${status.remainingDocuments} ${status.remainingDocuments === 1 ? "dokument gjenstår" : "dokumenter gjenstår"}.`,
+        `Fase: ${status.currentPhaseLabel}.`,
+        etaLine,
+        "",
+        `Neste steg: ${status.nextActionTitle}.`
+      ].join("\n"),
+      sourceIds: [],
+      validatedSources: [],
+      answerStrength: {
+        level: "Høy",
+        reason: "Svaret bygger på intern import- og kontrollstatus, ikke på juridiske kildeutdrag."
+      },
+      uncertainty: "Lav for synlig appstatus. ETA er et estimat mens importen kjører.",
+      missing: "Ingen juridisk vurdering er gjort i dette statussvaret.",
+      nextStep: status.nextActionTitle
+    };
+  }
+
+  if (status.attentionDocuments > 0 || status.failedDocuments > 0) {
+    const failedLine =
+      status.failedDocuments > 0 ? `\n${status.failedDocuments} dokument${status.failedDocuments === 1 ? "" : "er"} ble ikke brukt.` : "";
+    return {
+      answer: [
+        "Dokumentene er importert, men saken er ikke helt klar ennå.",
+        "",
+        `${status.readyDocuments} av ${total} dokumenter er klare.`,
+        `${status.attentionDocuments} dokument${status.attentionDocuments === 1 ? "" : "er"} må kontrolleres før de kan brukes.`,
+        `${coverageLine}`,
+        `${ocrLine}${failedLine}`,
+        "",
+        "ETA er ikke relevant nå, fordi importen ikke kjører. Neste steg er å starte kontroll.",
+        "",
+        "[Start kontroll]"
+      ].join("\n"),
+      sourceIds: [],
+      validatedSources: [],
+      answerStrength: {
+        level: "Høy",
+        reason: "Svaret bygger på intern dokumentstatus og kontrollkø."
+      },
+      uncertainty: "Lav for status. Eventuell juridisk bruk må vente til kontrollpunktene er lukket.",
+      missing: "Kontroller dokumentene som fortsatt står i listen.",
+      nextStep: "Start kontroll"
+    };
+  }
+
+  return {
+    answer: [
+      "Alt er klart.",
+      "",
+      `Alle ${total} dokumenter er behandlet.`,
+      coverageLine,
+      "Du kan bruke Saksrom nå."
+    ].join("\n"),
+    sourceIds: [],
+    validatedSources: [],
+    answerStrength: {
+      level: "Høy",
+      reason: "Svaret bygger på intern ferdigstatus."
+    },
+    uncertainty: "Lav for appstatus.",
+    missing: "Ingen åpne import- eller kontrollpunkter er synlige.",
+    nextStep: status.nextActionTitle
+  };
+}
+
 function parseStoredAnswer(
   message: CaseAiMessageDto,
   options?: {
@@ -921,6 +1057,7 @@ export function CaseRoomView({
   readiness,
   preliminaryBanner,
   nextActionTitle,
+  systemStatus,
   onOpenSource,
   onOpenControl,
   onOpenSimulation,
@@ -950,12 +1087,20 @@ export function CaseRoomView({
   const isBlocked = readiness.verdict === "not_ready";
   const isPreliminaryOnly = readiness.verdict === "requires_control";
   const documentTotalPages = totalPageCount || documents.reduce((sum, document) => sum + document.page_count, 0);
-  const queuedTotalPages = importQueue.reduce((sum, item) => sum + (item.pagesTotal || item.pages || 0), 0);
-  const totalPages = documentTotalPages || queuedTotalPages;
+  const queuedTotalPages = importQueue.reduce((sum, item) => sum + pageCountForImportItem(item), 0);
+  const totalPages = Math.max(documentTotalPages, queuedTotalPages);
   const documentProcessedPages = documents.reduce((sum, document) => sum + (document.analyzed_page_count || 0), 0);
   const queuedProcessedPages = importQueue.reduce((sum, item) => sum + (item.pagesProcessed || 0), 0);
-  const processedPages = processedPageCount || (documentTotalPages > 0 ? documentProcessedPages : queuedProcessedPages);
+  const processedPages = Math.max(processedPageCount, documentProcessedPages, queuedProcessedPages);
   const pagesWithSources = sourcePageCount || (documentTotalPages > 0 ? Math.round((Math.max(0, Math.min(100, coverage)) / 100) * documentTotalPages) : 0);
+  const selectedDocumentTotal = importQueue.length || documents.length;
+  const documentsWithKnownPageCount =
+    importQueue.length > 0
+      ? importQueue.filter((item) => pageCountForImportItem(item) > 0).length
+      : documents.filter((document) => document.page_count > 0).length;
+  const pageCountingComplete =
+    selectedDocumentTotal === 0 ||
+    (totalPages > 0 && documentsWithKnownPageCount >= selectedDocumentTotal);
   const pageProgress = calculatePageProgress({
     totalPages,
     processedPages,
@@ -969,11 +1114,18 @@ export function CaseRoomView({
   const canAsk = Boolean(selectedCase?.id && hasDocuments && hasSources && !isBlocked && !sourceCoverageTooLow);
   const isIncomplete = !hasSources || intakeCoverage < 95 || pendingOcrPages > 0 || deviations.length > 0 || pagesMissingSources > 0;
   const readyImportItems = importQueue.filter((item) => item.status === "completed");
+  const documentProgressPercent = selectedDocumentTotal > 0 ? Math.round((readyImportItems.length / selectedDocumentTotal) * 100) : 0;
   const activeImportItem = importQueue.find((item) => !["completed", "failed"].includes(item.status));
   const displayImportItem = activeImportItem || importQueue.find((item) => item.status === "failed") || importQueue[importQueue.length - 1];
-  const importPages = importQueue.reduce((sum, item) => sum + (item.pages || 0), 0);
+  const importPages = queuedTotalPages;
   const showIntakeCard = importQueue.length > 0 || isImporting;
   const liveImportProgress = importLiveProgressPercent(displayImportItem, importNow);
+  const displayedIntakeProgress =
+    pageCountingComplete && pageProgress.totalPages > 0
+      ? processingPercent
+      : selectedDocumentTotal > 0
+        ? documentProgressPercent
+        : liveImportProgress;
   const liveImportElapsed = displayImportItem?.startedAt ? formatDuration(importNow - displayImportItem.startedAt) : "";
   const liveCurrentStep = intakeStepLabel(displayImportItem);
   const intakeWorkState = activeIntakeWorkState(displayImportItem?.status);
@@ -1237,6 +1389,47 @@ export function CaseRoomView({
     const questionIntent = classifyUserQuestion(retrievalQuestion || displayQuestion);
 
     if (!displayQuestion) {
+      return;
+    }
+    if (isSystemStatusQuestion(retrievalQuestion || displayQuestion)) {
+      if (!selectedCase?.id && !hasDocuments) {
+        setProviderNotice("Importer dokumenter først, så kan Evida vise status for opplasting og kontroll.");
+        return;
+      }
+      setActiveCollaborationMode(activeMode);
+      setIsAsking(true);
+      setProviderNotice("");
+      updateAutoFollowAnswer(true);
+      window.requestAnimationFrame(() => scrollToAssistantWork("smooth"));
+      await wait(350);
+      try {
+        const result = buildSystemStatusAnswer(systemStatus);
+        const answerJson = JSON.stringify({
+          question: displayQuestion,
+          result,
+          model_id: "safe-local-system-status",
+          prompt_version: "case_room_system_status_v1",
+          source_index_version: `sources-${sources.length}`
+        });
+        if (selectedCase?.id) {
+          await recordCaseAiExchange({
+            caseId: selectedCase.id,
+            question: displayQuestion,
+            answerJson,
+            sourceIds: [],
+            modelId: "safe-local-system-status",
+            promptVersion: "case_room_system_status_v1",
+            sourceIndexVersion: `sources-${sources.length}`
+          });
+        }
+        await revealAnswer({ question: displayQuestion, result });
+        persistConversationTurn(result, [], activeMode, resolvedAction);
+        setQuestion("");
+      } catch (error) {
+        setProviderNotice(`Kunne ikke hente dokumentstatus: ${String(error)}`);
+      } finally {
+        setIsAsking(false);
+      }
       return;
     }
     if (questionIntent === "recommendation") {
@@ -1674,11 +1867,11 @@ export function CaseRoomView({
                   ? "Evida leser dokumentene og lager sporbare kilder automatisk."
                   : `Evida har mottatt ${importQueue.length} dokumenter og behandler dem automatisk. Du trenger ikke gjøre noe.`}
               </p>
-              <div className="case-live-progress" aria-label={`Dokumentbehandling ${liveImportProgress} prosent`}>
+              <div className="case-live-progress" aria-label={`Dokumentbehandling ${displayedIntakeProgress} prosent`}>
                 <div className="case-live-progress__track">
-                  <div className="case-live-progress__bar" style={{ width: `${liveImportProgress}%` }} />
+                  <div className="case-live-progress__bar" style={{ width: `${displayedIntakeProgress}%` }} />
                 </div>
-                <strong>{liveImportProgress}%</strong>
+                <strong>{displayedIntakeProgress}%</strong>
               </div>
               <div className="case-intake-steps" aria-live="polite">
                 {intakeWorkState.stepViews.map((step) => (
@@ -1695,33 +1888,49 @@ export function CaseRoomView({
                 <span>Dokumenter</span>
                 <strong>{readyImportItems.length}/{importQueue.length || documents.length}</strong>
                 <span>Behandling</span>
-                <strong>{pageProgress.totalPages > 0 ? `${processingPercent} %` : `${liveImportProgress} %`}</strong>
+                <strong>{pageCountingComplete && pageProgress.totalPages > 0 ? `${processingPercent} %` : `${displayedIntakeProgress} %`}</strong>
                 <span>Sider</span>
                 <strong>
-                  {pageProgress.totalPages > 0
+                  {pageCountingComplete && pageProgress.totalPages > 0
                     ? `${pageProgress.processedPages} av ${pageProgress.totalPages} sider behandlet`
                     : importPages > 0
-                      ? `0 av ${importPages} sider behandlet`
-                      : "Sideprogresjon beregnes"}
+                      ? `${importPages} sider telt så langt`
+                      : "Teller totalt antall sider"}
                 </strong>
                 <span>Gjenstår behandling</span>
                 <strong>
-                  {pageProgress.totalPages > 0
+                  {pageCountingComplete && pageProgress.totalPages > 0
                     ? `${pageProgress.pagesRemaining} sider gjenstår`
-                    : "Beregnes"}
+                    : selectedDocumentTotal > documentsWithKnownPageCount
+                      ? `${selectedDocumentTotal - documentsWithKnownPageCount} dokumenter gjenstår sidetelling`
+                      : "Beregnes når sidetelling er ferdig"}
                 </strong>
                 <span>Sider med kilder</span>
                 <strong>
-                  {pageProgress.totalPages > 0
+                  {pageCountingComplete && pageProgress.totalPages > 0
                     ? `${pageProgress.pagesWithSources} av ${pageProgress.totalPages}`
+                    : pageProgress.totalPages > 0
+                      ? `${pageProgress.pagesWithSources} av ${pageProgress.totalPages} kjente sider`
                     : sources.length > 0
                       ? `${sources.length} kilder`
                       : "Beregnes"}
                 </strong>
                 <span>Sider som mangler</span>
-                <strong>{pageProgress.totalPages > 0 ? pagesMissingSources : "Beregnes"}</strong>
+                <strong>
+                  {pageCountingComplete && pageProgress.totalPages > 0
+                    ? pagesMissingSources
+                    : pageProgress.totalPages > 0
+                      ? `${pageProgress.pagesMissingSources} kjente sider`
+                      : "Beregnes"}
+                </strong>
                 <span>Kildedekning</span>
-                <strong>{pageProgress.totalPages > 0 || !isImporting ? `${Math.round(intakeCoverage)} %` : "Beregnes"}</strong>
+                <strong>
+                  {pageCountingComplete && pageProgress.totalPages > 0
+                    ? `${Math.round(intakeCoverage)} %`
+                    : pageProgress.totalPages > 0
+                      ? `${Math.round(intakeCoverage)} % av kjente sider`
+                      : "Beregnes etter sidetelling"}
+                </strong>
                 <span>Nåværende steg</span>
                 <strong>{liveCurrentStep}</strong>
                 <span>Estimert tid</span>

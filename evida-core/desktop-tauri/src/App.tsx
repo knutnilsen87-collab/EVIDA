@@ -497,6 +497,10 @@ export default function App() {
   const [controlAttentionExpanded, setControlAttentionExpanded] = useState(false);
   const [controlAttentionHighlighted, setControlAttentionHighlighted] = useState(false);
   const [reviewApprovalChecks, setReviewApprovalChecks] = useState<Record<string, boolean>>({});
+  const [localControlDecisions, setLocalControlDecisions] = useState<Record<string, "approved" | "excluded">>({});
+  const [approvalSavingId, setApprovalSavingId] = useState("");
+  const [approvalSuccessId, setApprovalSuccessId] = useState("");
+  const [approvalToast, setApprovalToast] = useState("");
   const [expandedDocumentId, setExpandedDocumentId] = useState("");
   const [previewDocument, setPreviewDocument] = useState<DocumentSummary | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -795,6 +799,10 @@ export default function App() {
     [documents, importItems, manualReviewItems, audit, hasActiveProcessing]
   );
   const reviewDocuments = useMemo(() => getReviewDocuments(documentBasis), [documentBasis]);
+  const visibleReviewDocuments = useMemo(
+    () => reviewDocuments.filter((row) => !localControlDecisions[row.id]),
+    [reviewDocuments, localControlDecisions]
+  );
   const aiReadyDocumentIds = useMemo(
     () => getAiReadyDocumentIds(documentBasis.rows),
     [documentBasis.rows]
@@ -811,7 +819,7 @@ export default function App() {
   const canUsePreliminaryAnalysis =
     caseReadiness.verdict === "ready_for_preliminary_analysis" ||
     caseReadiness.verdict === "ready_for_draft_control";
-  const canUseDraftControl = caseReadiness.verdict === "ready_for_draft_control" && reviewDocuments.length === 0;
+  const canUseDraftControl = caseReadiness.verdict === "ready_for_draft_control" && visibleReviewDocuments.length === 0;
   const userFacingReadinessVerdict =
     caseReadiness.verdict === "ready_for_draft_control" && !canUseDraftControl
       ? "requires_control"
@@ -826,7 +834,10 @@ export default function App() {
       deriveImportUxSummary({
         queue: importQueue,
         nowMs: importNow,
-        documentBasis,
+        documentBasis: {
+          ...documentBasis,
+          needsReviewDocuments: visibleReviewDocuments
+        },
         hasDocuments,
         hasActiveProcessing,
         canOpenPreliminary: canUsePreliminaryAnalysis || aiReadySources.length > 0,
@@ -837,6 +848,7 @@ export default function App() {
       importQueue,
       importNow,
       documentBasis,
+      visibleReviewDocuments,
       hasDocuments,
       hasActiveProcessing,
       canUsePreliminaryAnalysis,
@@ -853,10 +865,10 @@ export default function App() {
         totalPagesEstimate: totalPages || importQueue.reduce((sum, item) => sum + (item.pagesTotal || item.pages || 0), 0),
         processedPages: analyzedPages || importQueue.reduce((sum, item) => sum + (item.pagesProcessed || 0), 0),
         sourcesCreated: sources.length || importQueue.reduce((sum, item) => sum + (item.sources || 0), 0),
-        attentionDocumentsFallback: reviewDocuments.length,
+        attentionDocumentsFallback: visibleReviewDocuments.length,
         failedDocumentsFallback: documentBasis.unreadableDocuments.length
       }),
-    [importQueue, importNow, documentBasis.totalCount, documentBasis.unreadableDocuments.length, reviewDocuments.length, totalPages, analyzedPages, sources.length]
+    [importQueue, importNow, documentBasis.totalCount, documentBasis.unreadableDocuments.length, visibleReviewDocuments.length, totalPages, analyzedPages, sources.length]
   );
   const previewDocumentSources = useMemo(
     () => (previewDocument ? sources.filter((source) => source.document_id === previewDocument.id) : []),
@@ -1031,9 +1043,9 @@ export default function App() {
   }
 
   const buildChronology = useCallback(async () => {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || reviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
       setReindexStatus(
-        reviewDocuments.length > 0
+        visibleReviewDocuments.length > 0
           ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger kronologi."
           : hasNonAiReadySources
             ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger kronologi."
@@ -1052,12 +1064,12 @@ export default function App() {
       uncertainty: item.uncertainty
     })));
     setActiveView("chronology");
-  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, hasNonAiReadySources, reviewDocuments.length, selectedCaseId]);
+  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, hasNonAiReadySources, visibleReviewDocuments.length, selectedCaseId]);
 
   const buildEvidence = useCallback(async () => {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || reviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
       setReindexStatus(
-        reviewDocuments.length > 0
+        visibleReviewDocuments.length > 0
           ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger bevismatrise."
           : hasNonAiReadySources
             ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger bevismatrise."
@@ -1076,12 +1088,12 @@ export default function App() {
       status: item.status
     })));
     setActiveView("evidence");
-  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, hasNonAiReadySources, reviewDocuments.length, selectedCaseId]);
+  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, hasNonAiReadySources, visibleReviewDocuments.length, selectedCaseId]);
 
   async function buildArguments() {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || reviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
       setReindexStatus(
-        reviewDocuments.length > 0
+        visibleReviewDocuments.length > 0
           ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger anførsler."
           : hasNonAiReadySources
             ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger anførsler."
@@ -1103,9 +1115,9 @@ export default function App() {
   }
 
   async function buildContradictions() {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length < 2 || reviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length < 2 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
       setReindexStatus(
-        reviewDocuments.length > 0
+        visibleReviewDocuments.length > 0
           ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger motstridsanalyse."
           : hasNonAiReadySources
             ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger motstridsanalyse."
@@ -1130,9 +1142,9 @@ export default function App() {
   }
 
   async function buildRisk() {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || reviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
       setReindexStatus(
-        reviewDocuments.length > 0
+        visibleReviewDocuments.length > 0
           ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger risikovurdering."
           : hasNonAiReadySources
             ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger risikovurdering."
@@ -1575,6 +1587,13 @@ export default function App() {
   }, [isImporting]);
 
   useEffect(() => {
+    setLocalControlDecisions({});
+    setApprovalSavingId("");
+    setApprovalSuccessId("");
+    setApprovalToast("");
+  }, [selectedCaseId]);
+
+  useEffect(() => {
     if (activeView !== "control" || !controlAttentionExpanded) {
       return;
     }
@@ -1593,7 +1612,15 @@ export default function App() {
       window.requestAnimationFrame(focusTarget);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeView, controlAttentionExpanded, reviewDocuments.length]);
+  }, [activeView, controlAttentionExpanded, visibleReviewDocuments.length]);
+
+  useEffect(() => {
+    if (!approvalToast) {
+      return;
+    }
+    const timer = window.setTimeout(() => setApprovalToast(""), 3600);
+    return () => window.clearTimeout(timer);
+  }, [approvalToast]);
 
   useEffect(() => {
     if (!hasDesktopRuntime()) {
@@ -2191,22 +2218,58 @@ export default function App() {
     setMaintenanceStatus(`${row.name}: preview åpnet i Evida.`);
   }
 
-  async function handleDocumentApproval(row: DocumentBasisRow, action: "approve_for_ai" | "reject_for_ai") {
+  function approvalActionLabel(row: Pick<DocumentBasisRow, "sourceCount">) {
+    return row.sourceCount > 0 ? "Godkjenn som kilde" : "Marker som kontrollert";
+  }
+
+  async function handleDocumentApproval(
+    row: DocumentBasisRow,
+    action: "approve_for_ai" | "reject_for_ai",
+    options?: { quietToast?: boolean; keepPreviewOpen?: boolean }
+  ) {
+    setApprovalSavingId(row.id);
+    setApprovalSuccessId("");
     const note =
       action === "approve_for_ai"
-        ? "Bruker har forhåndsvist dokumentet og godkjent dokumentgrunnlaget for AI-svar."
+        ? row.sourceCount > 0
+          ? "Bruker har forhåndsvist dokumentet og godkjent dokumentgrunnlaget for AI-svar."
+          : "Bruker har forhåndsvist dokumentet og markert dokumentet som manuelt kontrollert uten å gjøre det til tekstkilde."
         : "Bruker har forhåndsvist dokumentet og avvist dokumentet fra AI-grunnlaget.";
-    const report = await recordDocumentControlAction({
-      caseId: row.caseId,
-      documentId: row.id,
-      action,
-      note
-    });
-    if (selectedCaseId) {
-      await refresh(selectedCaseId);
+    try {
+      const report = await recordDocumentControlAction({
+        caseId: row.caseId,
+        documentId: row.id,
+        action,
+        note
+      });
+      setApprovalSuccessId(row.id);
+      setLocalControlDecisions((current) => ({
+        ...current,
+        [row.id]: action === "approve_for_ai" ? "approved" : "excluded"
+      }));
+      if (selectedCaseId) {
+        await refresh(selectedCaseId);
+      }
+      setReviewApprovalChecks((current) => ({ ...current, [row.id]: false }));
+      const message =
+        action === "approve_for_ai"
+          ? "Godkjent. Dokumentet er fjernet fra kontrollisten."
+          : "Dokumentet er holdt utenfor kildegrunnlaget.";
+      if (!options?.quietToast) {
+        setApprovalToast(message);
+      }
+      setMaintenanceStatus(`${row.name}: ${report.message}`);
+      if (!options?.keepPreviewOpen && action !== "approve_for_ai") {
+        setPreviewDocument(null);
+      }
+      return true;
+    } catch (error) {
+      setApprovalToast(`Kunne ikke lagre kontroll: ${String(error)}`);
+      setMaintenanceStatus(`Kontroll kunne ikke lagres for ${row.name}: ${String(error)}`);
+      return false;
+    } finally {
+      setApprovalSavingId((current) => (current === row.id ? "" : current));
     }
-    setReviewApprovalChecks((current) => ({ ...current, [row.id]: false }));
-    setMaintenanceStatus(`${row.name}: ${report.message}`);
   }
 
   async function handlePreviewDocumentById(documentId: string) {
@@ -2221,7 +2284,23 @@ export default function App() {
     if (!row) {
       return;
     }
-    await handleDocumentApproval(row, "approve_for_ai");
+    const nextRow = visibleReviewDocuments.find((item) => item.id !== row.id);
+    const saved = await handleDocumentApproval(row, "approve_for_ai", {
+      quietToast: true,
+      keepPreviewOpen: true
+    });
+    if (!saved) {
+      return;
+    }
+    setApprovalToast(nextRow ? "Godkjent. Neste dokument åpnet." : "Alle dokumenter er kontrollert.");
+    if (nextRow) {
+      const nextDocument = documents.find((item) => item.id === nextRow.id);
+      setPreviewDocument(nextDocument || null);
+      if (nextDocument) {
+        setReviewApprovalChecks((current) => ({ ...current, [nextRow.id]: true }));
+      }
+      return;
+    }
     setPreviewDocument(null);
   }
 
@@ -2231,7 +2310,6 @@ export default function App() {
       return;
     }
     await handleDocumentApproval(row, "reject_for_ai");
-    setPreviewDocument(null);
   }
 
   async function handleReplacePreviewDocument(documentId: string) {
@@ -2269,11 +2347,14 @@ export default function App() {
       suggestedAction: row.recommendedAction,
       status: row.label,
       canApprove: row.canApprove,
-      approvalChecked: Boolean(reviewApprovalChecks[row.id])
+      approvalChecked: Boolean(reviewApprovalChecks[row.id]),
+      sourceCount: row.sourceCount,
+      approvalState:
+        approvalSavingId === row.id ? "saving" : approvalSuccessId === row.id ? "approved" : "idle"
     }));
   }
 
-  const progressAttentionItems = makeAttentionItems(reviewDocuments);
+  const progressAttentionItems = makeAttentionItems(visibleReviewDocuments);
   const progressFailedItems = makeAttentionItems(documentBasis.unreadableDocuments);
 
   function ImportItemCard({ item, technical = false }: { item: ImportItem; technical?: boolean }) {
@@ -2339,7 +2420,11 @@ export default function App() {
             </button>
           </div>
         </div>
-        <p className="muted">ETA: {importUx.etaLabel}</p>
+        <p className="muted">
+          {importUx.progress.state === "processing" && importUx.progress.remainingDocuments > 0
+            ? importUx.etaLabel
+            : "Fase: Ferdig"}
+        </p>
         {importUx.gapMessages.length > 0 ? (
           <div className="warning-notice">
             <strong>Mangler nå:</strong>
@@ -2495,7 +2580,11 @@ export default function App() {
               <div className="eyebrow">Importstatus</div>
               <h2>{importProgress.title}</h2>
               <p>{importProgress.primaryLine}</p>
-              <p className="muted">{importProgress.etaLabel}</p>
+              <p className="muted">
+                {importProgress.state === "processing" && importProgress.remainingDocuments > 0
+                  ? importProgress.etaLabel
+                  : "Fase: Ferdig"}
+              </p>
             </div>
             <button className="button-ghost" type="button" onClick={() => setShowImportCompletion(false)}>Lukk</button>
           </div>
@@ -2941,7 +3030,11 @@ export default function App() {
             <div className="import-queue__header">
               <div>
                 <strong>{importUx.progressLabel}</strong>
-                <span>ETA: {importUx.etaLabel}</span>
+                <span>
+                  {importUx.progress.state === "processing" && importUx.progress.remainingDocuments > 0
+                    ? importUx.etaLabel
+                    : "Fase: Ferdig"}
+                </span>
               </div>
               <div className="panel-actions">
                 <button
@@ -3279,6 +3372,7 @@ export default function App() {
                   </details>
                   {row.approvedAt ? <small>Godkjent av {row.approvedBy || "local-user"} {row.approvedAt}</small> : null}
                   {row.rejectedAt ? <small>Avvist av {row.rejectedBy || "local-user"} {row.rejectedAt}</small> : null}
+                  {approvalSuccessId === row.id ? <small className="document-approval-inline">✓ Kontrollert</small> : null}
                 </div>
                 <aside className={mode === "review" ? "control-document-actions" : "document-basis-row__actions"}>
                   <button className="button-secondary" type="button" onClick={() => void handlePreviewDocument(row)} disabled={!row.canPreview}>
@@ -3301,13 +3395,26 @@ export default function App() {
                       className="button-primary"
                       type="button"
                       onClick={() => void handleDocumentApproval(row, "approve_for_ai")}
-                      disabled={mode === "review" && !canApproveSourceAfterPreview(Boolean(reviewApprovalChecks[row.id]))}
+                      disabled={
+                        approvalSavingId === row.id ||
+                        approvalSuccessId === row.id ||
+                        (mode === "review" && !canApproveSourceAfterPreview(Boolean(reviewApprovalChecks[row.id])))
+                      }
                     >
-                      Godkjenn som kilde
+                      {approvalSavingId === row.id
+                        ? "Godkjenner ..."
+                        : approvalSuccessId === row.id
+                          ? "Godkjent"
+                          : approvalActionLabel(row)}
                     </button>
                   ) : null}
                   {row.canReject ? (
-                    <button className="button-secondary" type="button" onClick={() => void handleDocumentApproval(row, "reject_for_ai")}>
+                    <button
+                      className="button-secondary"
+                      type="button"
+                      disabled={approvalSavingId === row.id}
+                      onClick={() => void handleDocumentApproval(row, "reject_for_ai")}
+                    >
                       Ikke bruk som kilde
                     </button>
                   ) : null}
@@ -3372,14 +3479,14 @@ export default function App() {
           <div className="document-basis-board">
             <DocumentBasisGroup
                 title="Dokumenter som trenger kontroll"
-                rows={reviewDocuments}
+                rows={visibleReviewDocuments}
                 emptyText="Ingen dokumenter venter på manuell kontroll."
                 mode="review"
                 sectionId="documents-needing-control"
                 titleId="documents-needing-control-title"
                 highlighted={controlAttentionHighlighted}
               />
-            {reviewDocuments.length === 0 ? (
+            {visibleReviewDocuments.length === 0 ? (
               <>
                 <DocumentBasisGroup
                   title="Klare dokumenter"
@@ -3422,7 +3529,7 @@ export default function App() {
               <div className="document-basis-overview">
                 <StatusCard label="Dokumentstatus" value={documentBasis.primaryStatusLabel} detail={documentBasis.etaLabel} tone={documentBasis.readyCount === documentBasis.totalCount && documentBasis.totalCount > 0 ? "ok" : "warn"} />
                 <StatusCard label="Klare dokumenter" value={documentBasis.readyCount} detail={`av ${documentBasis.totalCount}`} tone={documentBasis.readyCount > 0 ? "ok" : "warn"} />
-                <StatusCard label="Trenger kontroll" value={documentBasis.needsReviewDocuments.length} detail="OCR eller tekst" tone={documentBasis.needsReviewDocuments.length ? "warn" : "ok"} />
+                <StatusCard label="Trenger kontroll" value={visibleReviewDocuments.length} detail="OCR eller tekst" tone={visibleReviewDocuments.length ? "warn" : "ok"} />
                 <StatusCard label="Ikke lesbare" value={documentBasis.unreadableDocuments.length} detail="brukerhandling" tone={documentBasis.unreadableDocuments.length ? "warn" : "ok"} />
               </div>
               {coverageAudit ? (
@@ -3582,8 +3689,23 @@ export default function App() {
               readiness={caseReadiness}
               preliminaryBanner={preliminarySaksromBanner}
               nextActionTitle={nextAction.title}
+              systemStatus={{
+                totalDocuments: importProgress.totalDocuments || documentBasis.totalCount,
+                readyDocuments: documentBasis.readyCount,
+                attentionDocuments: visibleReviewDocuments.length,
+                failedDocuments: documentBasis.unreadableDocuments.length,
+                processingDocuments: importProgress.processingDocuments,
+                remainingDocuments: importProgress.remainingDocuments,
+                sourceCoveragePercent: documentBasis.sourceCoveragePercent || caseScopedSourceCoveragePercent,
+                ocrCoveragePercent,
+                pendingOcrPages,
+                isImporting: importProgress.state === "processing",
+                currentPhaseLabel: importProgress.currentPhaseLabel,
+                etaLabel: importProgress.state === "processing" && importProgress.remainingDocuments > 0 ? importProgress.etaLabel : "Ferdig",
+                nextActionTitle: visibleReviewDocuments.length > 0 ? "Start kontroll" : nextAction.title
+              }}
               onOpenSource={openSource}
-              onOpenControl={() => setActiveView("control")}
+              onOpenControl={() => handleFirstUserPrimaryAction("review")}
               onOpenSimulation={() => setActiveView("litigationSimulation")}
               onRunCommand={executeLegalCommandInput}
               onChooseDocuments={handleChooseFiles}
@@ -3829,11 +3951,24 @@ export default function App() {
         document={previewDocument}
         sources={previewDocumentSources}
         isOpen={Boolean(previewDocument)}
+        approvalState={
+          previewDocument && approvalSavingId === previewDocument.id
+            ? "saving"
+            : previewDocument && approvalSuccessId === previewDocument.id
+              ? "approved"
+              : "idle"
+        }
+        attentionRemaining={visibleReviewDocuments.filter((row) => row.id !== previewDocument?.id).length}
         onClose={() => setPreviewDocument(null)}
         onApproveAsSource={(documentId) => void handleApprovePreviewDocument(documentId)}
         onExcludeFromCase={(documentId) => void handleExcludePreviewDocument(documentId)}
         onReplaceFile={(documentId) => void handleReplacePreviewDocument(documentId)}
       />
+      {approvalToast ? (
+        <div className="snackbar" role="status" aria-live="polite">
+          {approvalToast}
+        </div>
+      ) : null}
       <ImportCompletionModal />
       <CaseSwitcher
         open={casePickerOpen && showNavigation}

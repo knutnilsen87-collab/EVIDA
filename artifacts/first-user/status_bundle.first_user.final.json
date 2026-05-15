@@ -5,7 +5,7 @@
     "release_candidate_id":  "evida-0.1.0-alpha-local-2026-05-13",
     "commit_sha":  "local-working-tree",
     "created_at":  "2026-05-13T11:38:36Z",
-    "updated_at":  "2026-05-14T19:39:36.3110789Z",
+    "updated_at":  "2026-05-15T07:35:43.4752216+02:00",
     "current_state":  {
                           "lifecycle_state":  "evidence_collected",
                           "status":  "blocked",
@@ -14,7 +14,7 @@
                       },
     "summary":  {
                     "short_summary":  "Automated evidence has improved, but first-user release remains blocked.",
-                    "technical_summary":  "Desktop/release gates pass; Maven/backend tests and gitleaks secret scan now pass locally. Import progress UX now has aggregate progress/ETA and in-app control preview coverage verified by frontend tests/build. A fresh Tauri release build completed and updated Evida.exe/installers plus checksums. First-user approval remains blocked by incomplete critical invariants, unsigned Windows artifacts, missing signed SBOM/CI SCA/SAST, missing clean-machine smoke, and missing approvals.",
+                    "technical_summary":  "Desktop/release gates pass; Maven/backend tests and gitleaks secret scan now pass locally. Import progress UX now has aggregate progress/ETA, approval feedback, in-app control preview, no-ETA-after-complete behavior, incomplete page-count handling, and Saksrom system-status routing verified by frontend tests/build. A fresh Tauri release build completed and updated Evida.exe/installers plus checksums. First-user approval remains blocked by incomplete critical invariants, unsigned Windows artifacts, missing signed SBOM/CI SCA/SAST, missing clean-machine smoke, and missing approvals.",
                     "user_visible_summary":  "Not approved for first user yet."
                 },
     "scope_lock":  {

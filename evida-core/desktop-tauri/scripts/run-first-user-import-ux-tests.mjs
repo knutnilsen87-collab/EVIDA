@@ -21,7 +21,8 @@ const {
   canApproveSourceAfterPreview,
   deriveImportUxSummary,
   getAiReadyDocumentIds,
-  getReviewDocuments
+  getReviewDocuments,
+  summarizeImportProgress
 } = await importTsModule("../src/features/documents/importUx.ts");
 
 const startedAt = 1_000;
@@ -55,7 +56,7 @@ assert.equal(summary.progressLabel, "10 av 39 dokumenter behandlet", "39-documen
 assert.match(summary.etaLabel, /^ETA: ca\. \d+ min \d+ sek$/, "ETA is visible for active 39-document import");
 assert.equal(summary.progress.state, "processing", "active import is not marked complete while documents remain");
 assert.equal(summary.progress.title, "Behandler dokumenter", "processing import uses the non-terminal title");
-assert.equal(summary.nextStep.primaryAction.label, "Se dokumenter som trenger kontroll", "exactly one user-facing primary action is selected");
+assert.equal(summary.nextStep.primaryAction.label, "Start kontroll", "review action is a clear primary CTA");
 assert.deepEqual(
   summary.gapMessages,
   [
@@ -69,6 +70,15 @@ assert.deepEqual(getReviewDocuments(documentBasis).map((row) => row.id), ["DOC-r
 assert.equal(canApproveSourceAfterPreview(false), false, "source approval is blocked before preview confirmation");
 assert.equal(canApproveSourceAfterPreview(true), true, "source approval is enabled after preview confirmation");
 
+const completedSummary = summarizeImportProgress({
+  items: Array.from({ length: 41 }, () => ({ status: "completed", startedAt })),
+  nowMs,
+  totalDocuments: 41
+});
+assert.equal(completedSummary.state, "complete", "terminal documents produce complete import state");
+assert.equal(completedSummary.remainingDocuments, 0, "complete import has zero remaining documents");
+assert.equal(completedSummary.etaLabel, "Ferdig", "complete import never shows ETA beregnes");
+
 const aiReadyIds = getAiReadyDocumentIds([
   { id: "DOC-ready", canUseInAnswer: true },
   { id: "DOC-review", canUseInAnswer: false },
@@ -79,15 +89,22 @@ assert.deepEqual([...aiReadyIds], ["DOC-ready"], "AI-ready source set excludes u
 const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
 assert.match(appSource, /Åpne preview/, "review row exposes a direct preview action");
 assert.match(appSource, /handlePreviewDocument\(row\)/, "preview action targets the selected document row");
-assert.match(appSource, /disabled=\{mode === "review" && !canApproveSourceAfterPreview/, "approve button requires the confirmation checkbox");
+assert.match(appSource, /canApproveSourceAfterPreview\(Boolean\(reviewApprovalChecks\[row\.id\]\)\)/, "approve button requires the confirmation checkbox");
+assert.match(appSource, /Godkjenner \.\.\./, "approval action has an explicit saving state");
+assert.match(appSource, /Godkjent\. Neste dokument åpnet\./, "preview approval guides user to next document");
+assert.match(appSource, /Alle dokumenter er kontrollert\./, "final approval state is visible");
 assert.match(appSource, /Saksgrunnlaget er ikke komplett ennå\./, "preliminary Saksrom warning is explicit");
 assert.match(appSource, /Mangler nå:/, "import completion modal names current gaps");
 assert.match(appSource, /sources=\{aiReadySources\}/, "CaseRoom receives only AI-ready sources");
 assert.match(appSource, /hasNonAiReadySources/, "AI workrooms are gated when source objects are not AI-ready");
 assert.match(appSource, /DocumentPreviewDrawer/, "preview opens inside Evida instead of Explorer");
 assert.match(appSource, /documents-needing-control/, "attention navigation has a stable section target");
+const caseRoomSource = await readFile(new URL("../src/components/CaseRoomView.tsx", import.meta.url), "utf8");
+assert.match(caseRoomSource, /isSystemStatusQuestion/, "Saksrom routes import and control status questions before case analysis");
+assert.match(caseRoomSource, /safe-local-system-status/, "system status answers are recorded without legal source retrieval");
+assert.match(caseRoomSource, /ETA er ikke relevant nå, fordi importen ikke kjører/, "inactive import status does not claim ETA is calculating");
 for (const staleLabel of ["View details", "Run OCR", "Open preliminary Saksrom", "Files imported", "Requiring OCR"]) {
   assert.equal(appSource.includes(staleLabel), false, `stale import modal label is removed: ${staleLabel}`);
 }
 
-console.log("first-user import UX tests passed (20 assertions).");
+console.log("first-user import UX tests passed.");

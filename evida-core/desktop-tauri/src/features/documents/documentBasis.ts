@@ -4,6 +4,7 @@ export type DocumentProcessingState =
   | "pending"
   | "processing"
   | "ready"
+  | "reviewed"
   | "needs_text_control"
   | "needs_user_action"
   | "rejected";
@@ -67,7 +68,7 @@ export function deriveDocumentBasisSummary(args: {
       audit: args.audit
     })
   );
-  const readyDocuments = rows.filter((row) => row.state === "ready");
+  const readyDocuments = rows.filter((row) => row.state === "ready" || row.state === "reviewed");
   const needsReviewDocuments = rows.filter((row) => row.state === "needs_text_control" || row.state === "pending" || row.state === "processing");
   const unreadableDocuments = rows.filter((row) => row.state === "needs_user_action" || row.state === "rejected");
   const totalPages = rows.reduce((sum, row) => sum + row.pageCount, 0);
@@ -139,13 +140,16 @@ function deriveDocumentProcessingState(
   if (hasRejection) {
     return "rejected";
   }
+  if (hasApproval && document.source_count > 0) {
+    return "ready";
+  }
+  if (hasApproval) {
+    return "reviewed";
+  }
   if (HARD_FAILURE_STATUSES.has(document.ocr_status) || importItem?.status === "failed" || importItem?.status === "unsupported") {
     return "needs_user_action";
   }
   if (document.source_count > 0 && READY_OCR_STATUSES.has(document.ocr_status) && openReviewItems.length === 0) {
-    return "ready";
-  }
-  if (hasApproval && document.source_count > 0) {
     return "ready";
   }
   if (document.pending_ocr_page_count > 0 || document.ocr_status === "needs_ocr" || document.ocr_status === "partial_needs_ocr" || openReviewItems.length > 0) {
@@ -170,6 +174,7 @@ function stateLabel(state: DocumentProcessingState) {
     pending: "Venter på behandling",
     processing: "Behandles nå",
     ready: "Klar for Saksrom",
+    reviewed: "Kontrollert",
     needs_text_control: "Trenger OCR eller tekstkontroll",
     needs_user_action: "Kan ikke leses uten brukerhandling",
     rejected: "Avvist fra AI-grunnlag"
@@ -180,6 +185,9 @@ function stateLabel(state: DocumentProcessingState) {
 function statusReason(document: DocumentSummary, importItem: ImportItem | undefined, state: DocumentProcessingState) {
   if (state === "ready") {
     return "Dokumentet har sporbare kildeutdrag og kan brukes i svar.";
+  }
+  if (state === "reviewed") {
+    return "Dokumentet er manuelt kontrollert, men har ikke lesbare kildeutdrag for AI-sitering.";
   }
   if (document.pending_ocr_page_count > 0) {
     return `${document.pending_ocr_page_count} sider mangler maskinlesbar tekst.`;
@@ -195,6 +203,7 @@ function recommendedAction(state: DocumentProcessingState) {
     pending: "Vent på import eller oppdater kildeutdrag.",
     processing: "Vent til dokumentmotoren er ferdig.",
     ready: "Ingen handling nødvendig.",
+    reviewed: "Ingen handling nødvendig. Legg til OCR/tekst hvis dokumentet skal kunne siteres av AI.",
     needs_text_control: "Forhåndsvis originalen og godkjenn eller avvis tekstgrunnlaget.",
     needs_user_action: "Last opp en lesbar kopi, eller marker dokumentet manuelt kontrollert.",
     rejected: "Dokumentet er holdt utenfor AI-grunnlaget."
@@ -206,12 +215,12 @@ function etaLabel(rows: DocumentBasisRow[], hasActiveProcessing: boolean) {
   if (rows.length === 0) {
     return "Venter på dokumenter";
   }
-  if (hasActiveProcessing) {
-    return "ETA beregnes mens dokumentmotoren jobber";
-  }
-  const remaining = rows.filter((row) => row.state !== "ready" && row.state !== "rejected").length;
+  const remaining = rows.filter((row) => row.state !== "ready" && row.state !== "reviewed" && row.state !== "rejected").length;
   if (remaining === 0) {
     return "Klar nå";
+  }
+  if (hasActiveProcessing) {
+    return "ETA beregnes mens dokumentmotoren jobber";
   }
   return `${remaining} dokument${remaining === 1 ? "" : "er"} trenger kontroll`;
 }
@@ -223,6 +232,6 @@ function primaryStatusLabel(rows: DocumentBasisRow[], hasActiveProcessing: boole
   if (hasActiveProcessing) {
     return "Behandler dokumentgrunnlag";
   }
-  const ready = rows.filter((row) => row.state === "ready").length;
+  const ready = rows.filter((row) => row.state === "ready" || row.state === "reviewed").length;
   return `${ready} av ${rows.length} dokumenter er klare`;
 }

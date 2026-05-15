@@ -10,6 +10,8 @@ export interface ImportAttentionItem {
   status?: string;
   canApprove?: boolean;
   approvalChecked?: boolean;
+  sourceCount?: number;
+  approvalState?: "idle" | "saving" | "approved";
 }
 
 interface ImportProgressSummaryProps {
@@ -80,6 +82,7 @@ export function ImportProgressSummary({
   const isComplete = state === "complete";
   const isAttentionState = state === "complete_with_attention" || state === "complete_with_errors";
   const safeProgress = Math.max(0, Math.min(100, progressPercent));
+  const showEta = state === "processing" && (remainingDocuments > 0 || processingDocuments > 0);
 
   return (
     <section className={`import-progress-summary import-progress-summary--${state}`} aria-live="polite">
@@ -114,8 +117,12 @@ export function ImportProgressSummary({
         <strong>{safeProgress} %</strong>
         <span>Fase</span>
         <strong>{currentPhaseLabel}</strong>
-        <span>ETA</span>
-        <strong>{formatEtaLabel(etaSeconds)}</strong>
+        {showEta ? (
+          <>
+            <span>ETA</span>
+            <strong>{formatEtaLabel(etaSeconds)}</strong>
+          </>
+        ) : null}
         <span>Importert</span>
         <strong>{importedDocuments ?? terminalDocuments} av {totalDocuments}</strong>
         <span>Behandles nå</span>
@@ -174,7 +181,7 @@ export function ImportProgressSummary({
         <div className="import-progress-summary__actions">
           {onShowAttentionItems ? (
             <button className="button-primary" type="button" aria-controls="documents-needing-control" onClick={onShowAttentionItems}>
-              Se dokumenter som trenger kontroll
+              Start kontroll
             </button>
           ) : null}
           {onShowDetails ? (
@@ -202,8 +209,19 @@ export function ImportProgressSummary({
                   </button>
                 ) : null}
                 {item.canApprove && onApproveAttentionItem ? (
-                  <button className="button-primary" type="button" disabled={!item.approvalChecked} onClick={() => onApproveAttentionItem(item)}>
-                    Godkjenn som kilde
+                  <button
+                    className="button-primary"
+                    type="button"
+                    disabled={!item.approvalChecked || item.approvalState === "saving" || item.approvalState === "approved"}
+                    onClick={() => onApproveAttentionItem(item)}
+                  >
+                    {item.approvalState === "saving"
+                      ? "Godkjenner ..."
+                      : item.approvalState === "approved"
+                        ? "Godkjent"
+                        : item.sourceCount && item.sourceCount > 0
+                          ? "Godkjenn som kilde"
+                          : "Marker som kontrollert"}
                   </button>
                 ) : null}
               </div>
