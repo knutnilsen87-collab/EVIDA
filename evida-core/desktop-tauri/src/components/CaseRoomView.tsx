@@ -1212,7 +1212,7 @@ export function CaseRoomView({
 
   function scrollToContextIfIdle(target: HTMLElement | null, behavior: ScrollBehavior = "smooth") {
     const userScrolledRecently = Date.now() - lastUserScrollAtRef.current < 1500;
-    if (streamingAnswer || isAsking || isImporting || userScrolledRecently) {
+    if (streamingAnswer || isAsking || isImporting || hasActiveProcessing || userScrolledRecently) {
       return;
     }
     window.requestAnimationFrame(() => scrollToContextTarget(target, behavior));
@@ -1328,7 +1328,7 @@ export function CaseRoomView({
       return;
     }
     scrollToContextIfIdle(caseSummaryRef.current);
-  }, [isCaseSummaryReady, coverage, selectedCase?.id]);
+  }, [isCaseSummaryReady, selectedCase?.id]);
 
   useEffect(() => {
     if (!shouldShowNamingCard) {

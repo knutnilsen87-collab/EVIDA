@@ -60,6 +60,9 @@ assert.ok(sidebar.includes("aria-current"), "sidebar marks the active workroom f
 assert.ok(sidebar.includes("sidebar-item__marker"), "sidebar uses a non-text color marker");
 assert.ok(styles.includes(".sidebar-actions .button-primary"), "sidebar primary action keeps visible button styling");
 assert.ok(styles.includes(".app-shell[data-theme=\"dark\"] .sidebar-actions .button-primary"), "dark sidebar primary action keeps visible contrast");
+assert.ok(styles.includes("overflow-anchor: none"), "workspace disables browser scroll anchoring during live import updates");
+assert.ok(styles.includes("min-height: 214px"), "import status grid reserves stable height during processing");
+assert.ok(caseRoom.includes("hasActiveProcessing || userScrolledRecently"), "Saksrom auto-reveal is blocked while processing is active");
 assert.ok(app.includes("data-visual-mode={visualMode}"), "app applies persisted visual mode to root shell");
 assert.ok(app.includes("VISUAL_MODE_STORAGE_KEY"), "visual mode persists in localStorage");
 assert.ok(app.includes("CaseVitalityBar"), "case vitality bar is mounted");

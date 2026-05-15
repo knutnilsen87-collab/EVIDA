@@ -207,7 +207,7 @@ assert.match(caseRoomSource, /safe-local-system-status/, "system status answers 
 assert.match(caseRoomSource, /ETA er ikke relevant nå, fordi importen ikke kjører/, "inactive import status does not claim ETA is calculating");
 assert.match(caseRoomSource, /shouldUseExternalAiProvider/, "Saksrom has an explicit provider policy gate");
 assert.ok(
-  caseRoomSource.includes("streamingAnswer || isAsking || isImporting || userScrolledRecently"),
+  caseRoomSource.includes("streamingAnswer || isAsking || isImporting || hasActiveProcessing || userScrolledRecently"),
   "Saksrom does not auto-scroll while document import is active"
 );
 assert.ok(
