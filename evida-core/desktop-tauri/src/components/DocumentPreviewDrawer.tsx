@@ -74,7 +74,7 @@ export function DocumentPreviewDrawer({
   const sourceCoverage = Math.round(document.source_coverage_percent || 0);
   const hasExtractedText = extractedText.trim().length > 0;
   const hasUsableSources = document.source_count > 0;
-  const approveLabel = hasUsableSources ? "Godkjenn som kilde" : "Marker som kontrollert";
+  const approveLabel = hasUsableSources ? "Bruk som kildegrunnlag" : "Marker som kontrollert";
 
   return (
     <div className="drawer-backdrop" role="presentation" onClick={onClose}>

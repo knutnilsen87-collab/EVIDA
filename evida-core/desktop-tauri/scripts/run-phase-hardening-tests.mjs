@@ -14,7 +14,9 @@ const [
   signingDecision,
   prodChecklist,
   releaseChecklist,
-  settingsView
+  settingsView,
+  appSource,
+  caseRoomSource
 ] = await Promise.all([
   read("../../../docs/SECURITY_FOUNDATION_STATUS.md"),
   read("../../../docs/AI_SOURCE_TRUST_QA.md"),
@@ -24,7 +26,9 @@ const [
   read("../../../docs/RELEASE_SIGNING_DECISION.md"),
   read("../../../docs/PROD_READINESS_CHECKLIST.md"),
   read("../../../docs/RELEASE_CHECKLIST.md"),
-  read("../src/components/settings/SettingsView.tsx")
+  read("../src/components/settings/SettingsView.tsx"),
+  read("../src/App.tsx"),
+  read("../src/components/CaseRoomView.tsx")
 ]);
 
 assert.ok(securityStatus.includes("AES-256-GCM"), "security status documents field encryption");
@@ -51,6 +55,9 @@ assert.ok(settingsView.includes("allow_full_document_sending: false"), "settings
 assert.ok(settingsView.includes("require_external_ai_confirmation: true"), "settings default external AI confirmation is on");
 assert.ok(settingsView.includes("no_document_text_logs: true"), "settings default document text logging is off");
 assert.ok(settingsView.includes("no_chat_logs: true"), "settings default chat logging is off");
+assert.ok(appSource.includes("DEMO_MODE"), "demo login is explicitly gated");
+assert.equal(appSource.includes("eval-2026"), false, "demo password is not present as a production-visible literal");
+assert.ok(caseRoomSource.includes("shouldUseExternalAiProvider"), "Saksrom has an explicit external provider policy gate");
+assert.ok(caseRoomSource.includes("policy-blokkert"), "provider policy block is visible to user");
 
-console.log("phase hardening tests passed (24 assertions).");
-
+console.log("phase hardening tests passed.");

@@ -5,6 +5,7 @@ export type WorkroomKey =
   | "overview"
   | "caseRoom"
   | "documents"
+  | "documentControl"
   | "chronology"
   | "evidence"
   | "arguments"
@@ -48,6 +49,14 @@ export const WORKROOM_THEME: Record<WorkroomKey, WorkroomTheme> = {
     strongTint: "#e0e7ff",
     icon: "files",
     purpose: "Importer, kontroller og organiser dokumentgrunnlaget"
+  },
+  documentControl: {
+    label: "Dokumentkontroll",
+    accent: "var(--evida-teal)",
+    tint: "#f0fdfa",
+    strongTint: "#ccfbf1",
+    icon: "shield-check",
+    purpose: "Kontroller dokumenter som trenger manuell vurdering"
   },
   chronology: {
     label: "Kronologi",

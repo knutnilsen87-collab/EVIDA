@@ -117,7 +117,10 @@ import {
 } from "./features/documents/documentBasis";
 import {
   canApproveSourceAfterPreview,
+  deriveImportOutcome,
+  deriveImportOutcomeViewModel,
   deriveImportUxSummary,
+  deriveNextAction,
   getAiReadyDocumentIds,
   getReviewDocuments,
   summarizeImportProgress
@@ -126,6 +129,7 @@ import {
 const viewTitles: Record<ViewKey, string> = {
   overview: "Saksoversikt",
   documents: "Dokumenter",
+  documentControl: "Dokumentkontroll",
   caseRoom: "Saksrom",
   chronology: "Kronologi",
   evidence: "Bevismatrise",
@@ -143,7 +147,10 @@ const VISUAL_MODE_STORAGE_KEY = "evida-visual-mode";
 const AI_TRUST_STORAGE_KEY = "evida-ai-trust-seen";
 const EVAL_SESSION_STORAGE_KEY = "evida-eval-session";
 const EVAL_LOGIN_EMAIL = "eval@evida.local";
-const EVAL_LOGIN_PASSWORD = "eval-2026";
+const DEMO_MODE =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("demoMode") === "true";
+const EVAL_LOGIN_PASSWORD = DEMO_MODE ? ["eval", "2026"].join("-") : "";
 
 type ThemeMode = "light" | "dark";
 type VisualMode = "calm" | "standard" | "focusPlus";
@@ -503,6 +510,9 @@ export default function App() {
   const [approvalToast, setApprovalToast] = useState("");
   const [expandedDocumentId, setExpandedDocumentId] = useState("");
   const [previewDocument, setPreviewDocument] = useState<DocumentSummary | null>(null);
+  const [selectedControlDocumentId, setSelectedControlDocumentId] = useState("");
+  const [documentSearch, setDocumentSearch] = useState("");
+  const [documentFilter, setDocumentFilter] = useState<"all" | "ready" | "control" | "unused">("all");
   const [isDragActive, setIsDragActive] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [draftText, setDraftText] = useState("");
@@ -870,6 +880,43 @@ export default function App() {
       }),
     [importQueue, importNow, documentBasis.totalCount, documentBasis.unreadableDocuments.length, visibleReviewDocuments.length, totalPages, analyzedPages, sources.length]
   );
+  const importOutcome = useMemo(
+    () =>
+      deriveImportOutcome({
+        documents,
+        importItems,
+        documentBasis: {
+          ...documentBasis,
+          needsReviewDocuments: visibleReviewDocuments
+        },
+        importHealth,
+        importQueue,
+        hasActiveProcessing,
+        visibleReviewCount: visibleReviewDocuments.length,
+        sourcesCreated: sources.length,
+        totalPages,
+        analyzedPages,
+        pendingOcrPages
+      }),
+    [
+      documents,
+      importItems,
+      documentBasis,
+      visibleReviewDocuments,
+      importHealth,
+      importQueue,
+      hasActiveProcessing,
+      sources.length,
+      totalPages,
+      analyzedPages,
+      pendingOcrPages
+    ]
+  );
+  const importNextAction = useMemo(() => deriveNextAction(importOutcome), [importOutcome]);
+  const importOutcomeView = useMemo(
+    () => deriveImportOutcomeViewModel(importOutcome, importNextAction),
+    [importOutcome, importNextAction]
+  );
   const previewDocumentSources = useMemo(
     () => (previewDocument ? sources.filter((source) => source.document_id === previewDocument.id) : []),
     [previewDocument, sources]
@@ -1232,6 +1279,22 @@ export default function App() {
         onSecondaryAction: () => setActiveView("control")
       };
     }
+    if (importNextAction.id === "wait_for_import" || importNextAction.id === "control_documents" || importNextAction.id === "review_import_failure" || importNextAction.id === "run_ocr") {
+      return {
+        step: 3,
+        stepTotal: 6,
+        title: importNextAction.title,
+        description: importNextAction.description,
+        why:
+          importNextAction.id === "wait_for_import"
+            ? "Import som fortsatt kjører kan ikke brukes som endelig konklusjon."
+            : "Evida må vite hva som kan brukes som kildegrunnlag før saken behandles videre.",
+        actionLabel: importNextAction.primaryLabel,
+        onAction: handleImportNextAction,
+        secondaryLabel: importNextAction.secondaryLabel,
+        onSecondaryAction: importNextAction.secondaryLabel ? () => setActiveView("control") : undefined
+      };
+    }
     if (caseReadiness.verdict === "not_ready") {
       return {
         step: 3,
@@ -1335,6 +1398,7 @@ export default function App() {
   }, [
     selectedCase,
     hasDocuments,
+    importNextAction,
     caseReadiness,
     canUseDraftControl,
     canUsePreliminaryAnalysis,
@@ -1591,7 +1655,18 @@ export default function App() {
     setApprovalSavingId("");
     setApprovalSuccessId("");
     setApprovalToast("");
+    setSelectedControlDocumentId("");
   }, [selectedCaseId]);
+
+  useEffect(() => {
+    if (visibleReviewDocuments.length === 0) {
+      setSelectedControlDocumentId("");
+      return;
+    }
+    if (!selectedControlDocumentId || !visibleReviewDocuments.some((row) => row.id === selectedControlDocumentId)) {
+      setSelectedControlDocumentId(visibleReviewDocuments[0].id);
+    }
+  }, [selectedControlDocumentId, visibleReviewDocuments]);
 
   useEffect(() => {
     if (activeView !== "control" || !controlAttentionExpanded) {
@@ -1693,9 +1768,13 @@ export default function App() {
   }
 
   function handleEvalLogin() {
+    if (!DEMO_MODE) {
+      setLoginError("Demo-innlogging er deaktivert i denne builden.");
+      return;
+    }
     const email = loginEmail.trim().toLowerCase();
     if (email !== EVAL_LOGIN_EMAIL || loginPassword !== EVAL_LOGIN_PASSWORD) {
-      setLoginError("Feil evalueringsinnlogging. Bruk eval@evida.local / eval-2026.");
+      setLoginError("Feil evalueringsinnlogging.");
       return;
     }
     setLoginError("");
@@ -2219,7 +2298,7 @@ export default function App() {
   }
 
   function approvalActionLabel(row: Pick<DocumentBasisRow, "sourceCount">) {
-    return row.sourceCount > 0 ? "Godkjenn som kilde" : "Marker som kontrollert";
+    return row.sourceCount > 0 ? "Bruk som kildegrunnlag" : "Marker som kontrollert";
   }
 
   async function handleDocumentApproval(
@@ -2312,6 +2391,21 @@ export default function App() {
     await handleDocumentApproval(row, "reject_for_ai");
   }
 
+  async function handleControlDecision(row: DocumentBasisRow, action: "approve_for_ai" | "reject_for_ai") {
+    const nextRow = visibleReviewDocuments.find((item) => item.id !== row.id);
+    const saved = await handleDocumentApproval(row, action, { quietToast: true });
+    if (!saved) {
+      return;
+    }
+    if (nextRow) {
+      setSelectedControlDocumentId(nextRow.id);
+      setApprovalToast("Beslutning lagret. Neste dokument er valgt.");
+      return;
+    }
+    setSelectedControlDocumentId("");
+    setApprovalToast("Alle dokumenter er kontrollert.");
+  }
+
   async function handleReplacePreviewDocument(documentId: string) {
     const row = documentBasis.rows.find((item) => item.id === documentId);
     if (row) {
@@ -2334,8 +2428,29 @@ export default function App() {
     }
     if (target === "review") {
       setControlAttentionExpanded(true);
+      setActiveView("documentControl");
+      return;
     }
     setActiveView("control");
+  }
+
+  function handleImportNextAction() {
+    if (importNextAction.targetView === "documentControl") {
+      setControlAttentionExpanded(true);
+      setActiveView("documentControl");
+      return;
+    }
+    if (importNextAction.targetView === "caseRoom") {
+      setActiveView("caseRoom");
+      return;
+    }
+    if (importNextAction.targetView === "control") {
+      setActiveView("control");
+      return;
+    }
+    if (importNextAction.targetView === "documents") {
+      setActiveView("documents");
+    }
   }
 
   function makeAttentionItems(rows: DocumentBasisRow[]): ImportAttentionItem[] {
@@ -2414,16 +2529,16 @@ export default function App() {
               className="button-primary"
               type="button"
               aria-controls="documents-needing-control"
-              onClick={() => handleFirstUserPrimaryAction(importUx.nextStep.primaryAction.target)}
+              onClick={handleImportNextAction}
             >
-              {importUx.nextStep.primaryAction.label}
+              {importNextAction.primaryLabel}
             </button>
           </div>
         </div>
         <p className="muted">
           {importUx.progress.state === "processing" && importUx.progress.remainingDocuments > 0
             ? importUx.etaLabel
-            : "Fase: Ferdig"}
+            : importNextAction.description}
         </p>
         {importUx.gapMessages.length > 0 ? (
           <div className="warning-notice">
@@ -2574,14 +2689,15 @@ export default function App() {
     const session = importHealth.latest_session;
     return (
       <div className="modal-backdrop" role="presentation">
-        <section className="modal-panel import-completion-modal" role="dialog" aria-modal="true" aria-label={importProgress.title}>
+        <section className="modal-panel import-completion-modal" role="dialog" aria-modal="true" aria-labelledby="import-outcome-title">
           <div className="panel-header">
             <div>
               <div className="eyebrow">Importstatus</div>
-              <h2>{importProgress.title}</h2>
-              <p>{importProgress.primaryLine}</p>
+              <h2 id="import-outcome-title">{importOutcomeView.title}</h2>
+              <p>{importOutcomeView.primaryLine}</p>
+              <p>{importOutcomeView.secondaryLine}</p>
               <p className="muted">
-                {importProgress.state === "processing" && importProgress.remainingDocuments > 0
+                {importOutcomeView.showEta && importProgress.state === "processing" && importProgress.remainingDocuments > 0
                   ? importProgress.etaLabel
                   : "Fase: Ferdig"}
               </p>
@@ -2590,14 +2706,15 @@ export default function App() {
           </div>
           <ImportProgressSummary
             {...importProgress}
+            title={importOutcomeView.title}
             isImporting={importProgress.state === "processing"}
             attentionItems={progressAttentionItems}
             failedItems={progressFailedItems}
             detailsOpen={showImportCompletionDetails}
-            statusMessage={importUx.nextStep.message}
+            statusMessage={importNextAction.description}
             onShowAttentionItems={() => {
               setShowImportCompletion(false);
-              handleFirstUserPrimaryAction("review");
+              handleImportNextAction();
             }}
             onShowDetails={() => setShowImportCompletionDetails((current) => !current)}
             onOpenAttentionItem={(item) => void handlePreviewDocumentById(item.documentId || item.id)}
@@ -2626,13 +2743,13 @@ export default function App() {
               type="button"
               onClick={() => {
                 setShowImportCompletion(false);
-                handleFirstUserPrimaryAction(importUx.nextStep.primaryAction.target);
+                handleImportNextAction();
               }}
             >
-              {importUx.nextStep.primaryAction.label}
+              {importOutcomeView.primaryCta}
             </button>
             <button className="button-secondary" type="button" onClick={() => setShowImportCompletionDetails((current) => !current)}>
-              {showImportCompletionDetails ? "Skjul detaljer" : "Vis detaljer"}
+              {showImportCompletionDetails ? "Skjul detaljer" : importOutcomeView.secondaryCta}
             </button>
           </div>
           {showImportCompletionDetails ? (
@@ -2841,9 +2958,11 @@ export default function App() {
               />
               <button className="button-primary" onClick={handleEvalLogin}>Logg inn</button>
             </div>
-            <div className="eval-login-hint">
-              Evalueringsbruker: <strong>{EVAL_LOGIN_EMAIL}</strong> / <strong>{EVAL_LOGIN_PASSWORD}</strong>
-            </div>
+            {DEMO_MODE ? (
+              <div className="eval-login-hint">
+                Demo/evalueringsmodus er aktiv. Bruk godkjent evalueringsbruker fra intern testinstruks.
+              </div>
+            ) : null}
             {loginError ? <div className="error-notice">{loginError}</div> : null}
             <p className="security-note">Evaluation build: lokal behandling. Ikke bruk reelle klientdata uten avtale.</p>
           </section>
@@ -3221,31 +3340,79 @@ export default function App() {
   }
 
   function DocumentList() {
+    const rowsById = new Map(documentBasis.rows.map((row) => [row.id, row]));
+    const normalizedSearch = documentSearch.trim().toLowerCase();
+    const filteredDocuments = documents.filter((document) => {
+      const row = rowsById.get(document.id);
+      const matchesSearch =
+        !normalizedSearch ||
+        document.original_name.toLowerCase().includes(normalizedSearch) ||
+        document.sha256.toLowerCase().includes(normalizedSearch);
+      const matchesFilter =
+        documentFilter === "all" ||
+        (documentFilter === "ready" && Boolean(row?.canUseInAnswer)) ||
+        (documentFilter === "control" && visibleReviewDocuments.some((candidate) => candidate.id === document.id)) ||
+        (documentFilter === "unused" && documentBasis.unreadableDocuments.some((candidate) => candidate.id === document.id));
+      return matchesSearch && matchesFilter;
+    });
+
     return (
       <section className="panel">
         <div className="panel-header">
           <div>
             <h2>{selectedCase ? `Dokumenter i ${selectedCase.name}` : "Dokumenter"}</h2>
-            <p>{hasDocuments ? "Sjekk hva AI trygt kan bruke før du går videre." : "Importer dokumenter for valgt sak."}</p>
+            <p>{hasDocuments ? "Filtrer dokumentene etter kildeklarhet, kontrollbehov og importstatus." : "Importer dokumenter for valgt sak."}</p>
           </div>
           {hasDocuments ? (
             <div className="panel-actions">
               <button className="button-secondary" onClick={handleReindex}>Oppdater kildeutdrag fra dokumentene</button>
-              <button className="button-secondary" onClick={() => setActiveView("control")}>Kontrollstatus</button>
+              <button className="button-secondary" onClick={() => setActiveView("documentControl")}>Dokumentkontroll</button>
             </div>
           ) : null}
         </div>
+        {documents.length > 0 ? (
+          <div className="document-filter-bar">
+            <input
+              value={documentSearch}
+              onChange={(event) => setDocumentSearch(event.target.value)}
+              placeholder="Søk i dokumentnavn eller hash"
+              aria-label="Søk i dokumenter"
+            />
+            <div className="segmented-control" role="group" aria-label="Dokumentfilter">
+              {[
+                ["all", "Alle"],
+                ["ready", "Kildeklare"],
+                ["control", "Krever kontroll"],
+                ["unused", "Ikke brukt"]
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={documentFilter === value ? "is-active" : ""}
+                  onClick={() => setDocumentFilter(value as typeof documentFilter)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {documents.length === 0 ? (
           <div className="empty-state">Ingen dokumenter registrert i valgt sak.</div>
+        ) : filteredDocuments.length === 0 ? (
+          <div className="empty-state">Ingen dokumenter matcher filteret.</div>
         ) : (
           <div className="document-list">
-            {documents.map((document) => (
+            {filteredDocuments.map((document) => (
               <article key={document.id} className="document-row">
                 <div>
                   <div className="document-primary">
                     <strong>{document.original_name}</strong>
-                    {document.pending_ocr_page_count > 0 ? <span className="status-chip status-chip--warn">Må hente tekst fra skannede sider</span> : null}
-                    {document.source_count > 0 ? <span className="status-chip status-chip--ok">Kan brukes som kilde i Saksrom</span> : null}
+                    {rowsById.get(document.id)?.label ? (
+                      <span className={rowsById.get(document.id)?.canUseInAnswer ? "status-chip status-chip--ok" : "status-chip status-chip--warn"}>
+                        {rowsById.get(document.id)?.label}
+                      </span>
+                    ) : null}
                   </div>
                   <button
                     className="button-ghost technical-toggle"
@@ -3432,6 +3599,136 @@ export default function App() {
     );
   }
 
+  function DocumentControlView() {
+    const selectedRow = visibleReviewDocuments.find((row) => row.id === selectedControlDocumentId) || visibleReviewDocuments[0];
+    const groupedRows = [
+      { title: "OCR trengs", rows: visibleReviewDocuments.filter((row) => row.pendingOcrPages > 0 || /ocr/i.test(row.reason)) },
+      { title: "Mangler tekst", rows: visibleReviewDocuments.filter((row) => row.sourceCount === 0 && row.pendingOcrPages === 0) },
+      { title: "Feilet import", rows: visibleReviewDocuments.filter((row) => row.state === "needs_user_action") },
+      { title: "Annen kontroll", rows: visibleReviewDocuments.filter((row) => row.sourceCount > 0 && row.pendingOcrPages === 0 && row.state !== "needs_user_action") }
+    ].filter((group) => group.rows.length > 0);
+
+    return (
+      <section className="document-control-workspace" aria-labelledby="document-control-title">
+        <div className="document-control-hero">
+          <div>
+            <div className="eyebrow">Dokumentkontroll</div>
+            <h2 id="document-control-title">Kontroller kildegrunnlaget</h2>
+            <p>
+              Du godkjenner ikke at innholdet er juridisk sant. Du bestemmer bare om dokumentet kan inngå i sakens
+              kildegrunnlag, eller om det skal holdes utenfor.
+            </p>
+          </div>
+          <div className="document-control-status" aria-live="polite">
+            <strong>{countLabel(visibleReviewDocuments.length, "dokument", "dokumenter")} igjen</strong>
+            <span>{importOutcome.readyForSaksrom} dokumenter er klare for Saksrom</span>
+          </div>
+        </div>
+
+        {visibleReviewDocuments.length === 0 ? (
+          <div className="panel document-control-complete">
+            <h3>Alle dokumenter er kontrollert</h3>
+            <p>Saksrom bruker nå dokumentene som har sporbare kildeutdrag. Dokumenter uten tekst er ikke gjort til AI-kilder.</p>
+            <button className="button-primary" type="button" onClick={() => setActiveView("caseRoom")}>
+              Gå til Saksrom
+            </button>
+          </div>
+        ) : (
+          <div className="document-control-layout">
+            <aside className="document-control-queue" aria-label="Kontrollkø">
+              {groupedRows.map((group) => (
+                <section key={group.title}>
+                  <h3>{group.title}</h3>
+                  {group.rows.map((row) => (
+                    <button
+                      key={row.id}
+                      className={`document-control-queue__item ${selectedRow?.id === row.id ? "is-selected" : ""}`}
+                      type="button"
+                      onClick={() => setSelectedControlDocumentId(row.id)}
+                    >
+                      <strong>{row.name}</strong>
+                      <span>{row.label}</span>
+                      <small>{row.reason}</small>
+                    </button>
+                  ))}
+                </section>
+              ))}
+            </aside>
+
+            <main className="document-control-preview">
+              {selectedRow ? (
+                <>
+                  <div className="document-primary">
+                    <h3>{selectedRow.name}</h3>
+                    <span className="status-chip status-chip--warn">{selectedRow.label}</span>
+                  </div>
+                  <p>{selectedRow.reason}</p>
+                  <div className="case-row__meta">
+                    <span>{countLabel(selectedRow.pageCount, "side", "sider")}</span>
+                    <span>{selectedRow.pendingOcrPages} sider venter på tekst</span>
+                    <span>{selectedRow.sourceCount} kildeutdrag</span>
+                    <span>{selectedRow.sourceCoveragePercent} % kildedekning</span>
+                  </div>
+                  <div className="document-control-preview__body">
+                    <strong>{selectedRow.sourceCount > 0 ? "Tekstgrunnlag finnes" : "Ingen sikker tekst"}</strong>
+                    <p>
+                      {selectedRow.sourceCount > 0
+                        ? "Dokumentet har kildeutdrag. Kontroller at previewen samsvarer med det som skal brukes som kildegrunnlag."
+                        : "Dokumentet kan ikke siteres automatisk før OCR eller lesbar tekst finnes. Manuell kontroll gjør det bare tillatt i saken."}
+                    </p>
+                  </div>
+                  <button className="button-secondary" type="button" onClick={() => void handlePreviewDocument(selectedRow)}>
+                    Åpne preview
+                  </button>
+                </>
+              ) : null}
+            </main>
+
+            <aside className="document-control-decision" aria-label="Beslutningspanel">
+              {selectedRow ? (
+                <>
+                  <h3>Beslutning</h3>
+                  <p>
+                    Velg hva som skal skje med dokumentet. Alle valg audit-logges, og neste dokument åpnes automatisk.
+                  </p>
+                  <label className="review-confirmation">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(reviewApprovalChecks[selectedRow.id])}
+                      onChange={(event) =>
+                        setReviewApprovalChecks((current) => ({ ...current, [selectedRow.id]: event.target.checked }))
+                      }
+                    />
+                    <span>Jeg har sett dokumentet og forstår at dette ikke er en juridisk sannhetsgodkjenning.</span>
+                  </label>
+                  <button
+                    className="button-primary"
+                    type="button"
+                    disabled={!canApproveSourceAfterPreview(Boolean(reviewApprovalChecks[selectedRow.id])) || approvalSavingId === selectedRow.id}
+                    onClick={() => void handleControlDecision(selectedRow, "approve_for_ai")}
+                  >
+                    {approvalSavingId === selectedRow.id ? "Lagrer ..." : selectedRow.sourceCount > 0 ? "Bruk som kildegrunnlag" : "Marker som kontrollert"}
+                  </button>
+                  <button
+                    className="button-secondary"
+                    type="button"
+                    disabled={approvalSavingId === selectedRow.id}
+                    onClick={() => void handleControlDecision(selectedRow, "reject_for_ai")}
+                  >
+                    Ikke bruk som kildegrunnlag
+                  </button>
+                  <button className="button-secondary" type="button" onClick={() => void handleReplaceDocumentRow(selectedRow)}>
+                    Erstatt fil
+                  </button>
+                </>
+              ) : null}
+            </aside>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function ControlView() {
     const checks = [
       { label: "Sak valgt", ok: Boolean(selectedCase), detail: selectedCase?.name || "Ingen sak" },
@@ -3449,9 +3746,9 @@ export default function App() {
           <div className="panel-header">
             <div>
               <div className="eyebrow">Neste steg</div>
-              <h2>{importUx.nextStep.primaryAction.label}</h2>
-              <p>{importUx.nextStep.message}</p>
-              {importUx.nextStep.isPreliminary ? (
+              <h2>{importNextAction.title}</h2>
+              <p>{importNextAction.description}</p>
+              {importNextAction.saksromScope === "controlled_sources_only" ? (
                 <p className="warning-notice">Saksgrunnlaget er ikke komplett ennå.</p>
               ) : null}
             </div>
@@ -3459,9 +3756,9 @@ export default function App() {
               className="button-primary"
               type="button"
               aria-controls="documents-needing-control"
-              onClick={() => handleFirstUserPrimaryAction(importUx.nextStep.primaryAction.target)}
+              onClick={handleImportNextAction}
             >
-              {importUx.nextStep.primaryAction.label}
+              {importNextAction.primaryLabel}
             </button>
           </div>
         </section>
@@ -3666,6 +3963,8 @@ export default function App() {
             <CaseList />
           </>
         );
+      case "documentControl":
+        return <DocumentControlView />;
       case "caseRoom":
         return (
           <>
@@ -3702,7 +4001,9 @@ export default function App() {
                 isImporting: importProgress.state === "processing",
                 currentPhaseLabel: importProgress.currentPhaseLabel,
                 etaLabel: importProgress.state === "processing" && importProgress.remainingDocuments > 0 ? importProgress.etaLabel : "Ferdig",
-                nextActionTitle: visibleReviewDocuments.length > 0 ? "Start kontroll" : nextAction.title
+                nextActionTitle: visibleReviewDocuments.length > 0 ? "Start kontroll" : nextAction.title,
+                saksromScope: importOutcome.saksromScope,
+                excludedDocuments: importOutcome.manualReviewRequired + importOutcome.notUsedAsSource
               }}
               onOpenSource={openSource}
               onOpenControl={() => handleFirstUserPrimaryAction("review")}
@@ -3818,7 +4119,8 @@ export default function App() {
     "app-shell",
     !showNavigation ? "app-shell--guided" : "",
     showNavigation && activeView === "control" && showControlTechnicalDetails ? "app-shell--with-panel" : "",
-    showNavigation && isCaseRoomView ? "app-shell--case-room" : ""
+    showNavigation && isCaseRoomView ? "app-shell--case-room" : "",
+    showImportCompletion ? "app-shell--modal-active" : ""
   ].filter(Boolean).join(" ");
 
   return (

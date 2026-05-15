@@ -15,6 +15,8 @@ assert.ok(app.includes("Kunne ikke åpne ny sak i nytt vindu"), "new window fail
 assert.ok(app.includes("caseCreationError ? <div className=\"error-notice\" role=\"alert\">"), "case creation errors are accessible alerts");
 assert.ok(sidebar.includes("disabled={isCreatingCase}"), "+ Ny sak is disabled only while creating");
 assert.ok(sidebar.includes("Oppretter ..."), "+ Ny sak shows concrete creating state");
+assert.ok(sidebar.includes("Dokumentkontroll"), "sidebar includes dedicated document control work area");
+assert.ok(sidebar.includes("sidebar-group__title"), "sidebar groups work, analysis and production navigation");
 assert.ok(windowContext.includes("params.get(\"caseId\")"), "new windows bind the case id from URL");
 assert.ok(commands.includes("case_documents_window_url"), "desktop shell has an explicit case document route builder");
 assert.ok(commands.includes("index.html?caseId={}&view=documents"), "new case windows open the Dokumenter route");

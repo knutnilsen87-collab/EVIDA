@@ -1,3 +1,4 @@
+import type { DocumentSummary, ImportHealthSummary, ImportItem } from "../../types";
 import type { DocumentBasisRow, DocumentBasisSummary } from "./documentBasis";
 
 export type FirstUserPrimaryActionLabel =
@@ -8,6 +9,57 @@ export type FirstUserPrimaryActionLabel =
   | "Se dokumenter som ikke ble brukt";
 
 export type FirstUserPrimaryActionTarget = "review" | "preliminary_case_room" | "case_room" | "unused";
+
+export type NextActionId =
+  | "wait_for_import"
+  | "review_import_failure"
+  | "control_documents"
+  | "run_ocr"
+  | "open_saksrom_limited"
+  | "open_saksrom_ready"
+  | "review_risk"
+  | "none";
+
+export interface NextActionDecision {
+  id: NextActionId;
+  severity: "info" | "success" | "warning" | "danger";
+  title: string;
+  description: string;
+  primaryLabel: string;
+  secondaryLabel?: string;
+  targetView: "documents" | "documentControl" | "caseRoom" | "control" | "none";
+  blocksSaksrom: boolean;
+  saksromScope: "none" | "controlled_sources_only" | "full_case_sources";
+}
+
+export interface ImportOutcome {
+  totalSelected: number;
+  processed: number;
+  readyForSaksrom: number;
+  manualReviewRequired: number;
+  ocrRequired: number;
+  failed: number;
+  notUsedAsSource: number;
+  sourceObjectsCreated: number;
+  pagesTotal: number;
+  pagesAnalyzed: number;
+  pagesWaitingForText: number;
+  isRunning: boolean;
+  sourceCoveragePercent: number;
+  saksromScope: "none" | "controlled_sources_only" | "full_case_sources";
+}
+
+export interface ImportOutcomeViewModel {
+  title: string;
+  severity: "success" | "warning" | "danger" | "info";
+  primaryLine: string;
+  secondaryLine: string;
+  detailLines: string[];
+  primaryCta: string;
+  secondaryCta: string;
+  showProgressPercent: boolean;
+  showEta: boolean;
+}
 
 export interface ImportUxQueueItem {
   status: string;
@@ -39,6 +91,215 @@ export interface ControlNextStep {
   message: string;
   primaryAction: FirstUserPrimaryAction;
   isPreliminary: boolean;
+}
+
+function countImportItems(items: ImportItem[], statuses: string[]) {
+  return items.filter((item) => statuses.includes(item.status)).length;
+}
+
+export function deriveImportOutcome(args: {
+  documents: DocumentSummary[];
+  importItems: ImportItem[];
+  documentBasis: Pick<DocumentBasisSummary, "readyCount" | "totalCount" | "sourceCoveragePercent" | "needsReviewDocuments" | "unreadableDocuments">;
+  importHealth?: ImportHealthSummary | null;
+  importQueue?: ImportUxQueueItem[];
+  hasActiveProcessing: boolean;
+  visibleReviewCount?: number;
+  sourcesCreated: number;
+  totalPages: number;
+  analyzedPages: number;
+  pendingOcrPages: number;
+}): ImportOutcome {
+  const session = args.importHealth?.latest_session;
+  const queueTotal = args.importQueue?.length ?? 0;
+  const totalSelected = Math.max(
+    session?.total_files_seen ?? 0,
+    args.importItems.length,
+    queueTotal,
+    args.documentBasis.totalCount,
+    args.documents.length
+  );
+  const queueProcessed = args.importQueue?.filter((item) => isImportTerminalStatus(item.status)).length ?? 0;
+  const processed = Math.max(
+    session
+      ? session.files_ready +
+          session.files_partial +
+          session.files_requires_ocr +
+          session.files_duplicate +
+          session.files_unsupported +
+          session.files_failed
+      : 0,
+    args.importItems.filter((item) => isImportTerminalStatus(item.status)).length,
+    queueProcessed,
+    args.documentBasis.readyCount + args.documentBasis.needsReviewDocuments.length + args.documentBasis.unreadableDocuments.length
+  );
+  const ocrRequired = Math.max(session?.files_requires_ocr ?? 0, countImportItems(args.importItems, ["ocr_required", "ocr_running"]));
+  const failed = Math.max(session?.files_failed ?? 0, countImportItems(args.importItems, ["failed", "unsupported"]));
+  const notUsedAsSource = Math.max(
+    session ? session.files_duplicate + session.files_unsupported + session.files_failed : 0,
+    args.documentBasis.unreadableDocuments.length
+  );
+  const manualReviewRequired = args.visibleReviewCount ?? args.documentBasis.needsReviewDocuments.length;
+  const readyForSaksrom = args.documentBasis.readyCount;
+  const pagesTotal = Math.max(session?.pages_total ?? 0, args.totalPages, args.documents.reduce((sum, document) => sum + document.page_count, 0));
+  const pagesAnalyzed = Math.max(session?.pages_with_text ?? 0, args.analyzedPages);
+  const pagesWaitingForText = Math.max(session?.pages_requires_ocr ?? 0, args.pendingOcrPages);
+  const sourceObjectsCreated = Math.max(session?.source_objects_created ?? 0, args.sourcesCreated);
+  const isRunning =
+    args.hasActiveProcessing ||
+    Boolean(args.importQueue?.some((item) => !isImportTerminalStatus(item.status))) ||
+    Boolean(args.importHealth?.overall_status === "processing");
+  const sourceCoveragePercent =
+    args.documentBasis.sourceCoveragePercent ||
+    args.importHealth?.source_coverage_percent ||
+    session?.source_coverage_percent ||
+    0;
+  const saksromScope =
+    sourceObjectsCreated <= 0
+      ? "none"
+      : manualReviewRequired > 0 || failed > 0 || notUsedAsSource > 0
+        ? "controlled_sources_only"
+        : "full_case_sources";
+
+  return {
+    totalSelected,
+    processed: Math.min(Math.max(processed, readyForSaksrom), totalSelected || processed),
+    readyForSaksrom,
+    manualReviewRequired,
+    ocrRequired,
+    failed,
+    notUsedAsSource,
+    sourceObjectsCreated,
+    pagesTotal,
+    pagesAnalyzed,
+    pagesWaitingForText,
+    isRunning,
+    sourceCoveragePercent,
+    saksromScope
+  };
+}
+
+export function deriveNextAction(outcome: ImportOutcome): NextActionDecision {
+  if (outcome.isRunning) {
+    return {
+      id: "wait_for_import",
+      severity: "info",
+      title: "Import pågår",
+      description: "Evida behandler fortsatt dokumentene. Vent til importen er ferdig før du kontrollerer kildegrunnlaget.",
+      primaryLabel: "Vis importstatus",
+      targetView: "documents",
+      blocksSaksrom: true,
+      saksromScope: "none"
+    };
+  }
+  if (outcome.failed > 0 && outcome.sourceObjectsCreated === 0) {
+    return {
+      id: "review_import_failure",
+      severity: "danger",
+      title: "Import krever handling",
+      description: `${outcome.failed} dokument${outcome.failed === 1 ? "" : "er"} ble ikke brukt som kildegrunnlag. Se importdetaljer og erstatt filene som trengs.`,
+      primaryLabel: "Vis importdetaljer",
+      targetView: "control",
+      blocksSaksrom: true,
+      saksromScope: "none"
+    };
+  }
+  if (outcome.manualReviewRequired > 0) {
+    return {
+      id: "control_documents",
+      severity: "warning",
+      title: "Kontroller dokumenter",
+      description: `${outcome.manualReviewRequired} dokument${outcome.manualReviewRequired === 1 ? "" : "er"} trenger manuell vurdering før hele saken kan brukes i Saksrom.`,
+      primaryLabel: `Kontroller ${outcome.manualReviewRequired} dokument${outcome.manualReviewRequired === 1 ? "" : "er"}`,
+      secondaryLabel: "Vis importdetaljer",
+      targetView: "documentControl",
+      blocksSaksrom: false,
+      saksromScope: "controlled_sources_only"
+    };
+  }
+  if (outcome.ocrRequired > 0) {
+    return {
+      id: "run_ocr",
+      severity: "warning",
+      title: "OCR kreves",
+      description: `${outcome.ocrRequired} dokument${outcome.ocrRequired === 1 ? "" : "er"} trenger OCR eller tekstkontroll før full dekning.`,
+      primaryLabel: "Kontroller OCR",
+      secondaryLabel: "Vis importdetaljer",
+      targetView: "documentControl",
+      blocksSaksrom: false,
+      saksromScope: "controlled_sources_only"
+    };
+  }
+  if (outcome.saksromScope === "controlled_sources_only") {
+    return {
+      id: "open_saksrom_limited",
+      severity: "warning",
+      title: "Saksrom kan brukes med begrenset grunnlag",
+      description: "Saksrom svarer kun fra dokumentene som allerede er kontrollert.",
+      primaryLabel: "Åpne Saksrom",
+      secondaryLabel: "Kontroller resten først",
+      targetView: "caseRoom",
+      blocksSaksrom: false,
+      saksromScope: "controlled_sources_only"
+    };
+  }
+  if (outcome.readyForSaksrom > 0) {
+    return {
+      id: "open_saksrom_ready",
+      severity: "success",
+      title: "Saken er klar for Saksrom",
+      description: "Alle dokumenter som skal brukes er kontrollert som kildegrunnlag.",
+      primaryLabel: "Åpne Saksrom",
+      targetView: "caseRoom",
+      blocksSaksrom: false,
+      saksromScope: "full_case_sources"
+    };
+  }
+  return {
+    id: "none",
+    severity: "info",
+    title: "Importer dokumenter",
+    description: "Start med å importere dokumentene som skal danne kildegrunnlag.",
+    primaryLabel: "Importer dokumenter",
+    targetView: "documents",
+    blocksSaksrom: true,
+    saksromScope: "none"
+  };
+}
+
+export function deriveImportOutcomeViewModel(outcome: ImportOutcome, nextAction: NextActionDecision): ImportOutcomeViewModel {
+  const title =
+    outcome.isRunning
+      ? "Import pågår"
+      : nextAction.id === "open_saksrom_ready"
+        ? "Import fullført"
+        : "Import fullført — kontroll kreves";
+  const primaryLine =
+    outcome.isRunning
+      ? `${outcome.processed} av ${outcome.totalSelected} dokumenter behandlet`
+      : `${outcome.processed} av ${outcome.totalSelected} dokumenter behandlet`;
+  const secondaryLine =
+    outcome.manualReviewRequired > 0
+      ? `${outcome.manualReviewRequired} dokument${outcome.manualReviewRequired === 1 ? "" : "er"} trenger manuell kontroll før hele saken kan brukes.`
+      : outcome.notUsedAsSource > 0
+        ? `${outcome.notUsedAsSource} dokument${outcome.notUsedAsSource === 1 ? "" : "er"} ble ikke brukt som kildegrunnlag.`
+        : "Kildegrunnlaget er klart.";
+  return {
+    title,
+    severity: nextAction.severity,
+    primaryLine,
+    secondaryLine,
+    detailLines: [
+      `${outcome.readyForSaksrom} dokumenter klare for Saksrom`,
+      `${outcome.sourceObjectsCreated} kildeutdrag opprettet`,
+      `${outcome.pagesAnalyzed} av ${outcome.pagesTotal} sider analysert`,
+      `${Math.round(outcome.sourceCoveragePercent)} % kildedekning`
+    ],
+    primaryCta: nextAction.primaryLabel,
+    secondaryCta: nextAction.secondaryLabel || "Vis importdetaljer",
+    showProgressPercent: outcome.isRunning,
+    showEta: outcome.isRunning
+  };
 }
 
 const TERMINAL_IMPORT_STATUSES = new Set([
@@ -340,9 +601,9 @@ export function summarizeImportProgress(args: {
     state === "processing"
       ? "Behandler dokumenter"
       : state === "complete_with_errors"
-        ? "Import ferdig – handling kreves"
+        ? "Import fullført — kontroll kreves"
         : state === "complete_with_attention"
-          ? "Import ferdig – handling kreves"
+          ? "Import fullført — kontroll kreves"
           : "Import fullført";
   const activeItem = args.items.find((item) => !isImportTerminalStatus(item.status));
   const currentPhase = hasNonTerminal

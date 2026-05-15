@@ -1,7 +1,7 @@
 {
     "artifact":  "evidence.first_user.current",
     "generated_at":  "2026-05-13T11:38:36Z",
-    "updated_at":  "2026-05-15T07:35:43.4752216+02:00",
+    "updated_at":  "2026-05-15T08:36:58.9791108+02:00",
     "release_candidate_id":  "evida-0.1.0-alpha-local-2026-05-13",
     "scope":  "controlled first-user evaluation with synthetic/redacted test data only",
     "verdict":  "blocked",
@@ -46,7 +46,7 @@
                               "kind":  "command",
                               "ref":  "npm.cmd test && npm.cmd run build",
                               "result":  "PASS",
-                              "notes":  "Verified import ETA completion behavior, manual approval feedback/removal, no-text manual review AI exclusion, incomplete page-count handling, in-app document preview actions, and Saksrom system-status routing."
+                              "notes":  "Verified aggregate import outcome rules, no ETA after completion, manual-review routing/removal, document-control workspace presence, no-text manual review AI exclusion, incomplete page-count handling, in-app document preview actions, filtered document lists, limited-source Saksrom copy, and explicit external-provider policy gating."
                           },
                           {
                               "id":  "EV-RELEASE",

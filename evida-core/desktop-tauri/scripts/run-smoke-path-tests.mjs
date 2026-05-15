@@ -40,17 +40,19 @@ assert.ok(app.includes("ImportHealthCenter"), "app renders Import Health Center"
 assert.ok(app.includes("deriveDocumentBasisSummary"), "app derives canonical document basis groups");
 assert.ok(app.includes("Dokumenter som trenger kontroll"), "control view names the manual review bucket");
 assert.ok(app.includes("Dokumenter som ikke ble brukt"), "control view names the unused-documents bucket");
-assert.ok(app.includes("Godkjenn som kilde"), "control view can approve a previewed document for AI use");
+assert.ok(app.includes("Bruk som kildegrunnlag"), "control view can approve a previewed document for source foundation use");
 assert.ok(app.includes("recordDocumentControlAction"), "frontend records document approval/rejection audit events");
 assert.ok(!app.includes("guided-stepper"), "guided login no longer shows the onboarding stepper");
 assert.ok(app.includes("Se hva som mangler"), "app exposes a missing-documents view");
+assert.ok(app.includes("documentFilter"), "document list has status filters");
+assert.ok(app.includes("documentSearch"), "document list has search");
 assert.ok(app.includes("Saksgrunnlaget er ikke komplett ennå."), "app protects against false 100 percent complete");
 assert.ok(api.includes("register_document_in_session"), "frontend API uses import-session document registration");
 assert.ok(commands.includes("register_document_in_session"), "Rust command records per-file import health");
 assert.ok(commands.includes("remove_import_item_from_case"), "Rust command can remove import items from a case");
 assert.ok(lib.includes("get_import_health"), "Import Health command is registered with Tauri");
 assert.ok(lib.includes("record_document_control_action"), "document control audit command is registered with Tauri");
-for (const workroom of ["caseRoom", "documents", "chronology", "evidence", "arguments", "contradictions", "risk", "control", "export"]) {
+for (const workroom of ["caseRoom", "documents", "documentControl", "chronology", "evidence", "arguments", "contradictions", "risk", "control", "export"]) {
   assert.ok(workroomTheme.includes(`${workroom}:`), `WORKROOM_THEME contains ${workroom}`);
 }
 assert.ok(sidebar.includes("aria-current"), "sidebar marks the active workroom for assistive tech");

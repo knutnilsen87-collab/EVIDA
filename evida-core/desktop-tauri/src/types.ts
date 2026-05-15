@@ -3,6 +3,7 @@ export type CaseStatus = "active" | "archived" | "deleted";
 export type ViewKey =
   | "overview"
   | "documents"
+  | "documentControl"
   | "caseRoom"
   | "chronology"
   | "evidence"

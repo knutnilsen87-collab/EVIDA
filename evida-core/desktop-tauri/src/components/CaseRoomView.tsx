@@ -99,6 +99,8 @@ interface CaseRoomSystemStatus {
   currentPhaseLabel: string;
   etaLabel: string;
   nextActionTitle: string;
+  saksromScope: "none" | "controlled_sources_only" | "full_case_sources";
+  excludedDocuments: number;
 }
 
 interface CaseAnswer {
@@ -988,6 +990,11 @@ function buildSystemStatusAnswer(status: CaseRoomSystemStatus): CaseAnswer {
   };
 }
 
+function shouldUseExternalAiProvider(status: CaseRoomSystemStatus) {
+  void status;
+  return false;
+}
+
 function parseStoredAnswer(
   message: CaseAiMessageDto,
   options?: {
@@ -1113,6 +1120,12 @@ export function CaseRoomView({
   const sourceCoverageTooLow = hasDocuments && intakeCoverage < 50;
   const canAsk = Boolean(selectedCase?.id && hasDocuments && hasSources && !isBlocked && !sourceCoverageTooLow);
   const isIncomplete = !hasSources || intakeCoverage < 95 || pendingOcrPages > 0 || deviations.length > 0 || pagesMissingSources > 0;
+  const saksromScopeLabel =
+    systemStatus.saksromScope === "full_case_sources"
+      ? "Spør Saksrom — svar bygger på fullt kontrollert kildegrunnlag"
+      : systemStatus.saksromScope === "controlled_sources_only"
+        ? "Spør Saksrom — svar bygger bare på kontrollerte kilder"
+        : "Saksrom åpnes når kildegrunnlaget er klart";
   const readyImportItems = importQueue.filter((item) => item.status === "completed");
   const documentProgressPercent = selectedDocumentTotal > 0 ? Math.round((readyImportItems.length / selectedDocumentTotal) * 100) : 0;
   const activeImportItem = importQueue.find((item) => !["completed", "failed"].includes(item.status));
@@ -1560,48 +1573,61 @@ export function CaseRoomView({
       }
       return;
     }
-    try {
-      const providerMessage = await askCaseAi({
-        caseId: selectedCase.id,
-        question: retrievalQuestion,
-        coverage,
-        pendingOcrPages,
-        deviations,
-        nextActionTitle
-      });
-      const providerAnswer = parseStoredAnswer(providerMessage, {
-        intent: questionIntent,
-        nextActionTitle,
-        allowedSourceIds: sources.map((source) => source.id)
-      });
-      if (providerAnswer) {
-        const nextSuggestedActions = createDefaultSuggestedActions(providerMessage.id);
-        const answerWithActions = {
-          question: displayQuestion,
-          result: {
-            ...providerAnswer.result,
-            suggestedActions: nextSuggestedActions
-          }
-        };
-        await revealAnswer(answerWithActions);
-        setLatestSuggestedActions(nextSuggestedActions);
-        persistConversationTurn(answerWithActions.result, nextSuggestedActions, activeMode, resolvedAction);
-        setQuestion("");
-        return;
+    if (shouldUseExternalAiProvider(systemStatus)) {
+      try {
+        const providerMessage = await askCaseAi({
+          caseId: selectedCase.id,
+          question: retrievalQuestion,
+          coverage,
+          pendingOcrPages,
+          deviations,
+          nextActionTitle
+        });
+        const providerAnswer = parseStoredAnswer(providerMessage, {
+          intent: questionIntent,
+          nextActionTitle,
+          allowedSourceIds: sources.map((source) => source.id)
+        });
+        if (providerAnswer) {
+          const nextSuggestedActions = createDefaultSuggestedActions(providerMessage.id);
+          const answerWithActions = {
+            question: displayQuestion,
+            result: {
+              ...providerAnswer.result,
+              suggestedActions: nextSuggestedActions
+            }
+          };
+          await revealAnswer(answerWithActions);
+          setLatestSuggestedActions(nextSuggestedActions);
+          persistConversationTurn(answerWithActions.result, nextSuggestedActions, activeMode, resolvedAction);
+          setQuestion("");
+          return;
+        }
+        setProviderNotice("Sikker lokalmodus aktiv: ekstern AI svarte ikke med gyldig struktur, så Evida bruker lokale kildeutdrag.");
+      } catch {
+        setProviderNotice("Sikker lokalmodus aktiv: ekstern AI er av eller utilgjengelig. Evida bruker bare lokale kildeutdrag fra saken.");
       }
-      setProviderNotice("Sikker lokalmodus aktiv: ekstern AI svarte ikke med gyldig struktur, så Evida bruker lokale kildeutdrag.");
-    } catch {
-      setProviderNotice("Sikker lokalmodus aktiv: ekstern AI er av eller utilgjengelig. Evida bruker bare lokale kildeutdrag fra saken.");
-    } finally {
-      setIsAsking(false);
+    } else {
+      setProviderNotice("Sikker lokalmodus aktiv: ekstern AI-provider er policy-blokkert. Evida bruker bare kontrollerte lokale kildeutdrag.");
     }
 
     setIsAsking(true);
     const localTurnId = `local-${Date.now()}`;
     const nextSuggestedActions = createDefaultSuggestedActions(localTurnId);
+    const sourceScopeNotice =
+      systemStatus.saksromScope === "controlled_sources_only"
+        ? `Kildeomfang: Saksrom svarer bare fra kontrollerte kilder. ${systemStatus.excludedDocuments} dokumenter er holdt utenfor.`
+        : systemStatus.saksromScope === "full_case_sources"
+          ? "Kildeomfang: Saksrom bruker fullt kontrollert kildegrunnlag."
+          : "Kildeomfang: Saksrom har ikke et trygt kildegrunnlag ennå.";
     const result = {
       ...buildAnswer(retrievalQuestion, sources, coverage, deviations, pendingOcrPages, nextActionTitle),
       suggestedActions: nextSuggestedActions
+    };
+    result.answer = `${sourceScopeNotice}\n\n${result.answer}`;
+    result.answerStrength = {
+      ...result.answerStrength,
+      reason: `${result.answerStrength.reason} ${sourceScopeNotice}`
     };
     const answerJson = JSON.stringify({
       question: displayQuestion,
@@ -1704,6 +1730,11 @@ export function CaseRoomView({
             </div>
             {preliminaryBanner ? (
               <div className="warning-notice case-room-preliminary-banner">{preliminaryBanner}</div>
+            ) : null}
+            {systemStatus.saksromScope === "controlled_sources_only" ? (
+              <div className="warning-notice case-room-preliminary-banner">
+                Saksrom bruker bare kontrollerte kilder. {systemStatus.excludedDocuments} dokumenter er foreløpig holdt utenfor svargrunnlaget.
+              </div>
             ) : null}
             {isCaseSummaryReady ? (
               <div className="case-summary-content">
@@ -2159,7 +2190,7 @@ export function CaseRoomView({
               ? "Legg til dokumenter for å starte"
               : isBlocked || sourceCoverageTooLow
                 ? "Saksrom åpnes når dokumentgrunnlaget er klart"
-                : "Spør fritt, velg et spor, eller skriv 1–4"
+                : saksromScopeLabel
           }
           rows={1}
           disabled={!hasDocuments || isAsking}

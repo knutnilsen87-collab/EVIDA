@@ -19,7 +19,10 @@ async function importTsModule(path) {
 
 const {
   canApproveSourceAfterPreview,
+  deriveImportOutcome,
+  deriveImportOutcomeViewModel,
   deriveImportUxSummary,
+  deriveNextAction,
   getAiReadyDocumentIds,
   getReviewDocuments,
   summarizeImportProgress
@@ -79,6 +82,29 @@ assert.equal(completedSummary.state, "complete", "terminal documents produce com
 assert.equal(completedSummary.remainingDocuments, 0, "complete import has zero remaining documents");
 assert.equal(completedSummary.etaLabel, "Ferdig", "complete import never shows ETA beregnes");
 
+const outcome = deriveImportOutcome({
+  documents: [],
+  importItems: [],
+  documentBasis: {
+    ...documentBasis,
+    sourceCoveragePercent: 66
+  },
+  importHealth: null,
+  importQueue: [],
+  hasActiveProcessing: false,
+  visibleReviewCount: 1,
+  sourcesCreated: 12,
+  totalPages: 50,
+  analyzedPages: 40,
+  pendingOcrPages: 3
+});
+const nextAction = deriveNextAction(outcome);
+const outcomeView = deriveImportOutcomeViewModel(outcome, nextAction);
+assert.equal(nextAction.id, "control_documents", "manual review routes to document control");
+assert.equal(nextAction.primaryLabel, "Kontroller 1 dokument", "next action includes exact control count");
+assert.equal(outcomeView.title, "Import fullført — kontroll kreves", "import outcome modal uses decision-oriented title");
+assert.equal(outcomeView.showEta, false, "finished import outcome hides ETA");
+
 const aiReadyIds = getAiReadyDocumentIds([
   { id: "DOC-ready", canUseInAnswer: true },
   { id: "DOC-review", canUseInAnswer: false },
@@ -99,10 +125,14 @@ assert.match(appSource, /sources=\{aiReadySources\}/, "CaseRoom receives only AI
 assert.match(appSource, /hasNonAiReadySources/, "AI workrooms are gated when source objects are not AI-ready");
 assert.match(appSource, /DocumentPreviewDrawer/, "preview opens inside Evida instead of Explorer");
 assert.match(appSource, /documents-needing-control/, "attention navigation has a stable section target");
+assert.match(appSource, /DocumentControlView/, "dedicated document control view exists");
+assert.match(appSource, /Bruk som kildegrunnlag/, "document control uses source-foundation wording");
 const caseRoomSource = await readFile(new URL("../src/components/CaseRoomView.tsx", import.meta.url), "utf8");
 assert.match(caseRoomSource, /isSystemStatusQuestion/, "Saksrom routes import and control status questions before case analysis");
 assert.match(caseRoomSource, /safe-local-system-status/, "system status answers are recorded without legal source retrieval");
 assert.match(caseRoomSource, /ETA er ikke relevant nå, fordi importen ikke kjører/, "inactive import status does not claim ETA is calculating");
+assert.match(caseRoomSource, /shouldUseExternalAiProvider/, "Saksrom has an explicit provider policy gate");
+assert.match(caseRoomSource, /Spør Saksrom — svar bygger bare på kontrollerte kilder/, "Saksrom exposes limited-source scope");
 for (const staleLabel of ["View details", "Run OCR", "Open preliminary Saksrom", "Files imported", "Requiring OCR"]) {
   assert.equal(appSource.includes(staleLabel), false, `stale import modal label is removed: ${staleLabel}`);
 }

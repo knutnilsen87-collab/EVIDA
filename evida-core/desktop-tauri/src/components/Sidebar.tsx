@@ -5,18 +5,34 @@ import { WorkroomIcon } from "./WorkroomIcon";
 
 type UnlockLevel = "base" | "documents" | "analysis" | "simulation" | "draft";
 
-const items: Array<{ key: ViewKey; label: string; unlock: UnlockLevel }> = [
-  { key: "overview", label: "Saksoversikt", unlock: "base" },
-  { key: "documents", label: "Dokumenter", unlock: "base" },
-  { key: "caseRoom", label: "Saksrom", unlock: "base" },
-  { key: "chronology", label: "Kronologi", unlock: "analysis" },
-  { key: "evidence", label: "Bevismatrise", unlock: "analysis" },
-  { key: "arguments", label: "Anførsler", unlock: "analysis" },
-  { key: "contradictions", label: "Motstrid", unlock: "analysis" },
-  { key: "risk", label: "Risiko", unlock: "analysis" },
-  { key: "litigationSimulation", label: "Rettssimulering", unlock: "simulation" },
-  { key: "draft", label: "Utkast", unlock: "draft" },
-  { key: "export", label: "Eksport", unlock: "draft" }
+const groups: Array<{ title: string; items: Array<{ key: ViewKey; label: string; unlock: UnlockLevel }> }> = [
+  {
+    title: "Arbeid",
+    items: [
+      { key: "overview", label: "Saksoversikt", unlock: "base" },
+      { key: "documents", label: "Dokumenter", unlock: "base" },
+      { key: "documentControl", label: "Dokumentkontroll", unlock: "documents" },
+      { key: "caseRoom", label: "Saksrom", unlock: "base" }
+    ]
+  },
+  {
+    title: "Analyse",
+    items: [
+      { key: "chronology", label: "Kronologi", unlock: "analysis" },
+      { key: "evidence", label: "Bevismatrise", unlock: "analysis" },
+      { key: "arguments", label: "Anførsler", unlock: "analysis" },
+      { key: "contradictions", label: "Motstrid", unlock: "analysis" },
+      { key: "risk", label: "Risiko", unlock: "analysis" },
+      { key: "litigationSimulation", label: "Rettssimulering", unlock: "simulation" }
+    ]
+  },
+  {
+    title: "Produksjon",
+    items: [
+      { key: "draft", label: "Utkast", unlock: "draft" },
+      { key: "export", label: "Eksport", unlock: "draft" }
+    ]
+  }
 ];
 
 interface SidebarProps {
@@ -76,9 +92,14 @@ export function Sidebar({
   onOpenCaseSwitcher,
   isCreatingCase = false
 }: SidebarProps) {
-  const visibleItems = hasDocuments
-    ? items
-    : items.filter((item) => item.key === "caseRoom" || item.key === "documents");
+  const visibleGroups = hasDocuments
+    ? groups
+    : groups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => item.key === "caseRoom" || item.key === "documents")
+        }))
+        .filter((group) => group.items.length > 0);
 
   return (
     <nav className="sidebar" aria-label="Hovednavigasjon">
@@ -96,31 +117,37 @@ export function Sidebar({
         <button type="button" className="button-secondary" onClick={onOpenCaseSwitcher}>Bytt sak</button>
         <button type="button" className="button-ghost" onClick={onNewCaseInNewWindow}>Ny sak i nytt vindu</button>
       </div>
-      <ul>
-        {visibleItems.map((item) => {
-          const unlocked = isUnlocked(item.unlock, hasDocuments, readinessVerdict);
-          const themeKey = workroomKeyForView(item.key);
-          const theme = WORKROOM_THEME[themeKey];
-          const active = item.key === activeView;
-          return (
-            <li key={item.key} title={unlocked ? item.label : lockedReason(item.unlock)}>
-              <button
-                className={`sidebar-item ${active ? "sidebar-item--active active" : ""} ${!unlocked ? "locked" : ""}`}
-                style={workroomStyle(themeKey)}
-                onClick={() => unlocked && onNavigate(item.key)}
-                disabled={!unlocked}
-                aria-current={active ? "page" : undefined}
-              >
-                <span className="sidebar-item__marker" aria-hidden="true" />
-                <span className="sidebar-item__icon">
-                  <WorkroomIcon name={theme.icon} size={17} />
-                </span>
-                <span className="sidebar-item__label">{theme.label}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      {visibleGroups.map((group) => (
+        <div className="sidebar-group" key={group.title}>
+          <div className="sidebar-group__title">{group.title}</div>
+          <ul>
+            {group.items.map((item) => {
+              const unlocked = isUnlocked(item.unlock, hasDocuments, readinessVerdict);
+              const themeKey = workroomKeyForView(item.key);
+              const theme = WORKROOM_THEME[themeKey];
+              const active = item.key === activeView;
+              return (
+                <li key={item.key} title={unlocked ? item.label : lockedReason(item.unlock)}>
+                  <button
+                    className={`sidebar-item ${active ? "sidebar-item--active active" : ""} ${!unlocked ? "locked" : ""}`}
+                    style={workroomStyle(themeKey)}
+                    onClick={() => unlocked && onNavigate(item.key)}
+                    disabled={!unlocked}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <span className="sidebar-item__marker" aria-hidden="true" />
+                    <span className="sidebar-item__icon">
+                      <WorkroomIcon name={theme.icon} size={17} />
+                    </span>
+                    <span className="sidebar-item__label">{theme.label}</span>
+                    {!unlocked ? <span className="sidebar-item__lock">Låst</span> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </nav>
   );
 }

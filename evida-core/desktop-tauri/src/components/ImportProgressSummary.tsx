@@ -220,7 +220,7 @@ export function ImportProgressSummary({
                       : item.approvalState === "approved"
                         ? "Godkjent"
                         : item.sourceCount && item.sourceCount > 0
-                          ? "Godkjenn som kilde"
+                          ? "Bruk som kildegrunnlag"
                           : "Marker som kontrollert"}
                   </button>
                 ) : null}
