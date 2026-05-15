@@ -132,6 +132,14 @@ assert.match(caseRoomSource, /isSystemStatusQuestion/, "Saksrom routes import an
 assert.match(caseRoomSource, /safe-local-system-status/, "system status answers are recorded without legal source retrieval");
 assert.match(caseRoomSource, /ETA er ikke relevant nå, fordi importen ikke kjører/, "inactive import status does not claim ETA is calculating");
 assert.match(caseRoomSource, /shouldUseExternalAiProvider/, "Saksrom has an explicit provider policy gate");
+assert.ok(
+  caseRoomSource.includes("streamingAnswer || isAsking || isImporting || userScrolledRecently"),
+  "Saksrom does not auto-scroll while document import is active"
+);
+assert.ok(
+  !caseRoomSource.includes("showIntakeCard, isImporting, displayImportItem?.status, importQueue.length"),
+  "intake status updates do not retrigger scroll positioning"
+);
 assert.match(caseRoomSource, /Spør Saksrom — svar bygger bare på kontrollerte kilder/, "Saksrom exposes limited-source scope");
 for (const staleLabel of ["View details", "Run OCR", "Open preliminary Saksrom", "Files imported", "Requiring OCR"]) {
   assert.equal(appSource.includes(staleLabel), false, `stale import modal label is removed: ${staleLabel}`);

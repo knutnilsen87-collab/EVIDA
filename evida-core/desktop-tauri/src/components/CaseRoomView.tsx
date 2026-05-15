@@ -1185,6 +1185,7 @@ export function CaseRoomView({
   const chatInputRef = useRef<HTMLFormElement | null>(null);
   const activeAnswerRef = useRef<HTMLElement | null>(null);
   const autoFollowAnswerRef = useRef(true);
+  const lastUserScrollAtRef = useRef(0);
 
   function scrollToLatestAnswer(behavior: ScrollBehavior = "smooth") {
     chatBottomRef.current?.scrollIntoView({ block: "end", behavior });
@@ -1210,7 +1211,8 @@ export function CaseRoomView({
   }
 
   function scrollToContextIfIdle(target: HTMLElement | null, behavior: ScrollBehavior = "smooth") {
-    if (streamingAnswer || isAsking) {
+    const userScrolledRecently = Date.now() - lastUserScrollAtRef.current < 1500;
+    if (streamingAnswer || isAsking || isImporting || userScrolledRecently) {
       return;
     }
     window.requestAnimationFrame(() => scrollToContextTarget(target, behavior));
@@ -1319,7 +1321,7 @@ export function CaseRoomView({
       return;
     }
     scrollToContextIfIdle(processingCardRef.current);
-  }, [showIntakeCard, isImporting, displayImportItem?.status, importQueue.length]);
+  }, [showIntakeCard, selectedCase?.id]);
 
   useEffect(() => {
     if (!isCaseSummaryReady) {
@@ -1340,6 +1342,7 @@ export function CaseRoomView({
     if (!container) {
       return;
     }
+    lastUserScrollAtRef.current = Date.now();
 
     const nearBottom = isNearBottom(container, 140);
     setShowJumpToBottom(!nearBottom);
