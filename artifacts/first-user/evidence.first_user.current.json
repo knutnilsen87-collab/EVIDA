@@ -1,7 +1,7 @@
 {
     "artifact":  "evidence.first_user.current",
     "generated_at":  "2026-05-13T11:38:36Z",
-    "updated_at":  "2026-05-15T08:56:26.6573734+02:00",
+    "updated_at":  "2026-05-15T09:23:39.2982250+02:00",
     "release_candidate_id":  "evida-0.1.0-alpha-local-2026-05-13",
     "scope":  "controlled first-user evaluation with synthetic/redacted test data only",
     "verdict":  "blocked",
@@ -46,7 +46,7 @@
                               "kind":  "command",
                               "ref":  "npm.cmd test && npm.cmd run build",
                               "result":  "PASS",
-                              "notes":  "Verified aggregate import outcome rules, no ETA after completion, manual-review routing/removal, document-control workspace presence, no-text manual review AI exclusion, incomplete page-count handling, in-app document preview actions, filtered document lists, scroll-neutral Saksrom import status updates, limited-source Saksrom copy, and explicit external-provider policy gating."
+                              "notes":  "Verified aggregate import outcome rules, stale processing suppression after all documents are terminal, no ETA after completion, manual-review routing/removal, document-control workspace presence, no-text manual review AI exclusion, incomplete page-count handling, in-app document preview actions, filtered document lists, scroll-neutral Saksrom import status updates, limited-source Saksrom copy, and explicit external-provider policy gating."
                           },
                           {
                               "id":  "EV-RELEASE",

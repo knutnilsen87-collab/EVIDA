@@ -82,6 +82,42 @@ assert.equal(completedSummary.state, "complete", "terminal documents produce com
 assert.equal(completedSummary.remainingDocuments, 0, "complete import has zero remaining documents");
 assert.equal(completedSummary.etaLabel, "Ferdig", "complete import never shows ETA beregnes");
 
+const terminalWithAttentionQueue = [
+  ...Array.from({ length: 74 }, () => ({ status: "completed", startedAt })),
+  ...Array.from({ length: 26 }, () => ({ status: "manual_review_required", startedAt })),
+  ...Array.from({ length: 25 }, () => ({ status: "failed", startedAt }))
+];
+const terminalWithAttentionSummary = summarizeImportProgress({
+  items: terminalWithAttentionQueue,
+  nowMs,
+  totalDocuments: 125
+});
+assert.equal(terminalWithAttentionSummary.state, "complete_with_errors", "terminal failures are finished with errors, not active import");
+assert.equal(terminalWithAttentionSummary.remainingDocuments, 0, "terminal failures do not leave phantom remaining documents");
+assert.equal(terminalWithAttentionSummary.processingDocuments, 0, "terminal failures do not leave phantom active processing");
+assert.equal(terminalWithAttentionSummary.currentPhaseLabel, "Ferdig - kontroll kreves", "complete-with-errors phase does not say import is still failing");
+const terminalUx = deriveImportUxSummary({
+  queue: terminalWithAttentionQueue,
+  nowMs,
+  documentBasis: {
+    needsReviewDocuments: Array.from({ length: 26 }, (_, index) => ({ id: `DOC-review-${index}`, canUseInAnswer: false })),
+    unreadableDocuments: Array.from({ length: 25 }, (_, index) => ({ id: `DOC-failed-${index}`, canUseInAnswer: false })),
+    readyCount: 74,
+    totalCount: 125
+  },
+  hasDocuments: true,
+  hasActiveProcessing: true,
+  canOpenPreliminary: true,
+  canOpenFinal: false,
+  totalDocuments: 125
+});
+assert.equal(terminalUx.progress.state, "complete_with_errors", "stale active-processing flag cannot override terminal import progress");
+assert.equal(
+  terminalUx.gapMessages.some((message) => message.includes("Importen behandler fortsatt dokumenter")),
+  false,
+  "terminal import gaps do not tell the user to keep waiting"
+);
+
 const outcome = deriveImportOutcome({
   documents: [],
   importItems: [],
@@ -104,6 +140,44 @@ assert.equal(nextAction.id, "control_documents", "manual review routes to docume
 assert.equal(nextAction.primaryLabel, "Kontroller 1 dokument", "next action includes exact control count");
 assert.equal(outcomeView.title, "Import fullført — kontroll kreves", "import outcome modal uses decision-oriented title");
 assert.equal(outcomeView.showEta, false, "finished import outcome hides ETA");
+
+const terminalOutcome = deriveImportOutcome({
+  documents: [],
+  importItems: terminalWithAttentionQueue,
+  documentBasis: {
+    needsReviewDocuments: Array.from({ length: 26 }, (_, index) => ({ id: `DOC-review-${index}`, canUseInAnswer: false })),
+    unreadableDocuments: Array.from({ length: 25 }, (_, index) => ({ id: `DOC-failed-${index}`, canUseInAnswer: false })),
+    readyCount: 74,
+    totalCount: 125,
+    sourceCoveragePercent: 97
+  },
+  importHealth: {
+    overall_status: "processing",
+    latest_session: {
+      total_files_seen: 125,
+      files_ready: 74,
+      files_partial: 26,
+      files_requires_ocr: 0,
+      files_duplicate: 0,
+      files_unsupported: 0,
+      files_failed: 25,
+      pages_total: 566,
+      pages_with_text: 566,
+      pages_requires_ocr: 0,
+      source_objects_created: 2119,
+      source_coverage_percent: 97
+    }
+  },
+  importQueue: terminalWithAttentionQueue,
+  hasActiveProcessing: true,
+  visibleReviewCount: 26,
+  sourcesCreated: 2119,
+  totalPages: 566,
+  analyzedPages: 566,
+  pendingOcrPages: 0
+});
+assert.equal(terminalOutcome.isRunning, false, "all-terminal import outcome is not running even when stale health says processing");
+assert.equal(deriveNextAction(terminalOutcome).id, "control_documents", "all-terminal attention import routes to control, not wait");
 
 const aiReadyIds = getAiReadyDocumentIds([
   { id: "DOC-ready", canUseInAnswer: true },

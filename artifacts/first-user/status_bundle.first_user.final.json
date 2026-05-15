@@ -5,7 +5,7 @@
     "release_candidate_id":  "evida-0.1.0-alpha-local-2026-05-13",
     "commit_sha":  "local-working-tree",
     "created_at":  "2026-05-13T11:38:36Z",
-    "updated_at":  "2026-05-15T08:56:26.6573734+02:00",
+    "updated_at":  "2026-05-15T09:23:39.2982250+02:00",
     "current_state":  {
                           "lifecycle_state":  "evidence_collected",
                           "status":  "blocked",
@@ -14,7 +14,7 @@
                       },
     "summary":  {
                     "short_summary":  "Automated evidence has improved, but first-user release remains blocked.",
-                    "technical_summary":  "Desktop/release gates pass; Maven/backend tests and gitleaks secret scan pass locally. The current working tree adds a central import outcome/next-action model, a dedicated document-control workspace, filtered document lists, clearer manual-review actions, completed-import ETA suppression, limited-source Saksrom behavior, an explicit external-provider policy gate, demo-login gating, layout hardening for the upload/control flow, and a scroll-neutral Saksrom import status card so active imports do not reposition the user's viewport. These changes are covered by frontend readiness tests/build. First-user approval remains blocked by incomplete critical invariants, unsigned Windows artifacts, missing signed SBOM/CI SCA/SAST, missing clean-machine smoke, and missing approvals.",
+                    "technical_summary":  "Desktop/release gates pass; Maven/backend tests and gitleaks secret scan pass locally. The current working tree adds a central import outcome/next-action model, a dedicated document-control workspace, filtered document lists, clearer manual-review actions, completed-import ETA suppression, limited-source Saksrom behavior, an explicit external-provider policy gate, demo-login gating, layout hardening for the upload/control flow, a scroll-neutral Saksrom import status card, and fail-closed terminal import rules so stale processing signals cannot show 'Import pågår' when every selected document is already terminal. These changes are covered by frontend readiness tests/build. First-user approval remains blocked by incomplete critical invariants, unsigned Windows artifacts, missing signed SBOM/CI SCA/SAST, missing clean-machine smoke, and missing approvals.",
                     "user_visible_summary":  "Not approved for first user yet."
                 },
     "scope_lock":  {

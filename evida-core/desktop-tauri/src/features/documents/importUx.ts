@@ -145,10 +145,13 @@ export function deriveImportOutcome(args: {
   const pagesAnalyzed = Math.max(session?.pages_with_text ?? 0, args.analyzedPages);
   const pagesWaitingForText = Math.max(session?.pages_requires_ocr ?? 0, args.pendingOcrPages);
   const sourceObjectsCreated = Math.max(session?.source_objects_created ?? 0, args.sourcesCreated);
+  const hasNonTerminalQueueItems = Boolean(args.importQueue?.some((item) => !isImportTerminalStatus(item.status)));
+  const allSelectedDocumentsTerminal = totalSelected > 0 && processed >= totalSelected && !hasNonTerminalQueueItems;
   const isRunning =
-    args.hasActiveProcessing ||
-    Boolean(args.importQueue?.some((item) => !isImportTerminalStatus(item.status))) ||
-    Boolean(args.importHealth?.overall_status === "processing");
+    !allSelectedDocumentsTerminal &&
+    (args.hasActiveProcessing ||
+      hasNonTerminalQueueItems ||
+      Boolean(args.importHealth?.overall_status === "processing"));
   const sourceCoveragePercent =
     args.documentBasis.sourceCoveragePercent ||
     args.importHealth?.source_coverage_percent ||
@@ -390,7 +393,7 @@ export const IMPORT_PHASE_LABELS: Record<ImportProgressPhase, string> = {
   indexing: "Indekserer kildeutdrag",
   finalizing: "Fullfører kildekontroll",
   complete: "Ferdig",
-  needs_attention: "Kontroll kreves",
+  needs_attention: "Ferdig - kontroll kreves",
   failed: "Feil under import"
 };
 
@@ -537,22 +540,23 @@ export function deriveImportUxSummary(args: {
   canOpenFinal: boolean;
   totalDocuments?: number;
 }) {
-  const controlStep = deriveControlNextStep({
-    hasDocuments: args.hasDocuments,
-    needsReviewCount: args.documentBasis.needsReviewDocuments.length,
-    notUsedCount: args.documentBasis.unreadableDocuments.length,
-    readyCount: args.documentBasis.readyCount,
-    totalCount: args.documentBasis.totalCount,
-    hasActiveProcessing: args.hasActiveProcessing,
-    canOpenPreliminary: args.canOpenPreliminary,
-    canOpenFinal: args.canOpenFinal
-  });
   const progress = summarizeImportProgress({
     items: args.queue,
     nowMs: args.nowMs,
     totalDocuments: args.totalDocuments,
     attentionDocumentsFallback: args.documentBasis.needsReviewDocuments.length,
     failedDocumentsFallback: args.documentBasis.unreadableDocuments.length
+  });
+  const hasActiveProcessing = progress.state === "processing" && (progress.remainingDocuments > 0 || progress.processingDocuments > 0);
+  const controlStep = deriveControlNextStep({
+    hasDocuments: args.hasDocuments,
+    needsReviewCount: args.documentBasis.needsReviewDocuments.length,
+    notUsedCount: args.documentBasis.unreadableDocuments.length,
+    readyCount: args.documentBasis.readyCount,
+    totalCount: args.documentBasis.totalCount,
+    hasActiveProcessing,
+    canOpenPreliminary: args.canOpenPreliminary,
+    canOpenFinal: args.canOpenFinal
   });
 
   return {
@@ -562,7 +566,7 @@ export function deriveImportUxSummary(args: {
     gapMessages: deriveImportGapMessages({
       needsReviewCount: args.documentBasis.needsReviewDocuments.length,
       notUsedCount: args.documentBasis.unreadableDocuments.length,
-      hasActiveProcessing: args.hasActiveProcessing
+      hasActiveProcessing
     }),
     nextStep: controlStep
   };
@@ -609,7 +613,7 @@ export function summarizeImportProgress(args: {
   const currentPhase = hasNonTerminal
     ? normalizeImportPhase(activeItem?.status)
     : state === "complete_with_errors"
-      ? "failed"
+      ? "needs_attention"
       : state === "complete_with_attention"
         ? "needs_attention"
         : "complete";
