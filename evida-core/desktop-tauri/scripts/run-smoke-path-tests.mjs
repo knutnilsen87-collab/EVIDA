@@ -6,6 +6,7 @@ const caseRoom = await readFile(new URL("../src/components/CaseRoomView.tsx", im
 const api = await readFile(new URL("../src/lib/api.ts", import.meta.url), "utf8");
 const sidebar = await readFile(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
 const workroomTheme = await readFile(new URL("../src/lib/workroomTheme.ts", import.meta.url), "utf8");
+const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 const statusCard = await readFile(new URL("../src/components/StatusCard.tsx", import.meta.url), "utf8");
 const evidenceChip = await readFile(new URL("../src/components/EvidenceChip.tsx", import.meta.url), "utf8");
 const commands = await readFile(new URL("../src-tauri/src/commands.rs", import.meta.url), "utf8");
@@ -57,6 +58,8 @@ for (const workroom of ["caseRoom", "documents", "documentControl", "chronology"
 }
 assert.ok(sidebar.includes("aria-current"), "sidebar marks the active workroom for assistive tech");
 assert.ok(sidebar.includes("sidebar-item__marker"), "sidebar uses a non-text color marker");
+assert.ok(styles.includes(".sidebar-actions .button-primary"), "sidebar primary action keeps visible button styling");
+assert.ok(styles.includes(".app-shell[data-theme=\"dark\"] .sidebar-actions .button-primary"), "dark sidebar primary action keeps visible contrast");
 assert.ok(app.includes("data-visual-mode={visualMode}"), "app applies persisted visual mode to root shell");
 assert.ok(app.includes("VISUAL_MODE_STORAGE_KEY"), "visual mode persists in localStorage");
 assert.ok(app.includes("CaseVitalityBar"), "case vitality bar is mounted");

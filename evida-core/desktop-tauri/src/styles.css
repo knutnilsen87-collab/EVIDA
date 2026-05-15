@@ -311,6 +311,38 @@ button:disabled {
   justify-content: center;
   margin: 0;
   border-color: #d8d3c7;
+  text-align: center;
+}
+
+.sidebar-actions .button-primary {
+  color: #fff;
+  background: #202533;
+  border-color: #202533;
+  font-weight: 800;
+}
+
+.sidebar-actions .button-primary:hover {
+  background: #111827;
+  border-color: #111827;
+}
+
+.sidebar-actions .button-primary:disabled {
+  color: #4f4942;
+  background: #e6e1d8;
+  border-color: #c8c0b2;
+  opacity: 1;
+}
+
+.sidebar-actions .button-secondary {
+  color: #202533;
+  background: #fff;
+  border-color: #d6d2c8;
+}
+
+.sidebar-actions .button-ghost {
+  color: #202533;
+  background: #faf9f6;
+  border-color: #d8d3c7;
 }
 
 .workspace {
@@ -4044,6 +4076,36 @@ textarea {
   color: #9fc9ff;
   background: transparent;
   border-color: transparent;
+}
+
+.app-shell[data-theme="dark"] .sidebar-actions .button-primary {
+  color: #151515;
+  background: #d4b85f;
+  border-color: #d4b85f;
+}
+
+.app-shell[data-theme="dark"] .sidebar-actions .button-primary:hover {
+  background: #f1d779;
+  border-color: #f1d779;
+}
+
+.app-shell[data-theme="dark"] .sidebar-actions .button-primary:disabled {
+  color: #c8c0b2;
+  background: #2d2b27;
+  border-color: #575044;
+  opacity: 1;
+}
+
+.app-shell[data-theme="dark"] .sidebar-actions .button-secondary {
+  color: #f4f1ea;
+  background: #242321;
+  border-color: #5d574e;
+}
+
+.app-shell[data-theme="dark"] .sidebar-actions .button-ghost {
+  color: #9fc9ff;
+  background: #1f2322;
+  border-color: #3f3a33;
 }
 
 .app-shell[data-theme="dark"] .desktop-menu-trigger:hover,
