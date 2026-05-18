@@ -8,6 +8,13 @@ function initialCaseIdFromUrl() {
     return null;
   }
   const params = new URLSearchParams(window.location.search);
+  const hashQuery = window.location.hash.replace(/^#\/?/, "");
+  const hashParams = new URLSearchParams(hashQuery);
+  hashParams.forEach((value, key) => {
+    if (!params.has(key)) {
+      params.set(key, value);
+    }
+  });
   return params.get("caseId");
 }
 

@@ -25,6 +25,7 @@ assert.ok(app.includes("return Boolean(params.get(\"caseId\"));"), "only explici
 assert.ok(!app.includes("return hasEvaluationSession() || Boolean(params.get(\"caseId\"));"), "persisted eval sessions cannot skip intro on normal launch");
 assert.ok(app.includes("return shouldOpenWorkspaceImmediately() ? \"caseRoom\" : \"intro\";"), "normal launch starts on intro before entering the app");
 assert.ok(app.includes("return \"documents\";"), "after intro the default workspace is Dokumenter/import, not locked Saksrom");
+assert.ok(app.includes("setOnboardingStage(\"import\");"), "intro opens the clean document import step");
 assert.ok(app.includes("function handleIntroComplete()"), "intro has an explicit continue action");
 assert.ok(app.includes("setIsAuthenticated(true);"), "intro unlocks the local evaluation app without login");
 assert.ok(!app.includes("\"login\""), "guided flow has no login stage");
@@ -37,9 +38,9 @@ assert.ok(sidebar.includes("disabled={isCreatingCase}"), "+ Ny sak is disabled o
 assert.ok(sidebar.includes("Oppretter ..."), "+ Ny sak shows concrete creating state");
 assert.ok(sidebar.includes("Dokumentkontroll"), "sidebar includes dedicated document control work area");
 assert.ok(sidebar.includes("sidebar-group__title"), "sidebar groups work, analysis and production navigation");
-assert.ok(windowContext.includes("params.get(\"caseId\")"), "new windows bind the case id from URL");
+assert.ok(windowContext.includes("window.location.hash"), "new windows bind the case id from hash URL");
 assert.ok(commands.includes("case_documents_window_url"), "desktop shell has an explicit case document route builder");
-assert.ok(commands.includes("/?caseId={}&view=documents"), "new case windows open the Dokumenter route through the app root");
+assert.ok(commands.includes("index.html#caseId={}&view=documents"), "new case windows open the Dokumenter route without breaking the app asset path");
 assert.ok(commands.includes("new_case_windows_open_directly_on_documents_route"), "Rust route behavior is covered by a unit test");
 
 console.log("case flow tests passed.");

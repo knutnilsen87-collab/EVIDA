@@ -221,7 +221,15 @@ function initialSearchParams() {
   if (typeof window === "undefined") {
     return new URLSearchParams();
   }
-  return new URLSearchParams(window.location.search);
+  const params = new URLSearchParams(window.location.search);
+  const hashQuery = window.location.hash.replace(/^#\/?/, "");
+  const hashParams = new URLSearchParams(hashQuery);
+  hashParams.forEach((value, key) => {
+    if (!params.has(key)) {
+      params.set(key, value);
+    }
+  });
+  return params;
 }
 
 function initialWorkspaceView(): ViewKey {
@@ -1884,7 +1892,7 @@ export default function App() {
 
   function handleIntroComplete() {
     setIsAuthenticated(true);
-    setOnboardingStage("caseRoom");
+    setOnboardingStage("import");
     setActiveView(initialWorkspaceView());
   }
 
@@ -1933,8 +1941,8 @@ export default function App() {
   async function handleSelectCase(caseId: string) {
     await refresh(caseId);
     if (onboardingStage !== "caseRoom") {
-      setOnboardingStage("caseRoom");
-      setActiveView("caseRoom");
+      setOnboardingStage("import");
+      setActiveView("documents");
     }
   }
 
@@ -3311,8 +3319,12 @@ export default function App() {
             <div className="guided-section-header">
               <div>
                 <div className="eyebrow">Dokumentimport</div>
-                <h1>{selectedCase ? selectedCase.name : "Velg eller opprett sak"}</h1>
-                <p>Last opp dokumenter. Evida behandler materialet og sender deg videre til Saksrom.</p>
+                <h1>Last opp dokumenter</h1>
+                <p>
+                  {selectedCase
+                    ? `${selectedCase.name}: velg filer eller en saksmappe.`
+                    : "Velg filer eller en saksmappe. Evida oppretter saken automatisk når importen starter."}
+                </p>
               </div>
               {hasDocuments && caseReadiness.verdict !== "not_ready" ? (
                 <button className="button-secondary" onClick={() => {
@@ -3323,10 +3335,9 @@ export default function App() {
                 </button>
               ) : null}
             </div>
-            {!selectedCase ? <CasePanel /> : null}
             <ImportPanel />
             {hasDocuments && caseReadiness.sourceCoveragePercent < 80 ? <DocumentReadinessPanel /> : null}
-            <ProcessingStatus />
+            {hasDocuments || isImporting || importQueue.length > 0 ? <ProcessingStatus /> : null}
           </section>
         ) : null}
       </section>

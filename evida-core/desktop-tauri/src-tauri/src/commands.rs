@@ -80,7 +80,7 @@ fn case_window_label(case_id: &str) -> String {
 }
 
 fn case_documents_window_url(case_id: &str) -> String {
-    format!("/?caseId={}&view=documents", case_id)
+    format!("index.html#caseId={}&view=documents", case_id)
 }
 
 fn open_or_focus_case_window(app: &AppHandle, case: &CaseSummary) -> Result<(), String> {
@@ -2015,7 +2015,7 @@ mod tests {
 
         assert_eq!(
             case_documents_window_url(case_id),
-            "/?caseId=CASE-123&view=documents"
+            "index.html#caseId=CASE-123&view=documents"
         );
     }
 
