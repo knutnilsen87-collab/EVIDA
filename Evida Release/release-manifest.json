@@ -2,32 +2,32 @@
     "app":  "Evida",
     "version":  "0.1.0",
     "platform":  "windows-x64",
-    "generated_at":  "2026-05-18T06:28:32.5439191Z",
+    "generated_at":  "2026-05-18T01:20:23.7546662Z",
     "source_build":  "tauri build",
     "files":  [
                   {
                       "File":  "Evida.exe",
-                      "SHA256":  "3ebcc67852255923ea0a99d0e907dd1d6772e1742d0dca8e513cf6356837aed4",
+                      "SHA256":  "467d65d8b84c4667320700180d0109cf0dae533bc8a28e8e9a9a2d463774d1a5",
                       "SizeBytes":  17158656
                   },
                   {
                       "File":  "Evida_0.1.0_x64-setup.exe",
-                      "SHA256":  "39562e1335dfd99c6bad8dc2f4833a44b015e7ff48d31c625f21431e0c5c423d",
-                      "SizeBytes":  6775792
+                      "SHA256":  "eedf806f5c254eebd520d49dbb0650c6d0e483996421b961731791485c72e26c",
+                      "SizeBytes":  6781235
                   },
                   {
                       "File":  "Evida installer.exe",
-                      "SHA256":  "39562e1335dfd99c6bad8dc2f4833a44b015e7ff48d31c625f21431e0c5c423d",
-                      "SizeBytes":  6775792
+                      "SHA256":  "eedf806f5c254eebd520d49dbb0650c6d0e483996421b961731791485c72e26c",
+                      "SizeBytes":  6781235
                   },
                   {
                       "File":  "Evida_0.1.0_x64_en-US.msi",
-                      "SHA256":  "0c570a54c6d1f1e6f3d5291d22904c3c14515f6a0f4ca586ce9fb81be13ef41c",
+                      "SHA256":  "6fcb97e7a295fd4be0328505922d253f8aa3979a19491cc4517e21e60395ddf7",
                       "SizeBytes":  8671232
                   },
                   {
                       "File":  "Evida installer.msi",
-                      "SHA256":  "0c570a54c6d1f1e6f3d5291d22904c3c14515f6a0f4ca586ce9fb81be13ef41c",
+                      "SHA256":  "6fcb97e7a295fd4be0328505922d253f8aa3979a19491cc4517e21e60395ddf7",
                       "SizeBytes":  8671232
                   }
               ]
