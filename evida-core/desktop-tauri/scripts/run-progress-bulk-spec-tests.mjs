@@ -100,8 +100,11 @@ const plan = deriveDocumentControlBulkPlan([controllable, ocr, failed]);
 assert.equal(canBulkMarkControlled(controllable), true);
 assert.equal(canBulkMarkControlled(failed), false, "hard failures cannot be bulk-marked controlled");
 assert.deepEqual(plan.eligibleForControlled.map((item) => item.id), ["DOC-ready", "DOC-ocr"]);
+assert.deepEqual(plan.eligibleAsSource.map((item) => item.id), ["DOC-ready"]);
+assert.deepEqual(plan.eligibleNotCitable.map((item) => item.id), ["DOC-ocr"]);
 assert.deepEqual(plan.replaceRows.map((item) => item.id), ["DOC-failed"]);
-assert.equal(plan.actions.find((action) => action.id === "mark_controlled")?.requiresConfirmation, true);
+assert.equal(plan.actions.find((action) => action.id === "approve_as_source")?.requiresConfirmation, true);
+assert.equal(plan.actions.find((action) => action.id === "mark_not_citable")?.requiresConfirmation, true);
 assert.equal(plan.actions.find((action) => action.id === "run_ocr")?.enabled, true);
 
 const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
@@ -110,6 +113,10 @@ const progressComponentSource = await readFile(new URL("../src/components/CasePr
 assert.match(appSource, /data-testid="bulk-selection-bar"/);
 assert.match(appSource, /data-testid="bulk-confirm-dialog"/);
 assert.match(appSource, /data-testid="document-control-preview-pane"/);
+assert.match(appSource, /role="listbox"/);
+assert.match(appSource, /aria-selected=\{selectedRow\?\.id === row\.id\}/);
+assert.match(appSource, /Godkjenn som kilde/);
+assert.match(appSource, /Kontrollert, men ikke siterbar/);
 assert.match(appSource, /skipRefresh: true/);
 assert.match(appSource, /suppressProgressActions=\{showImportCompletion\}/);
 assert.match(caseRoomSource, /preparationProgress\.chatPlaceholder/);
@@ -117,6 +124,15 @@ assert.match(caseRoomSource, /!suppressProgressActions/);
 assert.match(caseRoomSource, /CasePreparationProgress progress=\{preparationProgress\}/);
 assert.doesNotMatch(caseRoomSource, /showIntakeCard|processingCardRef|Dokumenter mottatt/);
 assert.match(progressComponentSource, /data-testid="case-preparation-progress"/);
-assert.doesNotMatch(appSource, /Godkjenner \.\.\.|Ikke bruk som kilde/);
+const staleDecisionCopy = [
+  "mark_" + "controlled",
+  "Bruk som " + "kildegrunnlag",
+  "Marker som " + "kontrollert",
+  "Godkjenner ...",
+  "Ikke bruk som kilde"
+];
+for (const staleCopy of staleDecisionCopy) {
+  assert.equal(appSource.includes(staleCopy), false, `stale decision copy is removed: ${staleCopy}`);
+}
 
 console.log("progress and bulk spec tests passed.");

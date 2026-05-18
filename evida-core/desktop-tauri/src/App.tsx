@@ -71,6 +71,10 @@ import { SourcePanel } from "./components/SourcePanel";
 import { SourcePreviewDrawer } from "./components/SourcePreviewDrawer";
 import { DocumentPreviewDrawer } from "./components/DocumentPreviewDrawer";
 import { ImportProgressSummary, type ImportAttentionItem } from "./components/ImportProgressSummary";
+import { ImportStatusCard } from "./components/documents/ImportStatusCard";
+import { PrivacyPreAlphaNotice } from "./components/privacy/PrivacyPreAlphaNotice";
+import { ReadinessStatusCard } from "./components/readiness/ReadinessStatusCard";
+import { CaseRoomGate } from "./components/case-room/CaseRoomGate";
 import { StatusCard } from "./components/StatusCard";
 import { CaseRoomView } from "./components/CaseRoomView";
 import { CaseVitalityBar } from "./components/CaseVitalityBar";
@@ -538,6 +542,7 @@ export default function App() {
   const [controlSelectionIds, setControlSelectionIds] = useState<string[]>([]);
   const [bulkConfirmAction, setBulkConfirmAction] = useState<DocumentControlBulkActionId | "">("");
   const [bulkConfirmChecked, setBulkConfirmChecked] = useState(false);
+  const [privacyNoticeDismissed, setPrivacyNoticeDismissed] = useState(false);
   const [documentSearch, setDocumentSearch] = useState("");
   const [documentFilter, setDocumentFilter] = useState<"all" | "ready" | "control" | "unused">("all");
   const [isDragActive, setIsDragActive] = useState(false);
@@ -2263,20 +2268,20 @@ export default function App() {
         className={`panel document-readiness-panel document-readiness-panel--${caseReadiness.severity} ${compact ? "document-readiness-panel--compact" : ""}`}
         aria-live="polite"
       >
-        <div className="panel-header">
-          <div>
-            <div className="eyebrow">Dokumentene gjøres klare</div>
-            <h2>{caseReadiness.title}</h2>
-            <p>{caseReadiness.reason}</p>
-          </div>
-          <div className="panel-actions">
-            {showTechnicalDetailsAction ? (
-              <button className="button-secondary" type="button" onClick={() => setTechnicalDetailsOpen((current) => !current)}>
-                {technicalDetailsOpen ? "Skjul tekniske detaljer" : "Se tekniske detaljer"}
-              </button>
-            ) : null}
-          </div>
-        </div>
+        <ReadinessStatusCard
+          label={caseReadiness.label}
+          title={caseReadiness.title}
+          body={readinessActionDescription}
+          missing={[
+            visibleReviewDocuments.length > 0 ? `${visibleReviewDocuments.length} dokumenter trenger kontroll` : "",
+            pendingOcrPages > 0 ? `${pendingOcrPages} sider mangler tekst/OCR` : ""
+          ].filter(Boolean)}
+          primaryActionLabel={primaryLabel}
+          severity={caseReadiness.severity}
+          onPrimaryAction={handlePrimaryAction}
+          onShowDetails={showTechnicalDetailsAction ? () => setTechnicalDetailsOpen((current) => !current) : undefined}
+          detailsLabel={technicalDetailsOpen ? "Skjul tekniske detaljer" : "Se tekniske detaljer"}
+        />
         <div className={`next-action-strip next-action-strip--${caseReadiness.severity}`} role="status">
           <div>
             <span>Neste beste handling</span>
@@ -2476,7 +2481,7 @@ export default function App() {
   }
 
   function approvalActionLabel(row: Pick<DocumentBasisRow, "sourceCount">) {
-    return row.sourceCount > 0 ? "Bruk som kildegrunnlag" : "Marker som kontrollert";
+    return row.sourceCount > 0 ? "Godkjenn som kilde" : "Kontrollert, men ikke siterbar";
   }
 
   async function handleDocumentApproval(
@@ -2620,8 +2625,10 @@ export default function App() {
     const selectedRows = visibleReviewDocuments.filter((row) => controlSelectionIds.includes(row.id));
     const plan = deriveDocumentControlBulkPlan(selectedRows);
     const rows =
-      action === "mark_controlled"
-        ? plan.eligibleForControlled
+      action === "approve_as_source"
+        ? plan.eligibleAsSource
+        : action === "mark_not_citable"
+          ? plan.eligibleNotCitable
         : action === "exclude"
           ? plan.excludeRows
           : action === "replace"
@@ -2646,7 +2653,7 @@ export default function App() {
 
     const savedRowIds = new Set<string>();
     for (const row of rows) {
-      const saved = await handleDocumentApproval(row, action === "mark_controlled" ? "approve_for_ai" : "reject_for_ai", {
+      const saved = await handleDocumentApproval(row, action === "exclude" ? "reject_for_ai" : "approve_for_ai", {
         quietToast: true,
         skipRefresh: true
       });
@@ -2662,7 +2669,7 @@ export default function App() {
       const next = { ...current };
       for (const row of rows) {
         if (savedRowIds.has(row.id)) {
-          next[row.id] = action === "mark_controlled" ? "approved" : "excluded";
+          next[row.id] = action === "exclude" ? "excluded" : "approved";
         }
       }
       return next;
@@ -2681,8 +2688,10 @@ export default function App() {
       await refresh(selectedCaseId);
     }
     setApprovalToast(
-      action === "mark_controlled"
-        ? `${savedRowIds.size} dokumenter er markert som kontrollert.`
+      action === "approve_as_source"
+        ? `${savedRowIds.size} dokumenter er godkjent som kilder.`
+        : action === "mark_not_citable"
+          ? `${savedRowIds.size} dokumenter er kontrollert, men ikke siterbare.`
         : `${savedRowIds.size} dokumenter er holdt utenfor kildegrunnlaget.`
     );
   }
@@ -3376,6 +3385,9 @@ export default function App() {
             <p>Velg flere filer, velg en hel saksmappe, eller dra dokumenter inn. Sporbare kildeutdrag er tekst vi kan vise tilbake til originaldokumentet.</p>
           </div>
         </div>
+        {!hasDocuments && !privacyNoticeDismissed ? (
+          <PrivacyPreAlphaNotice onDismiss={() => setPrivacyNoticeDismissed(true)} />
+        ) : null}
         <div className="import-helper">
           <strong>St\u00f8ttede filtyper:</strong> PDF, DOCX, TXT, MD, PNG, JPG og TIFF.
           {!hasDesktopRuntime() ? " Lokal filimport krever desktop-appen." : ""}
@@ -3434,7 +3446,22 @@ export default function App() {
           <strong>{isDragActive ? "Slipp dokumentene her" : "Dra dokumenter hit"}</strong>
           <span>Du kan slippe flere filer samtidig. Bruk Velg mappe for å hente en hel saksmappe rekursivt.</span>
         </div>
-        {importQueue.length > 0 ? (
+        {hasDocuments || importQueue.length > 0 ? (
+          <ImportStatusCard
+            title={importProgress.title}
+            processedDocuments={importProgress.processedDocuments}
+            totalDocuments={importProgress.totalDocuments}
+            processedPages={importProgress.processedPages}
+            totalPages={importProgress.totalPagesEstimate || totalPages}
+            sourceObjects={importProgress.sourcesCreated || sources.length}
+            phase={importProgress.currentPhaseLabel}
+            etaLabel={importProgress.etaLabel}
+            isActive={isImporting || importProgress.state === "processing"}
+            detailsOpen={showImportQueueDetails}
+            onToggleDetails={() => setShowImportQueueDetails((current) => !current)}
+          />
+        ) : null}
+        {importQueue.length > 0 && showImportQueueDetails ? (
           <ImportProgressSummary
             {...importProgress}
             isImporting={isImporting || importProgress.state === "processing"}
@@ -3920,6 +3947,37 @@ export default function App() {
       { title: "Feilet import", rows: visibleReviewDocuments.filter((row) => row.state === "needs_user_action") },
       { title: "Annen kontroll", rows: visibleReviewDocuments.filter((row) => row.sourceCount > 0 && row.pendingOcrPages === 0 && row.state !== "needs_user_action") }
     ].filter((group) => group.rows.length > 0);
+    const flatControlRows = groupedRows.flatMap((group) => group.rows);
+
+    function selectControlRowByOffset(offset: number) {
+      if (flatControlRows.length === 0) {
+        return;
+      }
+      const currentIndex = Math.max(0, flatControlRows.findIndex((row) => row.id === selectedRow?.id));
+      const nextIndex = Math.min(flatControlRows.length - 1, Math.max(0, currentIndex + offset));
+      const nextRow = flatControlRows[nextIndex];
+      if (nextRow) {
+        setSelectedControlDocumentId(nextRow.id);
+      }
+    }
+
+    function handleControlQueueKeyDown(event: KeyboardEvent<HTMLElement>, row: DocumentBasisRow) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setSelectedControlDocumentId(row.id);
+        handlePreviewDocument(row);
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        selectControlRowByOffset(1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        selectControlRowByOffset(-1);
+      }
+    }
 
     return (
       <section className="document-control-workspace" aria-labelledby="document-control-title">
@@ -3958,13 +4016,13 @@ export default function App() {
         {selectedRows.length > 0 ? (
           <div className="bulk-selection-bar" data-testid="bulk-selection-bar" role="region" aria-label="Bulkhandlinger for dokumentkontroll">
             <strong>{selectedRows.length} valgt</strong>
-            <span>{bulkPlan.eligibleForControlled.length} kan markeres kontrollert</span>
+            <span>{bulkPlan.eligibleAsSource.length} kan godkjennes som kilde</span>
             <div className="bulk-selection-bar__actions">
               {bulkPlan.actions.map((action) => (
                 <button
                   key={action.id}
                   type="button"
-                  className={action.id === "mark_controlled" ? "button-primary" : "button-secondary"}
+                  className={action.id === "approve_as_source" ? "button-primary" : "button-secondary"}
                   disabled={!action.enabled || Boolean(approvalSavingId)}
                   title={action.description}
                   onClick={() => requestBulkAction(action.id)}
@@ -4005,7 +4063,7 @@ export default function App() {
           </div>
         ) : (
           <div className="document-control-layout">
-            <aside className="document-control-queue" aria-label="Kontrollkø">
+            <aside className="document-control-queue" aria-label="Kontrollkø" role="listbox">
               <div className="document-control-queue__toolbar">
                 <button type="button" className="button-secondary" onClick={selectVisibleControlRows}>
                   Velg alle synlige
@@ -4022,6 +4080,10 @@ export default function App() {
                       key={row.id}
                       className={`document-control-queue__item ${selectedRow?.id === row.id ? "is-selected" : ""}`}
                       aria-current={selectedRow?.id === row.id ? "true" : undefined}
+                      aria-selected={selectedRow?.id === row.id}
+                      role="option"
+                      tabIndex={0}
+                      onKeyDown={(event) => handleControlQueueKeyDown(event, row)}
                     >
                       <label className="document-control-queue__select">
                         <input
@@ -4133,8 +4195,13 @@ export default function App() {
                     }
                     onClick={() => void handleControlDecision(selectedRow, "approve_for_ai")}
                   >
-                    {approvalSavingId === selectedRow.id ? "Lagrer ..." : selectedRow.sourceCount > 0 ? "Bruk som kildegrunnlag" : "Marker som kontrollert"}
+                    {approvalSavingId === selectedRow.id ? "Lagrer ..." : approvalActionLabel(selectedRow)}
                   </button>
+                  <small className="decision-helper">
+                    {selectedRow.sourceCount > 0
+                      ? "Dokumentet kan brukes som sporbar kilde i Saksrom."
+                      : "Dokumentet er håndtert i saken, men blir ikke brukt som siterbar AI-kilde."}
+                  </small>
                   <button
                     className="button-secondary"
                     type="button"
@@ -4153,16 +4220,26 @@ export default function App() {
         )}
         {pendingBulkAction ? (
           <div className="modal-backdrop" role="presentation">
-            <div className="bulk-confirm-dialog" data-testid="bulk-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-confirm-title">
+            <div
+              className="bulk-confirm-dialog"
+              data-testid="bulk-confirm-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="bulk-confirm-title"
+              onKeyDown={(event) => closeDialogOnEscape(event, () => setBulkConfirmAction(""))}
+            >
               <h3 id="bulk-confirm-title">Bekreft bulkhandling</h3>
               <p>
-                {pendingBulkAction.id === "mark_controlled"
-                  ? `${bulkPlan.eligibleForControlled.length} dokumenter markeres som kontrollert. Dette betyr ikke at innholdet er juridisk sant.`
-                  : `${bulkPlan.excludeRows.length} dokumenter holdes utenfor kildegrunnlaget.`}
+                {pendingBulkAction.id === "approve_as_source"
+                  ? `${bulkPlan.eligibleAsSource.length} dokumenter godkjennes som sporbare kilder. Dette betyr ikke at innholdet er juridisk sant.`
+                  : pendingBulkAction.id === "mark_not_citable"
+                    ? `${bulkPlan.eligibleNotCitable.length} dokumenter markeres som kontrollert, men ikke siterbare. De håndteres i saken uten å bli AI-kilder.`
+                    : `${bulkPlan.excludeRows.length} dokumenter holdes utenfor kildegrunnlaget.`}
               </p>
               <label className="review-confirmation">
                 <input
                   type="checkbox"
+                  autoFocus
                   checked={bulkConfirmChecked}
                   onChange={(event) => setBulkConfirmChecked(event.target.checked)}
                 />
@@ -4429,10 +4506,20 @@ export default function App() {
     const activeRoomKey = roomKeyForView(activeView);
     const activeRoomAvailability = activeRoomKey ? roomAvailabilityByView[activeView] : undefined;
     if (activeRoomAvailability && !activeRoomAvailability.enabled) {
+      const lockedActionTarget =
+        activeRoomAvailability.label === "Krever kilder" || activeRoomAvailability.label === "Krever minst 2 kilder"
+          ? "control"
+          : "documentControl";
+      const lockedActionLabel =
+        activeRoomAvailability.label === "Krever kilder" || activeRoomAvailability.label === "Krever minst 2 kilder"
+          ? "Se kontrollgrunnlag"
+          : "Åpne dokumentkontroll";
       return (
-        <ReadinessGate
+        <CaseRoomGate
           title={`${viewTitles[activeView]} er ikke klart ennå.`}
-          reason={activeRoomAvailability.reason}
+          body={activeRoomAvailability.reason || "Vi må først sikre at dokumentgrunnlaget har sporbare kilder."}
+          primaryLabel={lockedActionLabel}
+          onPrimaryAction={() => setActiveView(lockedActionTarget)}
         />
       );
     }

@@ -50,7 +50,8 @@ assert.ok(app.includes("tauri://drag-drop"), "app listens for native Tauri drag/
 assert.ok(app.includes("Velg mappe"), "import panel exposes folder import");
 assert.ok(caseRoom.includes("Velg saksmappe"), "Saksrom empty state exposes folder import");
 assert.ok(caseRoom.includes("Last opp dokumenter først"), "Saksrom gives an empty document-first state");
-assert.ok(caseRoom.includes("saksrom-source-tag"), "Saksrom renders inline source tags after answer paragraphs");
+assert.ok(caseRoom.includes("CitationChip"), "Saksrom renders inline source chips after answer paragraphs");
+assert.ok(caseRoom.includes("CaseRoomSourceSummary"), "Saksrom shows the active source basis before legal analysis");
 assert.ok(caseRoom.includes("Ukildet vurdering"), "Saksrom marks paragraphs without valid citations");
 assert.ok(caseRoom.includes("Kildegrunnlag:"), "Saksrom keeps source details in a compact secondary footer");
 assert.ok(api.includes("choose_document_folder_paths"), "frontend API calls folder import command");
@@ -60,7 +61,8 @@ assert.ok(app.includes("ImportHealthCenter"), "app renders Import Health Center"
 assert.ok(app.includes("deriveDocumentBasisSummary"), "app derives canonical document basis groups");
 assert.ok(app.includes("Dokumenter som trenger kontroll"), "control view names the manual review bucket");
 assert.ok(app.includes("Dokumenter som ikke ble brukt"), "control view names the unused-documents bucket");
-assert.ok(app.includes("Bruk som kildegrunnlag"), "control view can approve a previewed document for source foundation use");
+assert.ok(app.includes("Godkjenn som kilde"), "control view can approve a previewed document as a citable source");
+assert.ok(app.includes("Kontrollert, men ikke siterbar"), "control view separates controlled but non-citable documents");
 assert.ok(app.includes("recordDocumentControlAction"), "frontend records document approval/rejection audit events");
 assert.ok(app.includes("resolvePreviewDocument"), "document preview resolves rows defensively before opening");
 assert.ok(app.includes("documentPreviewFallback"), "document preview gives visible feedback when local preview data is missing");
@@ -74,6 +76,8 @@ assert.ok(app.includes("next-action-strip"), "readiness and import surfaces expo
 assert.ok(app.includes("Trygg håndtering"), "import failures show safe recovery copy");
 assert.ok(app.includes("control-flow-strip"), "document control is guided by an explicit review flow");
 assert.ok(app.includes("aria-current={selectedRow?.id === row.id"), "document control queue exposes selected document to assistive tech");
+assert.ok(app.includes("role=\"listbox\""), "document control queue exposes keyboard listbox semantics");
+assert.ok(app.includes("aria-selected={selectedRow?.id === row.id}"), "document control queue marks selected option accessibly");
 assert.ok(app.includes("closeDialogOnEscape"), "app dialogs share Escape-close handling");
 assert.ok(app.includes("autoFocus"), "destructive and completion dialogs move focus to a safe action");
 assert.ok(app.includes("documentFilter"), "document list has status filters");

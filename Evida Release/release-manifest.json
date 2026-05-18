@@ -1,34 +1,34 @@
-﻿{
+{
     "app":  "Evida",
     "version":  "0.1.0",
     "platform":  "windows-x64",
-    "generated_at":  "2026-05-18T13:16:44.2460232Z",
+    "generated_at":  "2026-05-18T14:09:26.0413397Z",
     "source_build":  "tauri build",
     "files":  [
                   {
                       "File":  "Evida.exe",
-                      "SHA256":  "7b8c6e2c17989644190a7f5422c4b274e7e6f7b24b44c06ad6c8b5dfece1706d",
-                      "SizeBytes":  17158656
+                      "SHA256":  "8634fd069f39decfc5cafa85ef422e271f721bb65787475a4d0a8ce1e6b36c20",
+                      "SizeBytes":  17160192
                   },
                   {
                       "File":  "Evida_0.1.0_x64-setup.exe",
-                      "SHA256":  "919200386e967c56fd6631e93452afab917d633ca016c98151d1a06c7c0e50c9",
-                      "SizeBytes":  6778824
+                      "SHA256":  "27ab964921344e62f8e03a3033ebf607df56f25b9bb771b8b27c98ac5ed46443",
+                      "SizeBytes":  6777076
                   },
                   {
                       "File":  "Evida installer.exe",
-                      "SHA256":  "919200386e967c56fd6631e93452afab917d633ca016c98151d1a06c7c0e50c9",
-                      "SizeBytes":  6778824
+                      "SHA256":  "27ab964921344e62f8e03a3033ebf607df56f25b9bb771b8b27c98ac5ed46443",
+                      "SizeBytes":  6777076
                   },
                   {
                       "File":  "Evida_0.1.0_x64_en-US.msi",
-                      "SHA256":  "6f41d461f847e52be9226bc689d46f1ba6076c9d27b017fc803eedc74338da75",
-                      "SizeBytes":  8671232
+                      "SHA256":  "55a81b145883b34cb248e74f9d0e5526b940950c5a395b2bfb615155fa1db59f",
+                      "SizeBytes":  8675328
                   },
                   {
                       "File":  "Evida installer.msi",
-                      "SHA256":  "6f41d461f847e52be9226bc689d46f1ba6076c9d27b017fc803eedc74338da75",
-                      "SizeBytes":  8671232
+                      "SHA256":  "55a81b145883b34cb248e74f9d0e5526b940950c5a395b2bfb615155fa1db59f",
+                      "SizeBytes":  8675328
                   }
               ]
 }

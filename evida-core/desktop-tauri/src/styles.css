@@ -5059,11 +5059,131 @@ textarea {
   overflow: auto;
 }
 
+.readiness-status-card,
+.import-status-card,
+.privacy-prealpha-notice,
+.case-room-gate,
+.case-room-source-summary {
+  border: 1px solid var(--evida-border);
+  border-radius: var(--evida-radius-md);
+  background: var(--evida-surface);
+  box-shadow: var(--evida-shadow-card);
+}
+
+.readiness-status-card,
+.import-status-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.readiness-status-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.readiness-status-card__missing,
+.import-status-card__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.readiness-status-card__missing li,
+.import-status-card__grid div {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--evida-border);
+  border-radius: var(--evida-radius-sm);
+  background: var(--panel-soft);
+}
+
+.readiness-status-card__actions,
+.import-status-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.readiness-status-card__missing {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+
+.import-status-card__grid {
+  margin: 0;
+}
+
+.import-status-card__grid dt {
+  color: var(--evida-muted);
+  font-size: 0.78rem;
+}
+
+.import-status-card__grid dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.privacy-prealpha-notice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 16px;
+  background: #f8fbff;
+  border-color: #bfd4f5;
+}
+
+.case-room-gate,
+.case-room-source-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+}
+
+.case-room-gate {
+  border-left: 5px solid var(--evida-warn);
+  background: #fffaf7;
+}
+
+.case-room-source-summary {
+  margin: 12px 0;
+  background: #fbfdf8;
+  border-color: #d7e5cb;
+}
+
+.case-room-source-summary p,
+.privacy-prealpha-notice p,
+.readiness-status-card p,
+.import-status-card p {
+  margin: 4px 0 0;
+  color: var(--evida-muted);
+  line-height: 1.45;
+}
+
+.decision-helper {
+  display: block;
+  color: var(--evida-muted);
+  line-height: 1.4;
+}
+
 .case-room-preliminary-banner {
   margin: 12px 0;
 }
 
 @media (max-width: 900px) {
+  .readiness-status-card,
+  .privacy-prealpha-notice,
+  .case-room-gate,
+  .case-room-source-summary {
+    grid-template-columns: 1fr;
+  }
+
   .next-action-strip {
     align-items: stretch;
     flex-direction: column;

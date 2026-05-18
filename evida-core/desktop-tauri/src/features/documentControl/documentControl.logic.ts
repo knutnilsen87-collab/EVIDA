@@ -7,6 +7,8 @@ export function canBulkMarkControlled(row: DocumentBasisRow) {
 
 export function deriveDocumentControlBulkPlan(selectedRows: DocumentBasisRow[]): DocumentControlBulkPlan {
   const eligibleForControlled = selectedRows.filter(canBulkMarkControlled);
+  const eligibleAsSource = eligibleForControlled.filter((row) => row.sourceCount > 0);
+  const eligibleNotCitable = eligibleForControlled.filter((row) => row.sourceCount <= 0);
   const ocrRows = selectedRows.filter((row) => row.pendingOcrPages > 0 || row.state === "needs_text_control");
   const excludeRows = selectedRows.filter((row) => row.canReject);
   const replaceRows = selectedRows.filter((row) => row.state === "needs_user_action");
@@ -14,15 +16,27 @@ export function deriveDocumentControlBulkPlan(selectedRows: DocumentBasisRow[]):
   return {
     selectedRows,
     eligibleForControlled,
+    eligibleAsSource,
+    eligibleNotCitable,
     ocrRows,
     excludeRows,
     replaceRows,
     actions: [
       {
-        id: "mark_controlled",
-        label: "Marker som kontrollert",
-        description: "Lagrer kontrollbeslutning for valgte dokumenter som kan kontrolleres samlet.",
-        enabled: eligibleForControlled.length > 0,
+        id: "approve_as_source",
+        label: "Godkjenn valgte som kilde",
+        description:
+          eligibleForControlled.length > eligibleAsSource.length
+            ? `${eligibleForControlled.length - eligibleAsSource.length} valgte dokumenter mangler lesbar tekst og kan ikke godkjennes som kilder.`
+            : "Dokumentene kan brukes i Saksrom-svar med kildehenvisning.",
+        enabled: eligibleAsSource.length > 0 && eligibleAsSource.length === selectedRows.length,
+        requiresConfirmation: true
+      },
+      {
+        id: "mark_not_citable",
+        label: "Kontrollert, men ikke siterbar",
+        description: "Dokumentene blir håndtert, men brukes ikke som AI-kilder i Saksrom.",
+        enabled: eligibleNotCitable.length > 0,
         requiresConfirmation: true
       },
       {
