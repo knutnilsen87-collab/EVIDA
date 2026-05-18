@@ -90,7 +90,7 @@ export function DocumentPreviewDrawer({
   const sourceCoverage = Math.round(document.source_coverage_percent || 0);
   const hasExtractedText = extractedText.trim().length > 0;
   const hasUsableSources = document.source_count > 0;
-  const approveLabel = hasUsableSources ? "Godkjenn som kilde" : "Kontrollert, men ikke siterbar";
+  const approveLabel = hasUsableSources ? "Bruk som kildegrunnlag" : "Marker som kontrollert";
   const canOpenOriginalFolder = Boolean(document.local_path);
   const shouldShowTextPreview = kind === "text" || kind === "docx_text" || kind === "unsupported" || (kind === "pdf" && !previewUrl);
   const shouldShowPreviewFallback = !previewUrl || previewFailed;

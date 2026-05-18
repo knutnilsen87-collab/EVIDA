@@ -35,8 +35,6 @@ import {
 } from "../lib/answerQuality";
 import { AssistantWorkState } from "./AssistantWorkState";
 import { CasePreparationProgress } from "./CasePreparationProgress";
-import { CaseRoomSourceSummary } from "./case-room/CaseRoomSourceSummary";
-import { CitationChip } from "./case-room/CitationChip";
 import type { CasePreparationProgress as CasePreparationProgressData } from "../features/casePreparation/casePreparation.types";
 
 type LegacyImportStage = "selected" | "validating" | "hashing" | "extracting" | "chunking" | "ready" | "needs_attention";
@@ -1633,13 +1631,15 @@ export function CaseRoomView({
                 {validSources.length > 0 ? (
                   <span className="saksrom-source-tags" aria-label="Kilder for avsnittet">
                     {validSources.map((sourceRef) => (
-                      <CitationChip
+                      <button
                         key={`${paragraph.id}-${sourceRef.sourceId}`}
-                        label={`Kilde ${sourceRef.displayNumber}`}
-                        title={sourceDisplayTitle(sourceRef)}
-                        pageNumber={sourceRef.pageNumber}
-                        onOpen={() => onOpenSource(sourceRef.sourceId)}
-                      />
+                        type="button"
+                        className="saksrom-source-tag"
+                        title={`${sourceDisplayTitle(sourceRef)} · side ${sourceRef.pageNumber || "?"}`}
+                        onClick={() => onOpenSource(sourceRef.sourceId)}
+                      >
+                        Kilde {sourceRef.displayNumber}
+                      </button>
                     ))}
                   </span>
                 ) : (
@@ -1730,11 +1730,6 @@ export function CaseRoomView({
             {preliminaryBanner ? (
               <div className="warning-notice case-room-preliminary-banner">{preliminaryBanner}</div>
             ) : null}
-            <CaseRoomSourceSummary
-              sourceCount={sources.length}
-              notCitableCount={systemStatus.excludedDocuments}
-              onOpenControl={onOpenControl}
-            />
             {systemStatus.saksromScope === "controlled_sources_only" ? (
               <div className="warning-notice case-room-preliminary-banner">
                 Saksrom bruker bare kontrollerte kilder. {systemStatus.excludedDocuments} dokumenter er foreløpig holdt utenfor svargrunnlaget.
