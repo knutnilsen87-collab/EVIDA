@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { DocumentSummary, SourceObjectSummary } from "../types";
 
@@ -11,6 +12,7 @@ interface DocumentPreviewDrawerProps {
   onApproveAsSource: (documentId: string) => void;
   onExcludeFromCase: (documentId: string) => void;
   onReplaceFile: (documentId: string) => void;
+  onOpenOriginalFolder: (path: string) => void;
 }
 
 type PreviewKind = "pdf" | "image" | "text" | "docx_text" | "unsupported";
@@ -62,8 +64,22 @@ export function DocumentPreviewDrawer({
   onClose,
   onApproveAsSource,
   onExcludeFromCase,
-  onReplaceFile
+  onReplaceFile,
+  onOpenOriginalFolder
 }: DocumentPreviewDrawerProps) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && document) {
+      dialogRef.current?.focus();
+    }
+  }, [document, isOpen]);
+
+  useEffect(() => {
+    setPreviewFailed(false);
+  }, [document?.id]);
+
   if (!isOpen || !document) {
     return null;
   }
@@ -75,14 +91,25 @@ export function DocumentPreviewDrawer({
   const hasExtractedText = extractedText.trim().length > 0;
   const hasUsableSources = document.source_count > 0;
   const approveLabel = hasUsableSources ? "Bruk som kildegrunnlag" : "Marker som kontrollert";
+  const canOpenOriginalFolder = Boolean(document.local_path);
+  const shouldShowTextPreview = kind === "text" || kind === "docx_text" || kind === "unsupported" || (kind === "pdf" && !previewUrl);
+  const shouldShowPreviewFallback = !previewUrl || previewFailed;
 
   return (
     <div className="drawer-backdrop" role="presentation" onClick={onClose}>
       <aside
+        ref={dialogRef}
         className="source-drawer document-preview-drawer"
         role="dialog"
         aria-modal="true"
         aria-label="Dokumentpreview"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="drawer-header">
@@ -107,13 +134,34 @@ export function DocumentPreviewDrawer({
         </div>
 
         <div className="document-preview-content">
-          {kind === "pdf" && previewUrl ? (
-            <iframe className="document-preview-frame" src={previewUrl} title={`Preview av ${document.original_name}`} />
+          {kind === "pdf" && previewUrl && !previewFailed ? (
+            <iframe
+              className="document-preview-frame"
+              src={previewUrl}
+              title={`Preview av ${document.original_name}`}
+              onError={() => setPreviewFailed(true)}
+            />
           ) : null}
-          {kind === "image" && previewUrl ? (
-            <img className="document-preview-image" src={previewUrl} alt={`Preview av ${document.original_name}`} />
+          {kind === "image" && previewUrl && !previewFailed ? (
+            <img
+              className="document-preview-image"
+              src={previewUrl}
+              alt={`Preview av ${document.original_name}`}
+              onError={() => setPreviewFailed(true)}
+            />
           ) : null}
-          {(kind === "text" || kind === "docx_text" || kind === "unsupported" || (kind === "pdf" && !previewUrl)) ? (
+          {(kind === "pdf" || kind === "image") && shouldShowPreviewFallback ? (
+            <div className="document-preview-fallback" role="status">
+              <strong>Preview kunne ikke vises inne i Evida.</strong>
+              <p>Originalfilen kan fortsatt åpnes fra lokal mappe for visuell kontroll.</p>
+              {canOpenOriginalFolder ? (
+                <button className="button-secondary" type="button" onClick={() => onOpenOriginalFolder(document.local_path)}>
+                  Åpne originalmappe
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {shouldShowTextPreview ? (
             <div className={kind === "text" ? "document-preview-text document-preview-text--mono" : "document-preview-text"}>
               {hasExtractedText ? (
                 <pre>{extractedText}</pre>
@@ -150,14 +198,19 @@ export function DocumentPreviewDrawer({
             disabled={approvalState === "saving" || approvalState === "approved"}
             onClick={() => onApproveAsSource(document.id)}
           >
-            {approvalState === "saving" ? "Godkjenner ..." : approvalState === "approved" ? "Godkjent" : approveLabel}
+            {approvalState === "saving" ? "Lagrer ..." : approvalState === "approved" ? "Kontrollert" : approveLabel}
           </button>
           <button className="button-secondary" type="button" disabled={approvalState === "saving"} onClick={() => onExcludeFromCase(document.id)}>
-            Ikke bruk som kilde
+            Hold utenfor kildegrunnlaget
           </button>
           <button className="button-secondary" type="button" disabled={approvalState === "saving"} onClick={() => onReplaceFile(document.id)}>
             Erstatt fil
           </button>
+          {canOpenOriginalFolder ? (
+            <button className="button-secondary" type="button" onClick={() => onOpenOriginalFolder(document.local_path)}>
+              Åpne originalmappe
+            </button>
+          ) : null}
           <button className="button-ghost" type="button" onClick={onClose}>
             Lukk preview
           </button>

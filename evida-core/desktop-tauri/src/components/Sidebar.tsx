@@ -1,5 +1,7 @@
 import type { ViewKey } from "../types";
 import type { CaseReadinessVerdict } from "../features/readiness/caseReadiness";
+import type { RoomAvailability } from "../features/rooms/roomAvailability";
+import { getSidebarStateLabel, roomKeyForView } from "../features/rooms/roomAvailability";
 import { WORKROOM_THEME, workroomKeyForView, workroomStyle } from "../lib/workroomTheme";
 import { WorkroomIcon } from "./WorkroomIcon";
 
@@ -40,6 +42,7 @@ interface SidebarProps {
   onNavigate: (view: ViewKey) => void;
   hasDocuments: boolean;
   readinessVerdict: CaseReadinessVerdict;
+  roomAvailabilityByView?: Partial<Record<ViewKey, RoomAvailability>>;
   onNewCase: () => void;
   onNewCaseInNewWindow: () => void;
   onOpenCaseSwitcher: () => void;
@@ -82,11 +85,35 @@ function lockedReason(unlock: UnlockLevel) {
   return "";
 }
 
+function sidebarAvailabilityFor(
+  item: { key: ViewKey; label: string; unlock: UnlockLevel },
+  hasDocuments: boolean,
+  readinessVerdict: CaseReadinessVerdict,
+  roomAvailabilityByView?: Partial<Record<ViewKey, RoomAvailability>>
+) {
+  const roomAvailability = roomKeyForView(item.key) ? roomAvailabilityByView?.[item.key] : undefined;
+  if (roomAvailability) {
+    return {
+      unlocked: roomAvailability.enabled,
+      stateLabel: getSidebarStateLabel(roomAvailability),
+      reason: roomAvailability.reason || roomAvailability.warning || item.label
+    };
+  }
+
+  const unlocked = isUnlocked(item.unlock, hasDocuments, readinessVerdict);
+  return {
+    unlocked,
+    stateLabel: unlocked ? "Klar" : item.unlock === "documents" ? "Krever kilder" : "Krever dokumentkontroll",
+    reason: unlocked ? item.label : lockedReason(item.unlock)
+  };
+}
+
 export function Sidebar({
   activeView,
   onNavigate,
   hasDocuments,
   readinessVerdict,
+  roomAvailabilityByView,
   onNewCase,
   onNewCaseInNewWindow,
   onOpenCaseSwitcher,
@@ -122,12 +149,13 @@ export function Sidebar({
           <div className="sidebar-group__title">{group.title}</div>
           <ul>
             {group.items.map((item) => {
-              const unlocked = isUnlocked(item.unlock, hasDocuments, readinessVerdict);
+              const availability = sidebarAvailabilityFor(item, hasDocuments, readinessVerdict, roomAvailabilityByView);
+              const { unlocked } = availability;
               const themeKey = workroomKeyForView(item.key);
               const theme = WORKROOM_THEME[themeKey];
               const active = item.key === activeView;
               return (
-                <li key={item.key} title={unlocked ? item.label : lockedReason(item.unlock)}>
+                <li key={item.key} title={availability.reason}>
                   <button
                     className={`sidebar-item ${active ? "sidebar-item--active active" : ""} ${!unlocked ? "locked" : ""}`}
                     style={workroomStyle(themeKey)}
@@ -140,8 +168,11 @@ export function Sidebar({
                       <WorkroomIcon name={theme.icon} size={17} />
                     </span>
                     <span className="sidebar-item__label">{theme.label}</span>
-                    {!unlocked ? <span className="sidebar-item__lock">Låst</span> : null}
+                    <span className={`sidebar-item__state sidebar-item__state--${unlocked ? "open" : "locked"}`}>
+                      {availability.stateLabel}
+                    </span>
                   </button>
+                  {!unlocked ? <small className="sidebar-item__helper">{availability.reason}</small> : null}
                 </li>
               );
             })}

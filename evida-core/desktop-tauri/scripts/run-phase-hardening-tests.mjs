@@ -55,7 +55,8 @@ assert.ok(settingsView.includes("allow_full_document_sending: false"), "settings
 assert.ok(settingsView.includes("require_external_ai_confirmation: true"), "settings default external AI confirmation is on");
 assert.ok(settingsView.includes("no_document_text_logs: true"), "settings default document text logging is off");
 assert.ok(settingsView.includes("no_chat_logs: true"), "settings default chat logging is off");
-assert.ok(appSource.includes("DEMO_MODE"), "demo login is explicitly gated");
+assert.equal(appSource.includes("DEMO_MODE"), false, "demo login gate is removed from the local evaluation flow");
+assert.equal(appSource.includes("guided-login-form"), false, "login form is not present in the app shell");
 assert.equal(appSource.includes("eval-2026"), false, "demo password is not present as a production-visible literal");
 assert.ok(caseRoomSource.includes("shouldUseExternalAiProvider"), "Saksrom has an explicit external provider policy gate");
 assert.ok(caseRoomSource.includes("policy-blokkert"), "provider policy block is visible to user");

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DatabaseSecurityStatus, SecuritySettings } from "../../types";
 import { createEncryptedBackup, getSetting, restoreEncryptedBackup, setSetting } from "../../lib/api";
 
@@ -102,6 +102,7 @@ function SettingCheck({
 }
 
 export function SettingsView({ open, dbSecurity, onClose, onOpenDataFolder }: Props) {
+  const dialogRef = useRef<HTMLElement | null>(null);
   const [activeTab, setActiveTab] = useState("Sikkerhet");
   const [security, setSecurity] = useState<SecuritySettings>(DEFAULT_SECURITY_SETTINGS);
   const [status, setStatus] = useState("");
@@ -111,6 +112,7 @@ export function SettingsView({ open, dbSecurity, onClose, onOpenDataFolder }: Pr
     if (!open) {
       return;
     }
+    window.setTimeout(() => dialogRef.current?.focus(), 0);
     getSetting(SECURITY_KEY)
       .then((value) => {
         if (value) {
@@ -150,7 +152,21 @@ export function SettingsView({ open, dbSecurity, onClose, onOpenDataFolder }: Pr
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <section className="modal settings-modal" role="dialog" aria-modal="true" aria-label="Innstillinger" onClick={(event) => event.stopPropagation()}>
+      <section
+        ref={dialogRef}
+        className="modal settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Innstillinger"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="settings-modal__header">
           <div>
             <p className="eyebrow">Evida</p>

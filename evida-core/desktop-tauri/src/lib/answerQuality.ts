@@ -39,7 +39,11 @@ export const BLOCKED_MAIN_ANSWER_PATTERNS = [
   /Dokumenttype:/i,
   /løpenummer/i,
   /Regnskapsutdrag\s*\|\s*Bates/i,
-  /\.pdf\b/i
+  /\.pdf\b/i,
+  /\bFormat:\s*timestamp\b/i,
+  /\b(APPROVE_BATCH|VIEW_ACCOUNT|EXPORT_CSV|LOGIN|VPN)\b/i,
+  /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+  /\b\d{1,3}(?:\.\d{1,3}){3}\b/
 ];
 
 export function mainAnswerHasBlockedMetadata(value: string) {
@@ -102,29 +106,18 @@ export function validateStructuredAnswer(input: AnswerValidationInput): AnswerVa
 }
 
 export function structuredToDisplayAnswer(answer: StructuredSaksromAnswer) {
-  const reasoning = answer.reasoning_points.length > 0
-    ? answer.reasoning_points.map((point) => `- ${point}`).join("\n")
-    : "- Ingen ekstra vurderingspunkter.";
-  const followups = answer.suggested_followups.slice(0, 4);
+  const reasoning = answer.reasoning_points.slice(0, 2).join(" ");
+  const assessment = answer.partner_assessment || "Jeg har ikke nok grunnlag til en sterkere vurdering ennå.";
+  const uncertainty = answer.uncertainty || "Dette må kontrolleres mot kildene før bruk.";
+  const nextStep = answer.next_best_step || "Åpne kontrollstatus og se hvilke kilder som er klare.";
+  const followups = answer.suggested_followups.slice(0, 2);
 
   return [
-    "Kort svar",
     answer.direct_answer,
-    "",
-    "Viktigste vurdering",
-    answer.partner_assessment || "Jeg har ikke nok grunnlag til en sterkere vurdering ennå.",
-    "",
-    "Viktigste punkter",
-    reasoning,
-    "",
-    "Usikkerhet / mangler",
-    answer.uncertainty || "Dette må kontrolleres mot kildene før bruk.",
-    "",
-    "Neste anbefalte handling",
-    answer.next_best_step || "Åpne kontrollstatus og se hvilke kilder som er klare.",
-    followups.length > 0 ? "\nMulige spor å undersøke videre" : "",
-    ...followups.map((followup) => `- ${followup}`)
-  ].filter(Boolean).join("\n");
+    reasoning ? `${assessment} ${reasoning}` : assessment,
+    `Forbeholdet mitt er dette: ${uncertainty}`,
+    `Neste steg bør være: ${nextStep}${followups.length > 0 ? ` Deretter ville jeg undersøkt ${followups.join(" og ").toLowerCase()}.` : ""}`
+  ].filter(Boolean).join("\n\n");
 }
 
 export function createSafeFallbackStructuredAnswer(args: {

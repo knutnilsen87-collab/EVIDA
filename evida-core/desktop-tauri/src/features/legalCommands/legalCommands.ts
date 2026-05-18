@@ -61,7 +61,7 @@ export const LEGAL_COMMANDS: LegalCommand[] = [
 ];
 
 const BLOCKED_REASON =
-  "Jeg kan ikke kjøre denne modusen ennå fordi dokumentgrunnlaget ikke er klart nok. Trygt neste steg er å vente til dokumentene er ferdig behandlet eller se behandlingsstatus.";
+  "Jeg kan ikke kjøre denne modusen ennå fordi dokumentgrunnlaget ikke har sporbare kilder. Trygt neste steg er å se behandlingsstatus og kontrollere kildegrunnlaget.";
 
 export function resolveLegalCommand(input: string): LegalCommandResolution {
   const normalizedInput = input.trim().toLowerCase();
@@ -83,10 +83,11 @@ export function resolveLegalCommand(input: string): LegalCommandResolution {
 export function gateLegalCommand(
   command: LegalCommand,
   readinessVerdict: CaseReadinessVerdict,
-  sourceCoveragePercent: number
+  sourceCoveragePercent: number,
+  sourceCount = sourceCoveragePercent > 0 ? 1 : 0
 ): LegalCommandGate {
   if (command.requiredReadiness === "has_sources") {
-    const allowed = sourceCoveragePercent >= 50;
+    const allowed = sourceCount > 0;
     return {
       allowed,
       severity: allowed ? "success" : "critical",
@@ -95,9 +96,7 @@ export function gateLegalCommand(
   }
 
   if (command.requiredReadiness === "preliminary") {
-    const allowed =
-      sourceCoveragePercent >= 80 &&
-      (readinessVerdict === "ready_for_preliminary_analysis" || readinessVerdict === "ready_for_draft_control");
+    const allowed = sourceCount > 0;
     return {
       allowed,
       severity: allowed ? "success" : "critical",
@@ -105,7 +104,7 @@ export function gateLegalCommand(
     };
   }
 
-  const allowed = sourceCoveragePercent >= 95 && readinessVerdict === "ready_for_draft_control";
+  const allowed = sourceCount > 0 && readinessVerdict !== "not_ready";
   return {
     allowed,
     severity: allowed ? "success" : "critical",

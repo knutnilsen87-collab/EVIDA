@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { CaseSummary } from "../types";
 
 type Props = {
@@ -32,13 +33,35 @@ export function CaseSwitcher({
   onOpenInNewWindow,
   onRenameCase
 }: Props) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      dialogRef.current?.focus();
+    }
+  }, [open]);
+
   if (!open) {
     return null;
   }
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <section className="modal case-switcher" role="dialog" aria-modal="true" aria-label="Bytt sak" onClick={(event) => event.stopPropagation()}>
+      <section
+        ref={dialogRef}
+        className="modal case-switcher"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Bytt sak"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="case-switcher__header">
           <div>
             <p className="eyebrow">Tidligere saker</p>

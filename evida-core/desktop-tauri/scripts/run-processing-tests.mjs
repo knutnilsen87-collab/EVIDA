@@ -91,8 +91,7 @@ assert.equal(
 );
 
 const caseRoomSource = await readFile(new URL("../src/components/CaseRoomView.tsx", import.meta.url), "utf8");
-assert.match(caseRoomSource, /pageCountingComplete/, "case room distinguishes known page totals from partial page counts");
-assert.match(caseRoomSource, /sider telt så langt/, "case room shows counted pages before treating them as processed total");
-assert.match(caseRoomSource, /dokumenter gjenstår sidetelling/, "case room does not show zero pages remaining while page count is incomplete");
+assert.match(caseRoomSource, /preparationProgress/, "case room uses the shared preparation progress model during import");
+assert.doesNotMatch(caseRoomSource, /pageCountingComplete|sider telt så langt|dokumenter gjenstår sidetelling/, "case room no longer mounts the legacy variable-height intake card");
 
 console.log("processing tests passed.");

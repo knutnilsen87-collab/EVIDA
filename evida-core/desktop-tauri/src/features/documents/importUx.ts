@@ -183,6 +183,11 @@ export function deriveImportOutcome(args: {
 }
 
 export function deriveNextAction(outcome: ImportOutcome): NextActionDecision {
+  const totalControlCount = Math.max(
+    outcome.manualReviewRequired + outcome.notUsedAsSource,
+    outcome.ocrRequired + outcome.failed,
+    outcome.manualReviewRequired
+  );
   if (outcome.isRunning) {
     return {
       id: "wait_for_import",
@@ -212,8 +217,8 @@ export function deriveNextAction(outcome: ImportOutcome): NextActionDecision {
       id: "control_documents",
       severity: "warning",
       title: "Kontroller dokumenter",
-      description: `${outcome.manualReviewRequired} dokument${outcome.manualReviewRequired === 1 ? "" : "er"} trenger manuell vurdering før hele saken kan brukes i Saksrom.`,
-      primaryLabel: `Kontroller ${outcome.manualReviewRequired} dokument${outcome.manualReviewRequired === 1 ? "" : "er"}`,
+      description: `${totalControlCount} dokument${totalControlCount === 1 ? "" : "er"} trenger kontroll eller importavklaring før hele saken kan brukes i Saksrom.`,
+      primaryLabel: `Kontroller ${totalControlCount} dokument${totalControlCount === 1 ? "" : "er"}`,
       secondaryLabel: "Vis importdetaljer",
       targetView: "documentControl",
       blocksSaksrom: false,
@@ -222,13 +227,13 @@ export function deriveNextAction(outcome: ImportOutcome): NextActionDecision {
   }
   if (outcome.ocrRequired > 0) {
     return {
-      id: "run_ocr",
+      id: "open_saksrom_limited",
       severity: "warning",
-      title: "OCR kreves",
-      description: `${outcome.ocrRequired} dokument${outcome.ocrRequired === 1 ? "" : "er"} trenger OCR eller tekstkontroll før full dekning.`,
-      primaryLabel: "Kontroller OCR",
-      secondaryLabel: "Vis importdetaljer",
-      targetView: "documentControl",
+      title: "Saksrom er klart foreløpig",
+      description: `Dokumentkontrollen er fullført, men ${outcome.pagesWaitingForText} ${outcome.pagesWaitingForText === 1 ? "side mangler" : "sider mangler"} tekst/OCR. Saksrom kan brukes med ${Math.round(outcome.sourceCoveragePercent)} % kildedekning.`,
+      primaryLabel: "Gå til Saksrom foreløpig",
+      secondaryLabel: "Kjør OCR for full dekning",
+      targetView: "caseRoom",
       blocksSaksrom: false,
       saksromScope: "controlled_sources_only"
     };
@@ -587,10 +592,13 @@ export function summarizeImportProgress(args: {
   const terminalDocuments = args.items.filter((item) => isImportTerminalStatus(item.status)).length;
   const processingDocuments = Math.max(0, args.items.filter((item) => !isImportTerminalStatus(item.status)).length);
   const remainingDocuments = Math.max(0, totalDocuments - terminalDocuments);
-  const failedDocuments =
-    args.items.filter((item) => FAILED_STATUSES.has(item.status)).length + (args.failedDocumentsFallback ?? 0);
-  const attentionDocuments =
-    args.items.filter((item) => ATTENTION_STATUSES.has(item.status)).length + (args.attentionDocumentsFallback ?? 0);
+  const hasItemStatusCounts = args.items.length > 0;
+  const failedDocuments = hasItemStatusCounts
+    ? args.items.filter((item) => FAILED_STATUSES.has(item.status)).length
+    : (args.failedDocumentsFallback ?? 0);
+  const attentionDocuments = hasItemStatusCounts
+    ? args.items.filter((item) => ATTENTION_STATUSES.has(item.status)).length
+    : (args.attentionDocumentsFallback ?? 0);
   const skippedDocuments = args.items.filter((item) => SKIPPED_STATUSES.has(item.status)).length;
   const hasNonTerminal = processingDocuments > 0 || remainingDocuments > 0;
   const allTerminal = totalDocuments > 0 && !hasNonTerminal;

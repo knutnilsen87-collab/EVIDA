@@ -8,9 +8,10 @@ interface EvidenceViewProps {
   sourcesById: Map<string, SourceObjectSummary>;
   onBuild: () => void;
   onOpenSource: (sourceId: string) => void;
+  buildLabel?: string;
 }
 
-export function EvidenceView({ rows, sourcesById, onBuild, onOpenSource }: EvidenceViewProps) {
+export function EvidenceView({ rows, sourcesById, onBuild, onOpenSource, buildLabel = "Bygg bevismatrise" }: EvidenceViewProps) {
   return (
     <section className="panel">
       <div className="panel-header">
@@ -18,13 +19,13 @@ export function EvidenceView({ rows, sourcesById, onBuild, onOpenSource }: Evide
           <h2>Bevismatrise</h2>
           <p>Påstander koblet til støttende og svekkende kilder.</p>
         </div>
-        <button className="button-primary" onClick={onBuild}>Bygg bevismatrise</button>
+        <button className="button-primary" onClick={onBuild}>{buildLabel}</button>
       </div>
       {rows.length === 0 ? (
         <EmptyStateAction
           title="Ingen bevismatrise bygget ennå."
           description="Bevis viser p\u00e5standsobjekter, ikke en liste med r\u00e5 tekstutdrag."
-          actionLabel="Bygg bevismatrise"
+          actionLabel={buildLabel}
           onAction={onBuild}
         />
       ) : (

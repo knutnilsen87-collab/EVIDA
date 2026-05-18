@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { SourceObjectSummary } from "../types";
 
 interface SourcePreviewDrawerProps {
@@ -7,6 +8,14 @@ interface SourcePreviewDrawerProps {
 }
 
 export function SourcePreviewDrawer({ source, title, onClose }: SourcePreviewDrawerProps) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (source) {
+      dialogRef.current?.focus();
+    }
+  }, [source]);
+
   if (!source) {
     return null;
   }
@@ -14,10 +23,18 @@ export function SourcePreviewDrawer({ source, title, onClose }: SourcePreviewDra
   return (
     <div className="drawer-backdrop" role="presentation" onClick={onClose}>
       <aside
+        ref={dialogRef}
         className="source-drawer"
         role="dialog"
         aria-modal="true"
         aria-label="Kildevisning"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="drawer-header">

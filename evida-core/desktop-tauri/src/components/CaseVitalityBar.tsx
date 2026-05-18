@@ -5,6 +5,9 @@ export type CaseVitality = {
   ocrCoveragePct?: number;
   indexedDocumentCount?: number;
   totalDocumentCount?: number;
+  controlStatus?: string;
+  ocrStatus?: string;
+  analysisRoomStatus?: string;
   unresolvedConflictCount?: number;
   riskLevel?: "low" | "medium" | "high" | "unknown" | string;
   nextBestAction?: string;
@@ -28,7 +31,9 @@ export function CaseVitalityBar({
         <strong>Fremdrift og kontroll</strong>
       </div>
       <CoverageBar label="Kilder" value={vitality.sourceCoveragePct} unknown={vitality.sourceCoveragePct === undefined} />
-      <CoverageBar label="OCR" value={vitality.ocrCoveragePct} unknown={vitality.ocrCoveragePct === undefined} />
+      <ProgressPill label="Kontroll" value={vitality.controlStatus || "Ukjent"} />
+      <ProgressPill label="Analyse-rom" value={vitality.analysisRoomStatus || "Ukjent"} />
+      <ProgressPill label="OCR" value={vitality.ocrStatus ?? (vitality.ocrCoveragePct === undefined ? "Ukjent" : `${vitality.ocrCoveragePct} %`)} />
       <ProgressPill label="Dokumenter" value={indexed} />
       <ProgressPill label="Motstrid" value={vitality.unresolvedConflictCount ?? "Ukjent"} />
       <RiskBadge value={vitality.riskLevel} />

@@ -22,11 +22,6 @@ import {
 } from "../features/adaptiveSaksrom/workstyle";
 import type { WorkstylePreferences } from "../features/adaptiveSaksrom/workstyle";
 import { SAKSROM_WORK_STATES } from "../features/adaptiveSaksrom/workStates";
-import {
-  processingStageLabel,
-  processingStageProgress,
-  processingStepViews
-} from "../types/processing";
 import type { DocumentProcessingStage, ProcessingActivityState } from "../types/processing";
 import { calculatePageProgress } from "../lib/processing";
 import { classifyUserQuestion } from "../lib/intentParser";
@@ -39,6 +34,8 @@ import {
   validateStructuredAnswer
 } from "../lib/answerQuality";
 import { AssistantWorkState } from "./AssistantWorkState";
+import { CasePreparationProgress } from "./CasePreparationProgress";
+import type { CasePreparationProgress as CasePreparationProgressData } from "../features/casePreparation/casePreparation.types";
 
 type LegacyImportStage = "selected" | "validating" | "hashing" | "extracting" | "chunking" | "ready" | "needs_attention";
 
@@ -62,7 +59,9 @@ interface CaseRoomViewProps {
   readiness: ReadinessResult;
   preliminaryBanner?: string;
   nextActionTitle: string;
+  suppressProgressActions?: boolean;
   systemStatus: CaseRoomSystemStatus;
+  preparationProgress: CasePreparationProgressData;
   onOpenSource: (sourceId: string) => void;
   onOpenControl: () => void;
   onOpenSimulation: () => void;
@@ -106,6 +105,11 @@ interface CaseRoomSystemStatus {
 interface CaseAnswer {
   answer: string;
   sourceIds: string[];
+  paragraphs?: Array<{
+    id: string;
+    text: string;
+    sourceIds: string[];
+  }>;
   validatedSources: Array<{
     sourceId: string;
     documentId: string;
@@ -217,6 +221,16 @@ function removeSummaryMetadataPrefix(value: string) {
   return clean.length > 150 ? `${clean.slice(0, 147)}...` : clean;
 }
 
+function isLikelyRawEvidenceDump(value: string) {
+  return [
+    /\bFormat:\s*timestamp\b/i,
+    /\b(APPROVE_BATCH|VIEW_ACCOUNT|EXPORT_CSV|LOGIN|VPN)\b/i,
+    /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+    /\b\d{1,3}(?:\.\d{1,3}){3}\b/,
+    /serverlogg\s*#\s*format/i
+  ].some((pattern) => pattern.test(value));
+}
+
 function tokenize(value: string) {
   return value
     .toLowerCase()
@@ -281,6 +295,17 @@ function inferTracksFromSources(sources: SourceObjectSummary[]) {
   );
 }
 
+function describeCaseFocus(sources: SourceObjectSummary[]) {
+  const tracks = inferTracksFromSources(sources);
+  if (tracks.length === 0) {
+    return "faktum som må struktureres videre";
+  }
+  if (tracks.length === 1) {
+    return tracks[0].toLowerCase();
+  }
+  return `${tracks.slice(0, -1).map((track) => track.toLowerCase()).join(", ")} og ${tracks[tracks.length - 1].toLowerCase()}`;
+}
+
 function buildCaseSummarySections(
   selectedCase: CaseSummary | undefined,
   sources: SourceObjectSummary[],
@@ -322,32 +347,58 @@ function buildCaseSummarySections(
 }
 
 function formatAnswer(
+  question: string,
   selected: SourceObjectSummary[],
+  allSources: SourceObjectSummary[],
   coverage: number,
   pendingOcrPages: number,
   deviations: string[],
   nextActionTitle: string
 ) {
-  const answerSentences = selected.map((source) => removeSummaryMetadataPrefix(cleanSummaryPoint(source.text_excerpt)));
-  const importantPoints = answerSentences.length > 0 ? answerSentences : ["Jeg finner ikke et tydelig kildepunkt ennå."];
+  const sourceBasis = selected.length > 0 ? selected : allSources.slice(0, 3);
+  const focus = describeCaseFocus(sourceBasis.length > 0 ? sourceBasis : allSources);
+  const actors = extractActorsFromSources(sourceBasis).filter((actor) => !isNoisyActorLabel(actor)).slice(0, 3);
+  const rawPoints = sourceBasis
+    .map((source) => removeSummaryMetadataPrefix(cleanSummaryPoint(source.text_excerpt)))
+    .filter((point) => point.length > 12 && !isLikelyRawEvidenceDump(point));
+  const hasOverviewQuestion = /\b(hva handler|hva dreier|oppsummer|kort fortalt|hva er saken)\b/i.test(question);
   const needsCaution = coverage < 95 || pendingOcrPages > 0 || deviations.length > 0;
 
-  return [
-    "Kort svar",
-    `Basert på kildene som er klare, er det viktigste jeg finner: ${importantPoints[0]}`,
-    "",
-    "Viktigste vurdering",
-    ...importantPoints.slice(0, 4).map((point) => `- ${point}`),
-    "",
-    "Usikkerhet / mangler",
-    needsCaution
-      ? "- Svaret er foreløpig fordi dokumentgrunnlaget eller tekstkontrollen ikke er helt komplett."
-      : "- Grunnlaget ser klart ut for foreløpig saksarbeid, men må kontrolleres faglig.",
-    deviations.length > 0 ? `- Kontrollavvik: ${deviations.join(" ")}` : "- Ingen særskilte kontrollavvik vises i dette svaret.",
-    "",
-    "Neste anbefalte handling",
-    `- ${nextActionTitle}`
-  ].join("\n");
+  const paragraphs = [
+    {
+      id: "answer-focus",
+      text: hasOverviewQuestion
+        ? `Slik jeg leser de kontrollerte kildene, handler saken foreløpig om ${focus}. Jeg ville behandlet dette som en arbeidshypotese, ikke som en ferdig konklusjon.`
+        : `Slik jeg leser de kontrollerte kildene, peker svaret foreløpig mot ${focus}. Jeg ville bruke dette som et startpunkt for videre kontroll.`,
+      sourceIds: sourceBasis.slice(0, 1).map((source) => source.id)
+    },
+    {
+      id: "answer-actors",
+      text: actors.length > 0
+        ? `De viktigste navnene eller rollene jeg ville fulgt videre er ${actors.join(", ")}. Poenget er å se hvem som faktisk tok beslutninger, disponerte verdier eller går igjen i hendelsene.`
+        : "Jeg ser ikke nok sikre aktører til å peke ut personer ennå. Første steg er derfor å rydde kildene etter tema, dato og dokumentert handling.",
+      sourceIds: sourceBasis.slice(0, 2).map((source) => source.id)
+    },
+    {
+      id: "answer-evidence",
+      text: rawPoints.length > 0
+        ? `Det konkrete grunnlaget bør leses som spor, ikke fasit: ${rawPoints.slice(0, 2).join(" ")}`
+        : "De klare kildene gir foreløpig mest verdi som sporbar orientering. Jeg ville åpnet kildeutdragene før vi gjør en sterkere vurdering.",
+      sourceIds: sourceBasis.slice(0, 3).map((source) => source.id)
+    },
+    {
+      id: "answer-next-step",
+      text: needsCaution
+        ? `Jeg ville være tydelig på forbeholdet: dokumentgrunnlaget er ikke helt komplett ennå, og ${pendingOcrPages > 0 ? `${pendingOcrPages} sider trenger tekstkontroll.` : "noe må fortsatt kontrolleres."} Neste gode steg er ${nextActionTitle.toLowerCase()}.`
+        : `Grunnlaget ser brukbart ut for foreløpig saksarbeid, men juridiske vurderinger må fortsatt kontrolleres manuelt. Neste gode steg er ${nextActionTitle.toLowerCase()}.`,
+      sourceIds: sourceBasis.map((source) => source.id)
+    }
+  ];
+
+  return {
+    text: paragraphs.map((paragraph) => paragraph.text).join("\n\n"),
+    paragraphs
+  };
 }
 
 function wait(ms: number) {
@@ -386,31 +437,6 @@ function formatDuration(ms: number) {
   return rest > 0 ? `${minutes} min ${rest} sek` : `${minutes} min`;
 }
 
-function liveStageProgress(item: CaseRoomImportItem | undefined, nowMs: number) {
-  const stage = toProcessingStage(item?.status);
-  if (!stage) {
-    return 0;
-  }
-  if (stage === "completed" || stage === "failed") {
-    return 100;
-  }
-
-  const base = processingStageProgress(stage);
-  const elapsed = item?.startedAt ? nowMs - item.startedAt : 0;
-  const stageRanges: Partial<Record<DocumentProcessingStage, number>> = {
-    queued: 9,
-    reading_file: 9,
-    counting_pages: 19,
-    extracting_text: 19,
-    finding_source_points: 14,
-    building_case_basis: 14,
-    checking_coverage: 9
-  };
-  const range = stageRanges[stage] || 0;
-  const heartbeat = Math.min(range, Math.floor(elapsed / 2500));
-  return Math.min(99, base + heartbeat);
-}
-
 function importEta(item: CaseRoomImportItem | undefined, nowMs: number) {
   if (!item) {
     return "Beregnes";
@@ -434,90 +460,8 @@ function importEta(item: CaseRoomImportItem | undefined, nowMs: number) {
   return elapsed > 2000 ? `Omtrent under 1 min igjen · gått ${formatDuration(elapsed)}` : "Starter straks";
 }
 
-function intakeStepLabel(item: CaseRoomImportItem | undefined) {
-  return processingStageLabel(toProcessingStage(item?.status));
-
-  /*
-  if (!item) {
-    return "Venter";
-  }
-  switch (item.status) {
-    case "selected":
-      return "Klargjør dokumenter";
-    case "validating":
-      return "Sjekker filer";
-    case "hashing":
-      return "Sikrer dokumentreferanser";
-    case "extracting":
-      return "Leser tekst og teller sider";
-    case "chunking":
-      return "Lager sporbare kilder";
-    case "ready":
-      return "Klar";
-    case "needs_attention":
-      return "Trenger tekstkontroll";
-    case "failed":
-      return "Feilet";
-  }
-  */
-}
-
-function importLiveProgressPercent(item: CaseRoomImportItem | undefined, nowMs: number) {
-  void nowMs;
-  return liveStageProgress(item, nowMs);
-
-  /*
-  if (!item) {
-    return 0;
-  }
-  if (item.status === "ready" || item.status === "needs_attention" || item.status === "failed") {
-    return 100;
-  }
-
-  const elapsed = item.startedAt ? nowMs - item.startedAt : 0;
-  const pulse = Math.min(18, Math.floor(elapsed / 1800));
-  switch (item.status) {
-    case "selected":
-      return Math.min(14, 6 + pulse);
-    case "validating":
-      return Math.min(28, 16 + pulse);
-    case "hashing":
-      return Math.min(42, 30 + pulse);
-    case "extracting":
-      return Math.min(78, 45 + pulse);
-    case "chunking":
-      return Math.min(94, 80 + Math.floor(elapsed / 1200));
-    default:
-      return 0;
-  }
-  */
-}
-
 function pageCountForImportItem(item: CaseRoomImportItem) {
   return item.pagesTotal || item.pages || 0;
-}
-
-function activeIntakeWorkState(stage: DocumentProcessingStage | LegacyImportStage | ImportItemStatus | undefined) {
-  const stepViews = processingStepViews(toProcessingStage(stage));
-  return {
-    states: stepViews.map((step) => step.label),
-    activeIndex: stepViews.findIndex((step) => step.state === "active" || step.state === "failed"),
-    stepViews
-  };
-
-  /*
-  const states = [
-    "Leser fil",
-    "Teller sider",
-    "Henter tekst",
-    "Finner kildepunkter",
-    "Bygger saksgrunnlag"
-  ];
-  return {
-    states,
-    activeIndex: 0
-  };
-  */
 }
 
 function resolveProcessingActivityState(args: {
@@ -569,19 +513,6 @@ function processingActivityLabel(state: ProcessingActivityState) {
     case "unavailable":
       return "Automatisk teksthenting er ikke tilgjengelig i denne versjonen.";
   }
-}
-
-function processingActivityDetail(state: ProcessingActivityState, pagesMissingSources: number, pagesWithSources: number) {
-  if (state === "active" && pagesMissingSources > 0) {
-    return `Evida behandler fortsatt ${pagesMissingSources} sider.`;
-  }
-  if (state === "unavailable" && pagesMissingSources > 0) {
-    return `${pagesMissingSources} sider mangler tekst. Evida bruker de ${pagesWithSources} sidene som er klare og markerer resten som manglende grunnlag.`;
-  }
-  if (state === "completed_with_gaps" && pagesMissingSources > 0) {
-    return `${pagesMissingSources} sider mangler fortsatt tekst eller sporbare kilder.`;
-  }
-  return "";
 }
 
 function buildRecommendationAnswer(args: {
@@ -742,20 +673,21 @@ function buildAnswer(
   nextActionTitle: string
 ): CaseAnswer {
   if (sources.length === 0) {
+    const paragraphs = [
+      {
+        id: "no-sources",
+        text: "Jeg finner ingen sporbare kilder å svare fra ennå. Saksrom trenger minst ett kildeutdrag før svaret kan bli etterprøvbart.",
+        sourceIds: []
+      },
+      {
+        id: "no-sources-next",
+        text: "Neste steg er å importere dokumenter eller oppdatere kildegrunnlaget.",
+        sourceIds: []
+      }
+    ];
     return {
-      answer: [
-        "Kort svar",
-        "Jeg finner ingen sporbare kilder å svare fra ennå.",
-        "",
-        "Viktigste vurdering",
-        "- Saksrom trenger minst ett kildeutdrag før svaret kan bli etterprøvbart.",
-        "",
-        "Usikkerhet / mangler",
-        "- Kildegrunnlag mangler.",
-        "",
-        "Neste anbefalte handling",
-        "- Importer dokumenter eller oppdater kildene."
-      ].join("\n"),
+      answer: paragraphs.map((paragraph) => paragraph.text).join("\n\n"),
+      paragraphs,
       sourceIds: [],
       validatedSources: [],
       answerStrength: {
@@ -775,9 +707,11 @@ function buildAnswer(
     .sort((a, b) => b.score - a.score)
     .slice(0, 4);
   const selected = ranked.length > 0 ? ranked.map((item) => item.source) : sources.slice(0, 3);
+  const formatted = formatAnswer(question, selected, sources, coverage, pendingOcrPages, deviations, nextActionTitle);
 
   return {
-    answer: formatAnswer(selected, coverage, pendingOcrPages, deviations, nextActionTitle),
+    answer: formatted.text,
+    paragraphs: formatted.paragraphs,
     sourceIds: selected.map((source) => source.id),
     validatedSources: selected.map((source) => ({
       sourceId: source.id,
@@ -808,8 +742,21 @@ function safeFallbackCaseAnswer(args: {
     allowedSourceIds: args.sourceIds,
     nextBestStep: args.nextActionTitle
   });
+  const paragraphs = [
+    {
+      id: "fallback-direct",
+      text: structured.direct_answer,
+      sourceIds: []
+    },
+    {
+      id: "fallback-assessment",
+      text: `${structured.partner_assessment} ${structured.next_best_step}`,
+      sourceIds: []
+    }
+  ];
   return {
-    answer: structuredToDisplayAnswer(structured),
+    answer: paragraphs.map((paragraph) => paragraph.text).join("\n\n"),
+    paragraphs,
     sourceIds: structured.source_ids,
     validatedSources: [],
     answerStrength: {
@@ -834,6 +781,20 @@ function qualityGateCaseAnswer(
   const cleanAnswer = normalizeMainAnswerText(normalizeAssistantAnswer(result.answer));
   const sourceIds = result.sourceIds.filter((sourceId) => args.allowedSourceIds.includes(sourceId));
   const hasInvalidSourceIds = result.sourceIds.some((sourceId) => !args.allowedSourceIds.includes(sourceId));
+  const validSourceIdSet = new Set(sourceIds);
+  const paragraphs = (result.paragraphs && result.paragraphs.length > 0
+    ? result.paragraphs
+    : cleanAnswer.split(/\n\s*\n/).filter(Boolean).map((text, index) => ({
+        id: `answer-${index + 1}`,
+        text,
+        sourceIds: index === 0 ? sourceIds.slice(0, 1) : index === 1 ? sourceIds.slice(0, 2) : sourceIds
+      })))
+    .map((paragraph) => ({
+      ...paragraph,
+      text: normalizeMainAnswerText(normalizeAssistantAnswer(paragraph.text)),
+      sourceIds: paragraph.sourceIds.filter((sourceId) => validSourceIdSet.has(sourceId))
+    }))
+    .filter((paragraph) => paragraph.text.trim().length > 0);
   const structuredValidation = validateStructuredAnswer({
     answer: {
       direct_answer: cleanAnswer,
@@ -869,7 +830,8 @@ function qualityGateCaseAnswer(
 
   return {
     ...result,
-    answer: cleanAnswer,
+    answer: paragraphs.length > 0 ? paragraphs.map((paragraph) => paragraph.text).join("\n\n") : cleanAnswer,
+    paragraphs,
     sourceIds,
     validatedSources: result.validatedSources.filter((source) => sourceIds.includes(source.sourceId))
   };
@@ -1064,7 +1026,9 @@ export function CaseRoomView({
   readiness,
   preliminaryBanner,
   nextActionTitle,
+  suppressProgressActions = false,
   systemStatus,
+  preparationProgress,
   onOpenSource,
   onOpenControl,
   onOpenSimulation,
@@ -1091,6 +1055,7 @@ export function CaseRoomView({
   const [workstyle, setWorkstyle] = useState<WorkstylePreferences>(DEFAULT_WORKSTYLE_PREFERENCES);
   const hasSources = sources.length > 0;
   const hasDocuments = documents.length > 0;
+  const documentsById = useMemo(() => new Map(documents.map((document) => [document.id, document])), [documents]);
   const isBlocked = readiness.verdict === "not_ready";
   const isPreliminaryOnly = readiness.verdict === "requires_control";
   const documentTotalPages = totalPageCount || documents.reduce((sum, document) => sum + document.page_count, 0);
@@ -1100,48 +1065,25 @@ export function CaseRoomView({
   const queuedProcessedPages = importQueue.reduce((sum, item) => sum + (item.pagesProcessed || 0), 0);
   const processedPages = Math.max(processedPageCount, documentProcessedPages, queuedProcessedPages);
   const pagesWithSources = sourcePageCount || (documentTotalPages > 0 ? Math.round((Math.max(0, Math.min(100, coverage)) / 100) * documentTotalPages) : 0);
-  const selectedDocumentTotal = importQueue.length || documents.length;
-  const documentsWithKnownPageCount =
-    importQueue.length > 0
-      ? importQueue.filter((item) => pageCountForImportItem(item) > 0).length
-      : documents.filter((document) => document.page_count > 0).length;
-  const pageCountingComplete =
-    selectedDocumentTotal === 0 ||
-    (totalPages > 0 && documentsWithKnownPageCount >= selectedDocumentTotal);
   const pageProgress = calculatePageProgress({
     totalPages,
     processedPages,
     pagesWithSources
   });
   const pagesMissingSources = missingSourcePageCount || pageProgress.pagesMissingSources;
-  const processingPercent = totalPages > 0 ? Math.round((pageProgress.processedPages / totalPages) * 100) : 0;
   const intakeCoverage = totalPages > 0 ? pageProgress.sourceCoveragePercent : coverage;
-  const processedDocuments = documents.filter((document) => document.source_count > 0 || document.analyzed_page_count > 0);
   const sourceCoverageTooLow = hasDocuments && intakeCoverage < 50;
-  const canAsk = Boolean(selectedCase?.id && hasDocuments && hasSources && !isBlocked && !sourceCoverageTooLow);
+  const canAsk = Boolean(
+    selectedCase?.id &&
+      hasDocuments &&
+      hasSources &&
+      !isBlocked &&
+      !sourceCoverageTooLow &&
+      preparationProgress.saksromScope !== "locked"
+  );
   const isIncomplete = !hasSources || intakeCoverage < 95 || pendingOcrPages > 0 || deviations.length > 0 || pagesMissingSources > 0;
-  const saksromScopeLabel =
-    systemStatus.saksromScope === "full_case_sources"
-      ? "Spør Saksrom — svar bygger på fullt kontrollert kildegrunnlag"
-      : systemStatus.saksromScope === "controlled_sources_only"
-        ? "Spør Saksrom — svar bygger bare på kontrollerte kilder"
-        : "Saksrom åpnes når kildegrunnlaget er klart";
-  const readyImportItems = importQueue.filter((item) => item.status === "completed");
-  const documentProgressPercent = selectedDocumentTotal > 0 ? Math.round((readyImportItems.length / selectedDocumentTotal) * 100) : 0;
+  const saksromScopeLabel = preparationProgress.chatPlaceholder;
   const activeImportItem = importQueue.find((item) => !["completed", "failed"].includes(item.status));
-  const displayImportItem = activeImportItem || importQueue.find((item) => item.status === "failed") || importQueue[importQueue.length - 1];
-  const importPages = queuedTotalPages;
-  const showIntakeCard = importQueue.length > 0 || isImporting;
-  const liveImportProgress = importLiveProgressPercent(displayImportItem, importNow);
-  const displayedIntakeProgress =
-    pageCountingComplete && pageProgress.totalPages > 0
-      ? processingPercent
-      : selectedDocumentTotal > 0
-        ? documentProgressPercent
-        : liveImportProgress;
-  const liveImportElapsed = displayImportItem?.startedAt ? formatDuration(importNow - displayImportItem.startedAt) : "";
-  const liveCurrentStep = intakeStepLabel(displayImportItem);
-  const intakeWorkState = activeIntakeWorkState(displayImportItem?.status);
   const processingActivityState = resolveProcessingActivityState({
     hasDocuments,
     isImporting,
@@ -1151,11 +1093,10 @@ export function CaseRoomView({
     pagesMissingSources,
     automaticTextRecognitionAvailable
   });
-  const processingActivityText = processingActivityLabel(processingActivityState);
-  const processingActivityExtra = processingActivityDetail(processingActivityState, pagesMissingSources, pageProgress.pagesWithSources);
   const isCaseSummaryReady =
     hasDocuments &&
     hasSources &&
+    !preparationProgress.isRunning &&
     !isBlocked &&
     intakeCoverage >= 80 &&
     (readiness.verdict === "ready_for_draft_control" ||
@@ -1178,7 +1119,6 @@ export function CaseRoomView({
   const visibleAnswers = [...answers].reverse();
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
-  const processingCardRef = useRef<HTMLElement | null>(null);
   const caseSummaryRef = useRef<HTMLDivElement | null>(null);
   const namingCardRef = useRef<HTMLElement | null>(null);
   const assistantWorkRef = useRef<HTMLDivElement | null>(null);
@@ -1315,13 +1255,6 @@ export function CaseRoomView({
       }
     }
   }, [isAsking, streamingAnswer?.visibleAnswer, workStateIndex, autoFollowAnswer]);
-
-  useEffect(() => {
-    if (!showIntakeCard) {
-      return;
-    }
-    scrollToContextIfIdle(processingCardRef.current);
-  }, [showIntakeCard, selectedCase?.id]);
 
   useEffect(() => {
     if (!isCaseSummaryReady) {
@@ -1660,6 +1593,66 @@ export function CaseRoomView({
     setIsAsking(false);
   }
 
+  function sourceDisplayTitle(sourceRef: CaseAnswer["validatedSources"][number]) {
+    const document = documentsById.get(sourceRef.documentId);
+    if (document?.original_name) {
+      return document.original_name;
+    }
+    const source = sourcesById.get(sourceRef.sourceId);
+    const sourceDocument = source ? documentsById.get(source.document_id) : undefined;
+    return sourceDocument?.original_name || "Ukjent dokument";
+  }
+
+  function renderAnswer(result: CaseAnswer, visibleAnswer?: string) {
+    if (visibleAnswer !== undefined) {
+      return <div className="case-answer-body case-answer-body--streaming">{visibleAnswer}</div>;
+    }
+
+    const sourceRefs = result.validatedSources.filter((sourceRef) => sourcesById.has(sourceRef.sourceId));
+    const sourceRefById = new Map(sourceRefs.map((sourceRef, index) => [sourceRef.sourceId, { ...sourceRef, displayNumber: index + 1 }]));
+    const paragraphs = result.paragraphs && result.paragraphs.length > 0
+      ? result.paragraphs
+      : result.answer.split(/\n\s*\n/).filter(Boolean).map((text, index) => ({
+          id: `answer-paragraph-${index + 1}`,
+          text,
+          sourceIds: index === 0 ? result.sourceIds.slice(0, 1) : result.sourceIds
+        }));
+
+    return (
+      <article className="saksrom-answer">
+        <div className="saksrom-answer__body">
+          {paragraphs.map((paragraph) => {
+            const validSources = paragraph.sourceIds
+              .map((sourceId) => sourceRefById.get(sourceId))
+              .filter(Boolean) as Array<CaseAnswer["validatedSources"][number] & { displayNumber: number }>;
+            return (
+              <p key={paragraph.id} className="saksrom-answer__paragraph">
+                <span>{paragraph.text}</span>{" "}
+                {validSources.length > 0 ? (
+                  <span className="saksrom-source-tags" aria-label="Kilder for avsnittet">
+                    {validSources.map((sourceRef) => (
+                      <button
+                        key={`${paragraph.id}-${sourceRef.sourceId}`}
+                        type="button"
+                        className="saksrom-source-tag"
+                        title={`${sourceDisplayTitle(sourceRef)} · side ${sourceRef.pageNumber || "?"}`}
+                        onClick={() => onOpenSource(sourceRef.sourceId)}
+                      >
+                        Kilde {sourceRef.displayNumber}
+                      </button>
+                    ))}
+                  </span>
+                ) : (
+                  <span className="saksrom-uncited-tag">Ukildet vurdering</span>
+                )}
+              </p>
+            );
+          })}
+        </div>
+      </article>
+    );
+  }
+
   function persistConversationTurn(
     result: CaseAnswer,
     suggestedActions: SuggestedAction[],
@@ -1721,6 +1714,9 @@ export function CaseRoomView({
         <header className="case-chat-header">
           <p className="eyebrow">Saksrom</p>
           <h2>{selectedCase?.name || "Saksrom"}</h2>
+          {hasDocuments && !suppressProgressActions ? (
+            <CasePreparationProgress progress={preparationProgress} onOpenControl={onOpenControl} />
+          ) : null}
           {hasDocuments ? (
           <div className="case-summary-card" ref={caseSummaryRef}>
             <div className="case-room-status-row">
@@ -1893,108 +1889,6 @@ export function CaseRoomView({
         </header>
 
         <div className="case-chat-messages">
-          {showIntakeCard ? (
-            <article className="case-system-card" aria-live="polite" ref={processingCardRef}>
-              <h3>{isImporting ? "Saken klargjøres" : "Dokumenter mottatt"}</h3>
-              <p>
-                {isImporting
-                  ? "Evida leser dokumentene og lager sporbare kilder automatisk."
-                  : `Evida har mottatt ${importQueue.length} dokumenter og behandler dem automatisk. Du trenger ikke gjøre noe.`}
-              </p>
-              <div className="case-live-progress" aria-label={`Dokumentbehandling ${displayedIntakeProgress} prosent`}>
-                <div className="case-live-progress__track">
-                  <div className="case-live-progress__bar" style={{ width: `${displayedIntakeProgress}%` }} />
-                </div>
-                <strong>{displayedIntakeProgress}%</strong>
-              </div>
-              <div className="case-intake-steps" aria-live="polite">
-                {intakeWorkState.stepViews.map((step) => (
-                  <span key={step.stage} className={`is-${step.state}`}>
-                    {step.label}
-                  </span>
-                ))}
-              </div>
-              <p className="muted">
-                {processingActivityText}
-                {processingActivityExtra ? ` ${processingActivityExtra}` : ""}
-              </p>
-              <div className="case-intake-grid">
-                <span>Dokumenter</span>
-                <strong>{readyImportItems.length}/{importQueue.length || documents.length}</strong>
-                <span>Behandling</span>
-                <strong>{pageCountingComplete && pageProgress.totalPages > 0 ? `${processingPercent} %` : `${displayedIntakeProgress} %`}</strong>
-                <span>Sider</span>
-                <strong>
-                  {pageCountingComplete && pageProgress.totalPages > 0
-                    ? `${pageProgress.processedPages} av ${pageProgress.totalPages} sider behandlet`
-                    : importPages > 0
-                      ? `${importPages} sider telt så langt`
-                      : "Teller totalt antall sider"}
-                </strong>
-                <span>Gjenstår behandling</span>
-                <strong>
-                  {pageCountingComplete && pageProgress.totalPages > 0
-                    ? `${pageProgress.pagesRemaining} sider gjenstår`
-                    : selectedDocumentTotal > documentsWithKnownPageCount
-                      ? `${selectedDocumentTotal - documentsWithKnownPageCount} dokumenter gjenstår sidetelling`
-                      : "Beregnes når sidetelling er ferdig"}
-                </strong>
-                <span>Sider med kilder</span>
-                <strong>
-                  {pageCountingComplete && pageProgress.totalPages > 0
-                    ? `${pageProgress.pagesWithSources} av ${pageProgress.totalPages}`
-                    : pageProgress.totalPages > 0
-                      ? `${pageProgress.pagesWithSources} av ${pageProgress.totalPages} kjente sider`
-                    : sources.length > 0
-                      ? `${sources.length} kilder`
-                      : "Beregnes"}
-                </strong>
-                <span>Sider som mangler</span>
-                <strong>
-                  {pageCountingComplete && pageProgress.totalPages > 0
-                    ? pagesMissingSources
-                    : pageProgress.totalPages > 0
-                      ? `${pageProgress.pagesMissingSources} kjente sider`
-                      : "Beregnes"}
-                </strong>
-                <span>Kildedekning</span>
-                <strong>
-                  {pageCountingComplete && pageProgress.totalPages > 0
-                    ? `${Math.round(intakeCoverage)} %`
-                    : pageProgress.totalPages > 0
-                      ? `${Math.round(intakeCoverage)} % av kjente sider`
-                      : "Beregnes etter sidetelling"}
-                </strong>
-                <span>Nåværende steg</span>
-                <strong>{liveCurrentStep}</strong>
-                <span>Estimert tid</span>
-                <strong>{importEta(activeImportItem, importNow)}</strong>
-                {isImporting && liveImportElapsed ? (
-                  <>
-                    <span>Arbeidstid</span>
-                    <strong>{liveImportElapsed}</strong>
-                  </>
-                ) : null}
-              </div>
-              {false && importQueue.length > 0 ? (
-                <div className="case-import-file-list">
-                  {importQueue.map((item) => (
-                    <div key={item.path} className={`case-import-file case-import-file--${item.status}`}>
-                      <span className="case-import-file__pulse" aria-hidden="true" />
-                      <div>
-                        <strong>{item.name}</strong>
-                        <span>
-                          {processingStageLabel(toProcessingStage(item.status))}
-                          {isImporting && item.path === displayImportItem?.path && liveImportElapsed ? ` · fortsatt aktiv · ${liveImportElapsed}` : ""}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {isImporting ? <p className="muted">Store eller skannede dokumenter kan ta litt tid.</p> : null}
-            </article>
-          ) : null}
           {shouldShowNamingCard ? (
             <article className="case-system-card case-naming-card" ref={namingCardRef}>
               <h3>Navngi saken</h3>
@@ -2065,9 +1959,11 @@ export function CaseRoomView({
               <article key={`${entry.question}-${index}`} className="case-message-group" ref={index === 0 ? activeAnswerRef : undefined}>
                 <div className="case-message case-message--user">{entry.question}</div>
                 <div className="case-message case-message--assistant">
-                  <div className="case-answer-body">{entry.result.answer}</div>
+                  {renderAnswer(entry.result)}
                   <details className="case-answer-details">
-                    <summary>Kilder, usikkerhet og neste steg</summary>
+                    <summary>
+                      Kildegrunnlag: {entry.result.validatedSources.length} kilder brukt · Svarstyrke: {entry.result.answerStrength.level} · Dekning: {Math.round(intakeCoverage)} %
+                    </summary>
                     <div className="case-answer-meta">
                       <p>
                         <strong>Svarstyrke:</strong> {entry.result.answerStrength.level}: {entry.result.answerStrength.reason}
@@ -2084,7 +1980,7 @@ export function CaseRoomView({
                     </div>
                     {entry.result.validatedSources.length > 0 ? (
                       <div className="case-source-list">
-                        {entry.result.validatedSources.map((sourceRef) => {
+                        {entry.result.validatedSources.map((sourceRef, sourceIndex) => {
                           const source = sourcesById.get(sourceRef.sourceId);
                           return (
                             <button
@@ -2093,7 +1989,8 @@ export function CaseRoomView({
                               className="case-source-pill"
                               onClick={() => onOpenSource(sourceRef.sourceId)}
                             >
-                              <strong>{sourceRef.documentId} · side {sourceRef.pageNumber || "?"}</strong>
+                              <strong>Kilde {sourceIndex + 1}</strong>
+                              <span>{sourceDisplayTitle(sourceRef)} · side {sourceRef.pageNumber || "?"}</span>
                               <span>{source ? firstSentence(source.text_excerpt) : "Kilde mangler i lokal indeks."}</span>
                             </button>
                           );
@@ -2132,7 +2029,7 @@ export function CaseRoomView({
             <article className="case-message-group" ref={activeAnswerRef}>
               <div className="case-message case-message--user">{streamingAnswer.question}</div>
               <div className="case-message case-message--assistant case-message--streaming">
-                <div className="case-answer-body">{streamingAnswer.visibleAnswer}</div>
+                {renderAnswer(streamingAnswer.result, streamingAnswer.visibleAnswer)}
               </div>
             </article>
           ) : null}
@@ -2191,13 +2088,13 @@ export function CaseRoomView({
           placeholder={
             !hasDocuments
               ? "Legg til dokumenter for å starte"
-              : isBlocked || sourceCoverageTooLow
-                ? "Saksrom åpnes når dokumentgrunnlaget er klart"
+              : preparationProgress.saksromScope === "locked"
+                ? preparationProgress.chatPlaceholder
                 : saksromScopeLabel
           }
           rows={1}
-          disabled={!hasDocuments || isAsking}
-          aria-disabled={!hasDocuments || isAsking}
+          disabled={!hasDocuments || preparationProgress.saksromScope === "locked" || isAsking}
+          aria-disabled={!hasDocuments || preparationProgress.saksromScope === "locked" || isAsking}
         />
         <button type="submit" className="button-primary" disabled={!question.trim() || !selectedCase?.id || !canAsk || isAsking}>
           {isAsking ? "Svarer ..." : "Send"}

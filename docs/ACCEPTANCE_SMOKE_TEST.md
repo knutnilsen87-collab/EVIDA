@@ -19,8 +19,7 @@ import -> Saksrom -> source -> workroom
 
 - Start via `Start Evida.bat`.
 - Intro screen is only the vignette/video.
-- Clicking intro opens login or start screen.
-- Login screen uses Evida naming.
+- Clicking intro opens the app without login.
 - Header says `PRE-ALPHA · testdata only` and `Sikker lokalmodus`.
 - No broken Norwegian text is visible.
 

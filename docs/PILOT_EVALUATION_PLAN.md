@@ -12,8 +12,8 @@ A first evaluator should be able to open Evida, import safe test documents, reac
 - `Evida Release/Evida.exe` exists.
 - `Evida Release/SHA256SUMS.txt` verifies all release artifacts.
 - App shows `PRE-ALPHA · testdata only`.
-- Intro vignette opens before login.
-- Eval login works with the documented evaluation user.
+- Intro vignette opens before the app.
+- No login is required in the local evaluation build.
 - No main UI labels contain broken Norwegian characters.
 - Test data reset is available from Export.
 
@@ -21,16 +21,15 @@ A first evaluator should be able to open Evida, import safe test documents, reac
 
 1. Open `Start Evida.bat`.
 2. Click the intro vignette.
-3. Log in with the evaluation credentials shown in the app.
-4. Create a new test case.
-5. Import one or more safe test documents.
-6. Confirm that the import queue shows file-level progress.
-7. Confirm that the app moves to Saksrom after import.
-8. Ask: `Hva handler saken om?`
-9. Open at least one source from an answer.
-10. Open Kontrollgrunnlag and review coverage, OCR, audit, and source basis.
-11. Return to Saksrom and ask: `Hva mangler?`
-12. Delete the test case and confirm it disappears from the active list.
+3. Create a new test case.
+4. Import one or more safe test documents.
+5. Confirm that the import queue shows file-level progress.
+6. Confirm that the app moves to Saksrom after import.
+7. Ask: `Hva handler saken om?`
+8. Open at least one source from an answer.
+9. Open Kontrollgrunnlag and review coverage, OCR, audit, and source basis.
+10. Return to Saksrom and ask: `Hva mangler?`
+11. Delete the test case and confirm it disappears from the active list.
 
 ## Pass Criteria
 

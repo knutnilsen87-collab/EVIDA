@@ -2010,7 +2010,7 @@ pub fn create_case_readiness_report(
             )
         })
         .count() as i64;
-    let missing_pages_count = audit.pending_text_recognition_pages + audit.pages_missing_sources;
+    let missing_pages_count = audit.pages_missing_sources;
     let has_processing = audit.has_active_processing
         || items
             .iter()
@@ -2127,7 +2127,7 @@ pub fn get_import_health(conn: &Connection, case_id: &str) -> Result<ImportHealt
             )
         })
         .count() as i64;
-    let missing_pages_count = audit.pending_text_recognition_pages + audit.pages_missing_sources;
+    let missing_pages_count = audit.pages_missing_sources;
     let has_active = latest_session
         .as_ref()
         .is_some_and(|session| session.status == "running")
@@ -2641,7 +2641,7 @@ pub fn get_case_coverage_audit(conn: &Connection, case_id: &str) -> Result<CaseC
     };
     let has_active_processing = document_audits
         .iter()
-        .any(|document| document.status == "queued" || document.status == "running");
+        .any(|document| document.status == "running");
 
     Ok(CaseCoverageAudit {
         case_id: case_id.to_string(),
@@ -2721,7 +2721,7 @@ fn document_coverage_audit(
         } else if pages_with_sources > 0 {
             "partially_ready"
         } else if pending_text_recognition_pages > 0 {
-            "queued"
+            "needs_ocr"
         } else {
             "needs_user_action"
         }
@@ -4449,6 +4449,14 @@ mod tests {
         issue_code: Option<String>,
     }
 
+    #[derive(Debug)]
+    struct AuroraManifestRow {
+        relative_path: String,
+        scenario: String,
+        expected_status: String,
+        logical_pages: i64,
+    }
+
     #[test]
     #[ignore]
     fn evida_document_upload_stress_suite_matches_truth_manifest() {
@@ -4616,6 +4624,179 @@ mod tests {
         }
         cols.push(current);
         cols
+    }
+
+    #[test]
+    #[ignore]
+    fn aurora_medium_import_fullfort_kontroll_kreves_matches_expected_outcome() {
+        let pack_dir = std::env::var("EVIDA_AURORA_TEST_PACK_DIR")
+            .expect("Set EVIDA_AURORA_TEST_PACK_DIR to evida_tailored_aurora_test_pack");
+        let pack_dir = PathBuf::from(pack_dir);
+        let upload_dir = pack_dir
+            .join("01_MEDIUM_import_fullfort_kontroll_kreves")
+            .join("UPLOAD_THIS_FOLDER");
+        assert!(upload_dir.is_dir(), "UPLOAD_THIS_FOLDER missing: {}", upload_dir.display());
+        let manifest_path = pack_dir
+            .join("00_ANSWERS_DO_NOT_UPLOAD")
+            .join("stress_suite_file_manifest.csv");
+        let rows = read_aurora_manifest(&manifest_path)
+            .expect("read Aurora manifest")
+            .into_iter()
+            .filter(|row| row.scenario == "01_MEDIUM")
+            .collect::<Vec<_>>();
+        assert_eq!(38, rows.len(), "Aurora medium selected-file count");
+
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        apply_schema(&conn).expect("apply schema");
+        let case = create_case(&conn, "Aurora medium import - kontroll kreves", "NO")
+            .expect("create Aurora case");
+        let session =
+            create_import_session(&conn, &case.id, rows.len() as i64).expect("create session");
+
+        let mut deviations = Vec::new();
+        let mut status_counts: BTreeMap<String, i64> = BTreeMap::new();
+        let mut expected_status_counts: BTreeMap<String, i64> = BTreeMap::new();
+        let mut logical_pages_total = 0_i64;
+
+        for row in &rows {
+            *expected_status_counts
+                .entry(row.expected_status.clone())
+                .or_insert(0) += 1;
+            logical_pages_total += row.logical_pages;
+            let path = pack_dir.join(&row.relative_path);
+            assert!(
+                path.starts_with(&upload_dir),
+                "Test tried to import outside UPLOAD_THIS_FOLDER: {}",
+                path.display()
+            );
+            let outcome = simulate_stress_upload(&conn, &session.id, &case.id, &path)
+                .unwrap_or_else(|error| StressImportOutcome {
+                    status: "failed".to_string(),
+                    page_count: 0,
+                    source_count: 0,
+                    sha256: None,
+                    issue_code: Some(error.to_string()),
+                });
+            *status_counts.entry(outcome.status.clone()).or_insert(0) += 1;
+
+            if !aurora_status_matches(&row.expected_status, &outcome.status) {
+                deviations.push(json!({
+                    "relative_path": row.relative_path,
+                    "field": "status",
+                    "expected": row.expected_status,
+                    "actual": outcome.status,
+                    "issue_code": outcome.issue_code,
+                }));
+            }
+            if row.logical_pages != outcome.page_count {
+                deviations.push(json!({
+                    "relative_path": row.relative_path,
+                    "field": "logical_pages",
+                    "expected": row.logical_pages,
+                    "actual": outcome.page_count,
+                    "status": outcome.status,
+                }));
+            }
+        }
+
+        let completed = complete_import_session(&conn, &session.id).expect("complete session");
+        let health = get_import_health(&conn, &case.id).expect("get import health");
+        let report = json!({
+            "suite": pack_dir.display().to_string(),
+            "uploaded_folder": upload_dir.display().to_string(),
+            "files_tested": rows.len(),
+            "logical_pages_total_from_manifest": logical_pages_total,
+            "expected_status_counts": expected_status_counts,
+            "actual_status_counts": status_counts,
+            "session": completed,
+            "health": health,
+            "expected_ui_outcome": {
+                "title": "Import fullført — kontroll kreves",
+                "primary_cta": "Kontroller 8 dokumenter",
+                "selected_files": 38,
+                "logical_pages_total": 142,
+                "pages_with_text_before_ocr": 136,
+                "pages_requiring_ocr_before_ocr": 6,
+                "source_coverage_percent_before_ocr": 96
+            },
+            "deviation_count": deviations.len(),
+            "deviations": deviations,
+        });
+        let report_path = std::env::var("EVIDA_AURORA_IMPORT_REPORT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("..")
+                    .join("..")
+                    .join("artifacts")
+                    .join("aurora-import")
+                    .join("evida-aurora-medium-import-report.json")
+            });
+        if let Some(parent) = report_path.parent() {
+            std::fs::create_dir_all(parent).expect("create report dir");
+        }
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap())
+            .expect("write Aurora report");
+
+        assert_eq!(38, completed.total_files_seen, "selected files");
+        assert_eq!(30, completed.files_ready, "ready documents");
+        assert_eq!(6, completed.files_requires_ocr, "OCR-required documents");
+        assert_eq!(2, completed.files_failed, "problem files");
+        assert_eq!(142, completed.pages_total, "logical page count");
+        assert_eq!(136, completed.pages_with_text, "pages with text before OCR");
+        assert_eq!(6, completed.pages_requires_ocr, "pages requiring OCR");
+        assert_eq!(96, completed.source_coverage_percent.round() as i64, "source coverage");
+        assert_eq!("complete_with_exceptions", completed.status, "import session outcome");
+        assert_eq!("incomplete", health.overall_status, "Import Health outcome");
+        assert_eq!(8, health.missing_files_count, "documents requiring control");
+        assert_eq!(6, health.missing_pages_count, "pages requiring OCR/control");
+        assert_eq!(
+            "preliminary",
+            health
+                .readiness
+                .as_ref()
+                .map(|readiness| readiness.readiness_state.as_str())
+                .unwrap_or("missing"),
+            "case readiness after medium import"
+        );
+        assert!(
+            report["deviation_count"].as_u64().unwrap_or(0) == 0,
+            "Aurora medium import has deviations; see {}",
+            report_path.display()
+        );
+    }
+
+    fn read_aurora_manifest(path: &Path) -> Result<Vec<AuroraManifestRow>> {
+        let content = std::fs::read_to_string(path)?;
+        let mut rows = Vec::new();
+        for (index, line) in content.lines().enumerate() {
+            if index == 0 || line.trim().is_empty() {
+                continue;
+            }
+            let cols = parse_csv_line(line);
+            if cols.len() < 4 {
+                anyhow::bail!("Malformed Aurora manifest row {}: {}", index + 1, line);
+            }
+            rows.push(AuroraManifestRow {
+                relative_path: cols[0].replace('/', std::path::MAIN_SEPARATOR_STR),
+                scenario: cols[1].clone(),
+                expected_status: cols[2].clone(),
+                logical_pages: cols[3].parse().unwrap_or(0),
+            });
+        }
+        Ok(rows)
+    }
+
+    fn aurora_status_matches(expected: &str, actual: &str) -> bool {
+        match expected {
+            "ready" => actual == "ready",
+            "ocr_required_before_ocr" => actual == "ocr_required",
+            "failed_corrupt_pdf" | "failed_zero_byte" => actual == "failed",
+            "duplicate" => actual == "duplicate",
+            "unsupported" => actual == "unsupported",
+            _ => false,
+        }
     }
 
     fn simulate_stress_upload(

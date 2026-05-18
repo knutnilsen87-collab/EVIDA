@@ -106,7 +106,7 @@ Pre-alpha evaluation build. Test data only.
 
 ## Included
 
-- Guided intro/login/case/import/Saksrom flow
+- Guided intro/case/import/Saksrom flow without login
 - Local document import with PDF/DOCX/TXT/image support
 - Source-bound Saksrom Q&A with safe local mode
 - Kontrollgrunnlag for OCR, coverage, audit and source basis

@@ -83,6 +83,10 @@ export function ImportProgressSummary({
   const isAttentionState = state === "complete_with_attention" || state === "complete_with_errors";
   const safeProgress = Math.max(0, Math.min(100, progressPercent));
   const showEta = state === "processing" && (remainingDocuments > 0 || processingDocuments > 0);
+  const etaLabel = formatEtaLabel(etaSeconds);
+  const etaPrimary = etaSeconds === null ? "Beregner tid igjen" : etaLabel.replace(/^ETA:\s*/, "");
+  const remainingLabel = `${remainingDocuments} ${remainingDocuments === 1 ? "dokument gjenstår" : "dokumenter gjenstår"}`;
+  const activeLabel = `${processingDocuments} ${processingDocuments === 1 ? "behandles nå" : "behandles nå"}`;
 
   return (
     <section className={`import-progress-summary import-progress-summary--${state}`} aria-live="polite">
@@ -109,8 +113,16 @@ export function ImportProgressSummary({
 
       <div className="import-progress-summary__primary">
         <strong>{doneCount} av {totalDocuments} dokumenter behandlet</strong>
-        <span>{remainingDocuments} {remainingDocuments === 1 ? "dokument gjenstår" : "dokumenter gjenstår"}</span>
+        <span>{showEta ? etaLabel : remainingLabel}</span>
       </div>
+
+      {showEta ? (
+        <div className="import-progress-summary__eta" aria-label={`Estimert tid igjen: ${etaPrimary}`}>
+          <span>Estimert tid igjen</span>
+          <strong>{etaPrimary}</strong>
+          <small>{remainingLabel} · {activeLabel} · {currentPhaseLabel}</small>
+        </div>
+      ) : null}
 
       <div className="import-progress-summary__grid">
         <span>Fremdrift</span>
@@ -120,7 +132,7 @@ export function ImportProgressSummary({
         {showEta ? (
           <>
             <span>ETA</span>
-            <strong>{formatEtaLabel(etaSeconds)}</strong>
+            <strong>{etaLabel}</strong>
           </>
         ) : null}
         <span>Importert</span>
@@ -216,9 +228,9 @@ export function ImportProgressSummary({
                     onClick={() => onApproveAttentionItem(item)}
                   >
                     {item.approvalState === "saving"
-                      ? "Godkjenner ..."
+                      ? "Lagrer ..."
                       : item.approvalState === "approved"
-                        ? "Godkjent"
+                        ? "Kontrollert"
                         : item.sourceCount && item.sourceCount > 0
                           ? "Bruk som kildegrunnlag"
                           : "Marker som kontrollert"}

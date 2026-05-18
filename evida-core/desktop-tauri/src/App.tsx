@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, KeyboardEvent, MouseEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -125,6 +125,15 @@ import {
   getReviewDocuments,
   summarizeImportProgress
 } from "./features/documents/importUx";
+import { deriveCasePreparationProgress } from "./features/casePreparation/casePreparation.logic";
+import { deriveDocumentControlBulkPlan } from "./features/documentControl/documentControl.logic";
+import type { DocumentControlBulkActionId } from "./features/documentControl/documentControl.types";
+import {
+  EXPORT_PRELIMINARY_ACKNOWLEDGEMENT,
+  getRoomAvailability,
+  roomKeyForView
+} from "./features/rooms/roomAvailability";
+import type { RoomAvailability } from "./features/rooms/roomAvailability";
 
 const viewTitles: Record<ViewKey, string> = {
   overview: "Saksoversikt",
@@ -133,7 +142,7 @@ const viewTitles: Record<ViewKey, string> = {
   caseRoom: "Saksrom",
   chronology: "Kronologi",
   evidence: "Bevismatrise",
-  arguments: "Anførsler",
+  arguments: "AnfÃ¸rsler",
   contradictions: "Motstrid",
   risk: "Risiko",
   litigationSimulation: "Rettssimulering",
@@ -145,16 +154,10 @@ const viewTitles: Record<ViewKey, string> = {
 const THEME_STORAGE_KEY = "evida-theme";
 const VISUAL_MODE_STORAGE_KEY = "evida-visual-mode";
 const AI_TRUST_STORAGE_KEY = "evida-ai-trust-seen";
-const EVAL_SESSION_STORAGE_KEY = "evida-eval-session";
-const EVAL_LOGIN_EMAIL = "eval@evida.local";
-const DEMO_MODE =
-  typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).get("demoMode") === "true";
-const EVAL_LOGIN_PASSWORD = DEMO_MODE ? ["eval", "2026"].join("-") : "";
 
 type ThemeMode = "light" | "dark";
 type VisualMode = "calm" | "standard" | "focusPlus";
-type OnboardingStage = "intro" | "login" | "start" | "import" | "caseRoom";
+type OnboardingStage = "intro" | "start" | "import" | "caseRoom";
 type ImportQueueStatus =
   | DocumentProcessingStage
   | ImportItem["status"]
@@ -165,6 +168,22 @@ type ImportQueueStatus =
   | "chunking"
   | "ready"
   | "needs_attention";
+
+const ROOM_BLOCKING_IMPORT_STATUSES = new Set<ImportQueueStatus>([
+  "queued",
+  "selected",
+  "validating",
+  "hashing",
+  "reading_file",
+  "counting_pages",
+  "extracting",
+  "extracting_text",
+  "finding_source_points",
+  "building_case_basis",
+  "checking_coverage",
+  "chunking",
+  "indexed"
+]);
 
 interface ImportQueueItem {
   path: string;
@@ -205,13 +224,6 @@ function initialSearchParams() {
   return new URLSearchParams(window.location.search);
 }
 
-function hasEvaluationSession() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  return window.localStorage.getItem(EVAL_SESSION_STORAGE_KEY) === "true";
-}
-
 function initialWorkspaceView(): ViewKey {
   const requestedView = initialSearchParams().get("view");
   if (requestedView && Object.prototype.hasOwnProperty.call(viewTitles, requestedView)) {
@@ -222,7 +234,7 @@ function initialWorkspaceView(): ViewKey {
 
 function shouldOpenWorkspaceImmediately() {
   const params = initialSearchParams();
-  return hasEvaluationSession() || Boolean(params.get("caseId"));
+  return Boolean(params.get("caseId"));
 }
 
 function countLabel(count: number, singular: string, plural: string) {
@@ -261,6 +273,13 @@ function fileNameFromPath(path: string) {
 
 function nextUiTick() {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+function closeDialogOnEscape(event: KeyboardEvent<HTMLElement>, onClose: () => void) {
+  if (event.key === "Escape") {
+    event.stopPropagation();
+    onClose();
+  }
 }
 
 function importProgressPercent(status: ImportQueueStatus) {
@@ -330,13 +349,13 @@ function importStatusLabel(status: ImportQueueStatus) {
 
   const healthLabels: Partial<Record<ImportQueueStatus, string>> = {
     ocr_required: "Krever OCR",
-    ocr_running: "OCR kjører",
+    ocr_running: "OCR kjÃ¸rer",
     partial: "Delvis behandlet",
     duplicate: "Duplikat",
-    unsupported: "Filtype støttes ikke",
+    unsupported: "Filtype stÃ¸ttes ikke",
     cancelled: "Avbrutt",
     indexed: "Indeksert",
-    failed: "Feilet - se årsak og neste handling"
+    failed: "Feilet - se Ã¥rsak og neste handling"
   };
   if (healthLabels[status]) {
     return healthLabels[status];
@@ -344,7 +363,7 @@ function importStatusLabel(status: ImportQueueStatus) {
 
   switch (status) {
     case "selected":
-      return "Venter på automatisk behandling";
+      return "Venter pÃ¥ automatisk behandling";
     case "validating":
       return "Sjekker dokumentet";
     case "hashing":
@@ -356,14 +375,14 @@ function importStatusLabel(status: ImportQueueStatus) {
     case "ready":
       return "Klar";
     case "needs_attention":
-      return "Venter på dokumentmotor";
+      return "Venter pÃ¥ dokumentmotor";
     case "failed":
-      return "Feilet - se årsak og neste handling";
+      return "Feilet - se Ã¥rsak og neste handling";
   }
 }
 
 function temporaryCaseTitle(date = new Date()) {
-  return `Ny sak – ${date.toISOString().slice(0, 10)}`;
+  return `Ny sak â€“ ${date.toISOString().slice(0, 10)}`;
 }
 
 function importProcessingLabel(status: ImportQueueStatus) {
@@ -382,10 +401,10 @@ function importProcessingLabel(status: ImportQueueStatus) {
 
   const healthLabels: Partial<Record<ImportQueueStatus, string>> = {
     ocr_required: "Krever OCR",
-    ocr_running: "OCR kjører",
+    ocr_running: "OCR kjÃ¸rer",
     partial: "Delvis behandlet",
     duplicate: "Duplikat",
-    unsupported: "Filtype støttes ikke",
+    unsupported: "Filtype stÃ¸ttes ikke",
     cancelled: "Avbrutt",
     indexed: "Indeksert",
     failed: "Feilet - se importdetaljer"
@@ -428,21 +447,21 @@ function documentReadiness(document: DocumentSummary) {
     return {
       status: "ready" as const,
       label: processingState === "completed" ? "Klar for Saksrom" : "Delvis klar",
-      detail: `${countLabel(document.page_count, "side", "sider")} · ${countLabel(document.source_count, "kildeutdrag", "kildeutdrag")}`
+      detail: `${countLabel(document.page_count, "side", "sider")} Â· ${countLabel(document.source_count, "kildeutdrag", "kildeutdrag")}`
     };
   }
   if (processingState === "failed") {
     return {
       status: "failed" as const,
       label: DOCUMENT_PROCESSING_LABELS.failed,
-      detail: "Dokumentet kunne ikke gjøres klart for Saksrom"
+      detail: "Dokumentet kunne ikke gjÃ¸res klart for Saksrom"
     };
   }
 
   return {
     status: "processing" as const,
     label: DOCUMENT_PROCESSING_LABELS[processingState],
-    detail: document.analyzed_page_count > 0 ? `${document.analyzed_page_count} sider analysert` : "Venter på automatisk behandling"
+    detail: document.analyzed_page_count > 0 ? `${document.analyzed_page_count} sider analysert` : "Venter pÃ¥ automatisk behandling"
   };
 }
 
@@ -457,9 +476,6 @@ export default function App() {
     return shouldOpenWorkspaceImmediately() ? "caseRoom" : "intro";
   });
   const [casePickerOpen, setCasePickerOpen] = useState(false);
-  const [loginEmail, setLoginEmail] = useState(EVAL_LOGIN_EMAIL);
-  const [loginPassword, setLoginPassword] = useState(EVAL_LOGIN_PASSWORD);
-  const [loginError, setLoginError] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === "undefined") {
       return "light";
@@ -511,12 +527,16 @@ export default function App() {
   const [expandedDocumentId, setExpandedDocumentId] = useState("");
   const [previewDocument, setPreviewDocument] = useState<DocumentSummary | null>(null);
   const [selectedControlDocumentId, setSelectedControlDocumentId] = useState("");
+  const [controlSelectionIds, setControlSelectionIds] = useState<string[]>([]);
+  const [bulkConfirmAction, setBulkConfirmAction] = useState<DocumentControlBulkActionId | "">("");
+  const [bulkConfirmChecked, setBulkConfirmChecked] = useState(false);
   const [documentSearch, setDocumentSearch] = useState("");
   const [documentFilter, setDocumentFilter] = useState<"all" | "ready" | "control" | "unused">("all");
   const [isDragActive, setIsDragActive] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [exportText, setExportText] = useState("");
+  const [exportPreliminaryAcknowledged, setExportPreliminaryAcknowledged] = useState(false);
   const [maintenanceStatus, setMaintenanceStatus] = useState("");
   const [reindexStatus, setReindexStatus] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<CaseSummary | null>(null);
@@ -667,14 +687,6 @@ export default function App() {
   }, [visualMode]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      window.localStorage.setItem(EVAL_SESSION_STORAGE_KEY, "true");
-    } else {
-      window.localStorage.removeItem(EVAL_SESSION_STORAGE_KEY);
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
     window.localStorage.setItem(AI_TRUST_STORAGE_KEY, trustContractHidden ? "true" : "false");
   }, [trustContractHidden]);
 
@@ -821,23 +833,43 @@ export default function App() {
     () => sources.filter((source) => aiReadyDocumentIds.has(source.document_id)),
     [sources, aiReadyDocumentIds]
   );
-  const hasNonAiReadySources = useMemo(
-    () => sources.some((source) => !aiReadyDocumentIds.has(source.document_id)),
-    [sources, aiReadyDocumentIds]
-  );
   const aiReadySourceById = useMemo(() => new Map(aiReadySources.map((source) => [source.id, source])), [aiReadySources]);
-  const canUsePreliminaryAnalysis =
-    caseReadiness.verdict === "ready_for_preliminary_analysis" ||
-    caseReadiness.verdict === "ready_for_draft_control";
-  const canUseDraftControl = caseReadiness.verdict === "ready_for_draft_control" && visibleReviewDocuments.length === 0;
-  const userFacingReadinessVerdict =
-    caseReadiness.verdict === "ready_for_draft_control" && !canUseDraftControl
+  const workflowImportInProgress =
+    isImporting || importQueue.some((item) => ROOM_BLOCKING_IMPORT_STATUSES.has(item.status));
+  const documentControlComplete = visibleReviewDocuments.length === 0;
+  const hasUsableSources = aiReadySources.length > 0;
+  const hasCoverageLimit = caseScopedSourceCoveragePercent < 100 || pendingOcrPages > 0;
+  const roomAvailabilitySummary = {
+    importInProgress: workflowImportInProgress,
+    documentControlComplete,
+    sourceCount: aiReadySources.length,
+    sourceCoveragePercent: caseScopedSourceCoveragePercent,
+    pagesRequiringOcr: pendingOcrPages,
+    failedFiles: documentBasis.unreadableDocuments.length,
+    unsupportedFiles: importItems.filter((item) => item.status === "unsupported").length
+  };
+  const roomAvailabilityByView: Partial<Record<ViewKey, RoomAvailability>> = {
+    caseRoom: getRoomAvailability("saksrom", roomAvailabilitySummary),
+    chronology: getRoomAvailability("chronology", roomAvailabilitySummary),
+    evidence: getRoomAvailability("evidence", roomAvailabilitySummary),
+    arguments: getRoomAvailability("arguments", roomAvailabilitySummary),
+    contradictions: getRoomAvailability("contradictions", roomAvailabilitySummary),
+    risk: getRoomAvailability("risk", roomAvailabilitySummary),
+    litigationSimulation: getRoomAvailability("simulation", roomAvailabilitySummary),
+    draft: getRoomAvailability("draft", roomAvailabilitySummary),
+    export: getRoomAvailability("export", roomAvailabilitySummary)
+  };
+  const canUsePreliminaryAnalysis = Boolean(roomAvailabilityByView.chronology?.enabled);
+  const canUseDraftControl = Boolean(roomAvailabilityByView.draft?.enabled);
+  const userFacingReadinessVerdict = canUseDraftControl
+    ? "ready_for_draft_control"
+    : caseReadiness.verdict === "ready_for_draft_control" && !canUseDraftControl
       ? "requires_control"
       : caseReadiness.verdict;
   const ocrCoveragePercent = totalPages > 0 ? Math.round(((totalPages - pendingOcrPages) / totalPages) * 100) : undefined;
   const preliminarySaksromBanner =
     hasDocuments && (caseScopedSourceCoveragePercent < 100 || pendingOcrPages > 0 || importFailures > 0)
-      ? `Saksgrunnlaget er ikke komplett ennå. Saksrom kan brukes foreløpig basert på kontrollerte kildeutdrag. ${pendingOcrPages} sider er ikke lesbare ennå.`
+      ? `Saksgrunnlaget er ikke komplett ennÃ¥. Saksrom kan brukes forelÃ¸pig basert pÃ¥ kontrollerte kildeutdrag. ${pendingOcrPages} sider er ikke lesbare ennÃ¥.`
       : undefined;
   const importUx = useMemo(
     () =>
@@ -913,6 +945,54 @@ export default function App() {
     ]
   );
   const importNextAction = useMemo(() => deriveNextAction(importOutcome), [importOutcome]);
+  const importOutcomeGapMessages = useMemo(() => {
+    const messages: string[] = [];
+    const controlCount = Math.max(importOutcome.manualReviewRequired, importOutcome.ocrRequired);
+    if (controlCount > 0) {
+      messages.push(
+        `${controlCount} ${controlCount === 1 ? "dokument trenger" : "dokumenter trenger"} manuell kontroll fÃ¸r de kan brukes som kildegrunnlag.`
+      );
+    }
+    if (importOutcome.notUsedAsSource > 0) {
+      messages.push(
+        `${importOutcome.notUsedAsSource} ${importOutcome.notUsedAsSource === 1 ? "dokument ble" : "dokumenter ble"} ikke brukt som kildegrunnlag. Erstatt fil eller hold dem utenfor saken.`
+      );
+    }
+    return messages;
+  }, [importOutcome.manualReviewRequired, importOutcome.ocrRequired, importOutcome.notUsedAsSource]);
+  const casePreparationProgress = useMemo(
+    () =>
+      deriveCasePreparationProgress({
+        totalDocuments: importProgress.totalDocuments || documentBasis.totalCount,
+        processedDocuments: importOutcome.processed || importProgress.processedDocuments,
+        readyDocuments: documentBasis.readyCount,
+        reviewDocuments: visibleReviewDocuments.length,
+        unreadableDocuments: documentBasis.unreadableDocuments.length,
+        totalPages,
+        processedPages: analyzedPages,
+        pendingOcrPages,
+        sourceObjects: aiReadySources.length,
+        sourceCoveragePercent: documentBasis.sourceCoveragePercent || caseScopedSourceCoveragePercent,
+        hasActiveProcessing,
+        importProgress,
+        nextActionTitle: visibleReviewDocuments.length > 0 ? "Start kontroll" : undefined
+      }),
+    [
+      importProgress,
+      importOutcome.processed,
+      documentBasis.totalCount,
+      documentBasis.readyCount,
+      documentBasis.unreadableDocuments.length,
+      documentBasis.sourceCoveragePercent,
+      visibleReviewDocuments.length,
+      totalPages,
+      analyzedPages,
+      pendingOcrPages,
+      aiReadySources.length,
+      caseScopedSourceCoveragePercent,
+      hasActiveProcessing
+    ]
+  );
   const importOutcomeView = useMemo(
     () => deriveImportOutcomeViewModel(importOutcome, importNextAction),
     [importOutcome, importNextAction]
@@ -980,12 +1060,12 @@ export default function App() {
 
   const coveragePercent = caseScopedSourceCoveragePercent;
   const userCoverageExplanation = hasDocuments
-    ? `${coveragePercent} % av sidene kan brukes som kilde ennå. ${
+    ? `${coveragePercent} % av sidene kan brukes som kilde ennÃ¥. ${
         coveragePercent < 80
-          ? "Evida klargjør dokumentgrunnlaget og lager sporbare kilder automatisk."
+          ? "Evida klargjÃ¸r dokumentgrunnlaget og lager sporbare kilder automatisk."
           : "Dokumentgrunnlaget kan brukes til kildebasert arbeid med kontroll mot originalkildene."
       }`
-    : "Importer dokumenter for å se hva Evida trygt kan bruke.";
+    : "Importer dokumenter for Ã¥ se hva Evida trygt kan bruke.";
 
   const deviations = useMemo(() => {
     const items: string[] = [];
@@ -993,12 +1073,12 @@ export default function App() {
       items.push("Dokument finnes, men ingen sporbare kildeutdrag er bygget.");
     }
     if (needsOcr) {
-      items.push("Noen sider venter på automatisk teksthenting.");
+      items.push("Noen sider venter pÃ¥ automatisk teksthenting.");
     }
     if (hasDocuments && analyzedPages < totalPages) {
       items.push(
         hasActiveProcessing
-          ? "Evida jobber fortsatt med å hente ut tekst og lage sporbare kilder fra sidene."
+          ? "Evida jobber fortsatt med Ã¥ hente ut tekst og lage sporbare kilder fra sidene."
           : "Automatisk teksthenting fra skannede sider er ikke ferdig implementert i denne versjonen."
       );
     }
@@ -1054,7 +1134,7 @@ export default function App() {
       await openNewCaseWindow();
       await refresh(selectedCaseId);
     } catch (error) {
-      setCaseCreationError(`Kunne ikke åpne ny sak i nytt vindu. ${String(error)}`);
+      setCaseCreationError(`Kunne ikke Ã¥pne ny sak i nytt vindu. ${String(error)}`);
     } finally {
       setIsCreatingCase(false);
     }
@@ -1090,12 +1170,10 @@ export default function App() {
   }
 
   const buildChronology = useCallback(async () => {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0) {
       setReindexStatus(
         visibleReviewDocuments.length > 0
-          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger kronologi."
-          : hasNonAiReadySources
-            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger kronologi."
+          ? "Manuell kontroll mangler. Kontroller dokumentene fÃ¸r AI bygger kronologi."
           : `${caseReadiness.title}. ${caseReadiness.reason}`
       );
       setActiveView("control");
@@ -1111,15 +1189,13 @@ export default function App() {
       uncertainty: item.uncertainty
     })));
     setActiveView("chronology");
-  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, hasNonAiReadySources, visibleReviewDocuments.length, selectedCaseId]);
+  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, visibleReviewDocuments.length, selectedCaseId]);
 
   const buildEvidence = useCallback(async () => {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0) {
       setReindexStatus(
         visibleReviewDocuments.length > 0
-          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger bevismatrise."
-          : hasNonAiReadySources
-            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger bevismatrise."
+          ? "Manuell kontroll mangler. Kontroller dokumentene fÃ¸r AI bygger bevismatrise."
           : `${caseReadiness.title}. ${caseReadiness.reason}`
       );
       setActiveView("control");
@@ -1135,15 +1211,13 @@ export default function App() {
       status: item.status
     })));
     setActiveView("evidence");
-  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, hasNonAiReadySources, visibleReviewDocuments.length, selectedCaseId]);
+  }, [aiReadySources.length, canUsePreliminaryAnalysis, caseReadiness.reason, caseReadiness.title, visibleReviewDocuments.length, selectedCaseId]);
 
   async function buildArguments() {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0) {
       setReindexStatus(
         visibleReviewDocuments.length > 0
-          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger anførsler."
-          : hasNonAiReadySources
-            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger anførsler."
+          ? "Manuell kontroll mangler. Kontroller dokumentene fÃ¸r AI bygger anfÃ¸rsler."
           : `${caseReadiness.title}. ${caseReadiness.reason}`
       );
       setActiveView("control");
@@ -1162,12 +1236,10 @@ export default function App() {
   }
 
   async function buildContradictions() {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length < 2 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length < 2 || visibleReviewDocuments.length > 0) {
       setReindexStatus(
         visibleReviewDocuments.length > 0
-          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger motstridsanalyse."
-          : hasNonAiReadySources
-            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger motstridsanalyse."
+          ? "Manuell kontroll mangler. Kontroller dokumentene fÃ¸r AI bygger motstridsanalyse."
           : !canUsePreliminaryAnalysis
           ? `${caseReadiness.title}. ${caseReadiness.reason}`
           : "Motstridsanalyse trenger minst to godkjente, sporbare kilder."
@@ -1189,12 +1261,10 @@ export default function App() {
   }
 
   async function buildRisk() {
-    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0 || hasNonAiReadySources) {
+    if (!canUsePreliminaryAnalysis || aiReadySources.length === 0 || visibleReviewDocuments.length > 0) {
       setReindexStatus(
         visibleReviewDocuments.length > 0
-          ? "Manuell kontroll mangler. Godkjenn dokumentene før AI bygger risikovurdering."
-          : hasNonAiReadySources
-            ? "Noen kilder mangler godkjenning. Kontroller dokumentene før AI bygger risikovurdering."
+          ? "Manuell kontroll mangler. Kontroller dokumentene fÃ¸r AI bygger risikovurdering."
           : `${caseReadiness.title}. ${caseReadiness.reason}`
       );
       setActiveView("control");
@@ -1218,17 +1288,17 @@ export default function App() {
       return "Skriv en kommando som starter med apostrof, for eksempel 'kronologi eller 'bevis.";
     }
     if (!resolution.command) {
-      return "Jeg kjenner ikke den kommandoen ennå. V1 støtter 'kronologi, 'bevis, 'risiko og 'kvalitet.";
+      return "Jeg kjenner ikke den kommandoen ennÃ¥. V1 stÃ¸tter 'kronologi, 'bevis, 'risiko og 'kvalitet.";
     }
 
     return executeLegalCommand(resolution.command);
   }
 
   async function executeLegalCommand(command: LegalCommand): Promise<string> {
-    const gate = gateLegalCommand(command, caseReadiness.verdict, caseReadiness.sourceCoveragePercent);
+    const gate = gateLegalCommand(command, caseReadiness.verdict, caseReadiness.sourceCoveragePercent, aiReadySources.length);
     if (!gate.allowed) {
       setActiveView("control");
-      return `${command.label} er låst. ${gate.reason} ${caseReadiness.reason}`;
+      return `${command.label} er lÃ¥st. ${gate.reason} ${caseReadiness.reason}`;
     }
 
     switch (command.id) {
@@ -1240,10 +1310,10 @@ export default function App() {
         return "Bevismatrisen er bygget fra sporbare kilder.";
       case "risk":
         await buildRisk();
-        return "Risikovurderingen er kjørt fra kildegrunnlaget.";
+        return "Risikovurderingen er kjÃ¸rt fra kildegrunnlaget.";
       case "quality":
         setActiveView("control");
-        return "Kontrollgrunnlag er åpnet med readiness, kildecoverage og avvik.";
+        return "Kontrollgrunnlag er Ã¥pnet med readiness, kildecoverage og avvik.";
     }
   }
 
@@ -1257,8 +1327,8 @@ export default function App() {
       return {
         step: 1,
         stepTotal: 6,
-        title: "Opprett første sak",
-        description: "Start med en lokal evalueringssak før dokumenter importeres.",
+        title: "Opprett fÃ¸rste sak",
+        description: "Start med en lokal evalueringssak fÃ¸r dokumenter importeres.",
         why: "Saken samler dokumenter, audit trail og senere AI-forslag i ett lokalt arbeidsrom.",
         actionLabel: "Opprett sak",
         onAction: handleCreateCase,
@@ -1272,14 +1342,19 @@ export default function App() {
         stepTotal: 6,
         title: "Importer dokument",
         description: "Legg inn PDF, tekstfil eller bilde i valgt sak.",
-        why: "Første verdi kommer når appen kan lese dokumentet og lage sporbare kildeutdrag.",
-        actionLabel: "Gå til import",
+        why: "FÃ¸rste verdi kommer nÃ¥r appen kan lese dokumentet og lage sporbare kildeutdrag.",
+        actionLabel: "GÃ¥ til import",
         onAction: () => setActiveView("documents"),
         secondaryLabel: "Vis kontroll",
         onSecondaryAction: () => setActiveView("control")
       };
     }
-    if (importNextAction.id === "wait_for_import" || importNextAction.id === "control_documents" || importNextAction.id === "review_import_failure" || importNextAction.id === "run_ocr") {
+    if (
+      importNextAction.id === "wait_for_import" ||
+      importNextAction.id === "control_documents" ||
+      importNextAction.id === "review_import_failure" ||
+      importNextAction.id === "open_saksrom_limited"
+    ) {
       return {
         step: 3,
         stepTotal: 6,
@@ -1287,12 +1362,31 @@ export default function App() {
         description: importNextAction.description,
         why:
           importNextAction.id === "wait_for_import"
-            ? "Import som fortsatt kjører kan ikke brukes som endelig konklusjon."
-            : "Evida må vite hva som kan brukes som kildegrunnlag før saken behandles videre.",
+            ? "Import som fortsatt kjÃ¸rer kan ikke brukes som endelig konklusjon."
+            : "Evida mÃ¥ vite hva som kan brukes som kildegrunnlag fÃ¸r saken behandles videre.",
         actionLabel: importNextAction.primaryLabel,
         onAction: handleImportNextAction,
         secondaryLabel: importNextAction.secondaryLabel,
-        onSecondaryAction: importNextAction.secondaryLabel ? () => setActiveView("control") : undefined
+        onSecondaryAction: importNextAction.secondaryLabel
+          ? importNextAction.secondaryLabel.includes("OCR")
+            ? () => void handleReindex()
+            : () => setActiveView("control")
+          : undefined
+      };
+    }
+    if (documentControlComplete && hasUsableSources && hasCoverageLimit && activeView !== "caseRoom") {
+      return {
+        step: 3,
+        stepTotal: 6,
+        title: "Analyse-rom: Foreløpig åpnet",
+        description: `Dokumentkontroll er fullført. Saksrom kan brukes med ${Math.round(caseScopedSourceCoveragePercent)} % kildedekning.`,
+        why: pendingOcrPages > 0
+          ? `${pendingOcrPages} sider mangler tekst/OCR. Det gir forbehold, men låser ikke arbeidsflyten.`
+          : "Kildedekningen er ikke 100 %, så videre arbeid merkes foreløpig.",
+        actionLabel: "Gå til Saksrom foreløpig",
+        onAction: () => setActiveView("caseRoom"),
+        secondaryLabel: pendingOcrPages > 0 ? "Kjør OCR for full dekning" : "Se kontrollgrunnlag",
+        onSecondaryAction: pendingOcrPages > 0 ? () => void handleReindex() : () => setActiveView("control")
       };
     }
     if (caseReadiness.verdict === "not_ready") {
@@ -1301,7 +1395,7 @@ export default function App() {
         stepTotal: 6,
         title: caseReadiness.title,
         description: caseReadiness.reason,
-        why: "Saksrom og juridiske arbeidsflater låses til nok sider kan spores tilbake til kilder.",
+        why: "Saksrom og juridiske arbeidsflater lÃ¥ses til nok sider kan spores tilbake til kilder.",
         actionLabel: caseReadiness.primaryAction,
         onAction: () => setActiveView("control")
       };
@@ -1311,11 +1405,11 @@ export default function App() {
         step: 3,
         stepTotal: 6,
         title: "Grunnlaget krever kontroll",
-        description: "Foreløpig Saksrom kan åpnes, men juridiske arbeidsflater og utkast er låst.",
+        description: "ForelÃ¸pig Saksrom kan Ã¥pnes, men juridiske arbeidsflater og utkast er lÃ¥st.",
         why: "Dekningen er lav eller ufullstendig. Bruk dette bare til orientering.",
         actionLabel: "Se hva som mangler",
         onAction: () => setActiveView("control"),
-        secondaryLabel: coveragePercent >= 50 ? "Åpne foreløpig Saksrom" : undefined,
+        secondaryLabel: coveragePercent >= 50 ? "Ã…pne forelÃ¸pig Saksrom" : undefined,
         onSecondaryAction: coveragePercent >= 50 ? () => setActiveView("caseRoom") : undefined
       };
     }
@@ -1323,12 +1417,12 @@ export default function App() {
       return {
         step: 3,
         stepTotal: 6,
-        title: "Åpne Saksrom",
-        description: "Se sammendrag, dokumentstatus, mulige temaer og spør saken før du går videre.",
-        why: "Saksrom gir første samlede verdi etter import uten at du må lese råkildene selv.",
-        actionLabel: "Åpne Saksrom",
+        title: "Ã…pne Saksrom",
+        description: "Se sammendrag, dokumentstatus, mulige temaer og spÃ¸r saken fÃ¸r du gÃ¥r videre.",
+        why: "Saksrom gir fÃ¸rste samlede verdi etter import uten at du mÃ¥ lese rÃ¥kildene selv.",
+        actionLabel: "Ã…pne Saksrom",
         onAction: () => setActiveView("caseRoom"),
-        secondaryLabel: "Gå til kontroll",
+        secondaryLabel: "GÃ¥ til kontroll",
         onSecondaryAction: () => setActiveView("control")
       };
     }
@@ -1337,9 +1431,9 @@ export default function App() {
         step: 3,
         stepTotal: 6,
         title: "Sjekk hva AI trygt kan bruke",
-        description: "Se hvilke sider som kan brukes som kilde før analyse.",
-        why: "Vi må vite hvilke sider som kan spores tilbake til originaldokumentet før kronologi eller utkast bygges.",
-        actionLabel: "Åpne kontroll",
+        description: "Se hvilke sider som kan brukes som kilde fÃ¸r analyse.",
+        why: "Vi mÃ¥ vite hvilke sider som kan spores tilbake til originaldokumentet fÃ¸r kronologi eller utkast bygges.",
+        actionLabel: "Ã…pne kontroll",
         onAction: () => setActiveView("control"),
         secondaryLabel: "Importer mer",
         onSecondaryAction: () => setActiveView("documents")
@@ -1351,7 +1445,7 @@ export default function App() {
         stepTotal: 6,
         title: "Bygg kronologi",
         description: "Lag tidslinjeobjekter fra kildegrunnlaget.",
-        why: "Kronologi gir første skannbare oversikt over hva som faktisk skjer i saken.",
+        why: "Kronologi gir fÃ¸rste skannbare oversikt over hva som faktisk skjer i saken.",
         actionLabel: "Bygg kronologi",
         onAction: buildChronology,
         secondaryLabel: "Se kontroll",
@@ -1363,8 +1457,8 @@ export default function App() {
         step: 5,
         stepTotal: 6,
         title: "Bygg bevismatrise",
-        description: "Koble påstander til støttende og svekkende kilder.",
-        why: "Bevismatrisen gjør kildegrunnlaget vurderbart før videre saksarbeid.",
+        description: "Koble pÃ¥stander til stÃ¸ttende og svekkende kilder.",
+        why: "Bevismatrisen gjÃ¸r kildegrunnlaget vurderbart fÃ¸r videre saksarbeid.",
         actionLabel: "Bygg bevismatrise",
         onAction: buildEvidence,
         secondaryLabel: "Se kronologi",
@@ -1375,9 +1469,9 @@ export default function App() {
       return {
         step: 6,
         stepTotal: 6,
-        title: "Kontroller før utkast",
-        description: "Utkast låses til dokumentgrunnlaget har høy dekning.",
-        why: "Foreløpig analyse kan brukes, men utkast krever strengere kildekontroll.",
+        title: "Kontroller fÃ¸r utkast",
+        description: "Utkast lÃ¥ses til dokumentgrunnlaget har hÃ¸y dekning.",
+        why: "ForelÃ¸pig analyse kan brukes, men utkast krever strengere kildekontroll.",
         actionLabel: "Se kontrollgrunnlag",
         onAction: () => setActiveView("control"),
         secondaryLabel: "Se bevis",
@@ -1388,9 +1482,9 @@ export default function App() {
       step: 6,
       stepTotal: 6,
       title: "Start saksarbeid",
-      description: "Grunnflyten er klar for utkast, anførsler og kontroll.",
-      why: "AI-forslag er fortsatt draft og skal godkjennes av deg før bruk.",
-      actionLabel: "Åpne utkast",
+      description: "Grunnflyten er klar for utkast, anfÃ¸rsler og kontroll.",
+      why: "AI-forslag er fortsatt draft og skal godkjennes av deg fÃ¸r bruk.",
+      actionLabel: "Ã…pne utkast",
       onAction: () => setActiveView("draft"),
       secondaryLabel: "Se bevis",
       onSecondaryAction: () => setActiveView("evidence")
@@ -1400,6 +1494,11 @@ export default function App() {
     hasDocuments,
     importNextAction,
     caseReadiness,
+    documentControlComplete,
+    hasUsableSources,
+    hasCoverageLimit,
+    pendingOcrPages,
+    caseScopedSourceCoveragePercent,
     canUseDraftControl,
     canUsePreliminaryAnalysis,
     coveragePercent,
@@ -1415,6 +1514,15 @@ export default function App() {
     ocrCoveragePct: ocrCoveragePercent,
     indexedDocumentCount: hasDocuments ? caseCoverage.processedDocuments : undefined,
     totalDocumentCount: hasDocuments ? caseCoverage.totalDocuments : undefined,
+    controlStatus: !hasDocuments ? "Venter" : visibleReviewDocuments.length === 0 ? "FullfÃ¸rt" : `${visibleReviewDocuments.length} igjen`,
+    ocrStatus: !hasDocuments ? "Venter" : pendingOcrPages > 0 ? `${pendingOcrPages} sider gjenstÃ¥r` : "FullfÃ¸rt",
+    analysisRoomStatus: !hasDocuments
+      ? "Venter"
+      : roomAvailabilityByView.caseRoom?.enabled
+        ? roomAvailabilityByView.caseRoom.mode === "preliminary"
+          ? "Foreløpig åpnet"
+          : "Klar"
+        : roomAvailabilityByView.caseRoom?.label || "Venter",
     unresolvedConflictCount: conflictRows.length,
     riskLevel: selectedCase?.risk_level || "unknown",
     nextBestAction: nextAction.title
@@ -1426,7 +1534,7 @@ export default function App() {
       const cleanPaths = await expandImportPaths(rawPaths);
       if (cleanPaths.length === 0) {
         if (rawPaths.length > 0) {
-          setImportError("Fant ingen støttede dokumenter i valget. Støttede filtyper er PDF, DOCX, TXT, MD, PNG, JPG og TIFF.");
+          setImportError("Fant ingen stÃ¸ttede dokumenter i valget. StÃ¸ttede filtyper er PDF, DOCX, TXT, MD, PNG, JPG og TIFF.");
         }
         return;
       }
@@ -1546,8 +1654,8 @@ export default function App() {
         setProcessingLog((current) => [
           ...current,
           completedSession.source_coverage_percent >= 100 && nextHealth.overall_status === "ready"
-            ? "Saksrom kan åpnes. Foreløpig analyse fortsetter i bakgrunnen."
-            : "Dokumentene må kontrolleres før analyse"
+            ? "Saksrom kan Ã¥pnes. ForelÃ¸pig analyse fortsetter i bakgrunnen."
+            : "Dokumentene mÃ¥ kontrolleres fÃ¸r analyse"
         ]);
         setOnboardingStage("caseRoom");
         setActiveView("caseRoom");
@@ -1656,6 +1764,9 @@ export default function App() {
     setApprovalSuccessId("");
     setApprovalToast("");
     setSelectedControlDocumentId("");
+    setControlSelectionIds([]);
+    setBulkConfirmAction("");
+    setBulkConfirmChecked(false);
   }, [selectedCaseId]);
 
   useEffect(() => {
@@ -1666,6 +1777,10 @@ export default function App() {
     if (!selectedControlDocumentId || !visibleReviewDocuments.some((row) => row.id === selectedControlDocumentId)) {
       setSelectedControlDocumentId(visibleReviewDocuments[0].id);
     }
+    setControlSelectionIds((current) => {
+      const next = current.filter((id) => visibleReviewDocuments.some((row) => row.id === id));
+      return next.length === current.length ? current : next;
+    });
   }, [selectedControlDocumentId, visibleReviewDocuments]);
 
   useEffect(() => {
@@ -1767,33 +1882,10 @@ export default function App() {
     await importDocuments(paths);
   }
 
-  function handleEvalLogin() {
-    if (!DEMO_MODE) {
-      setLoginError("Demo-innlogging er deaktivert i denne builden.");
-      return;
-    }
-    const email = loginEmail.trim().toLowerCase();
-    if (email !== EVAL_LOGIN_EMAIL || loginPassword !== EVAL_LOGIN_PASSWORD) {
-      setLoginError("Feil evalueringsinnlogging.");
-      return;
-    }
-    setLoginError("");
+  function handleIntroComplete() {
     setIsAuthenticated(true);
     setOnboardingStage("caseRoom");
     setActiveView(initialWorkspaceView());
-  }
-
-  function handleIntroComplete() {
-    setOnboardingStage(isAuthenticated ? "caseRoom" : "login");
-    if (isAuthenticated) {
-      setActiveView(initialWorkspaceView());
-    }
-  }
-
-  function handleLogout() {
-    setIsAuthenticated(false);
-    setOnboardingStage("login");
-    setActiveView("caseRoom");
   }
 
   function handleBrowserFileSelection(files: FileList | null) {
@@ -1856,10 +1948,10 @@ export default function App() {
 
   async function handleReindex() {
     if (!selectedCaseId) {
-      setReindexStatus("Velg sak før du bygger kilder på nytt.");
+      setReindexStatus("Velg sak fÃ¸r du bygger kilder pÃ¥ nytt.");
       return;
     }
-    setReindexStatus("Bygger kilder på nytt ...");
+    setReindexStatus("Bygger kilder pÃ¥ nytt ...");
     const report = await reindexCaseDocuments(selectedCaseId);
     setReindexStatus(
       `Reindeksert ${countLabel(report.documents_processed, "dokument", "dokumenter")}: ${countLabel(
@@ -1880,30 +1972,30 @@ export default function App() {
       setProcessingLog((current) => [
         ...current,
         importedSourceCount <= 0
-          ? "Dokumentet er ikke ferdig lest ennå"
+          ? "Dokumentet er ikke ferdig lest ennÃ¥"
           : "Dekningen er for lav for automatisk analyse"
       ]);
       setReindexStatus(
         importedSourceCount <= 0
           ? "Dokumentet er importert, men Evida fant ikke nok lesbar tekst til sporbare kilder."
-          : "Dokumentet er importert, men kildegrunnlaget krever kontroll før automatisk analyse."
+          : "Dokumentet er importert, men kildegrunnlaget krever kontroll fÃ¸r automatisk analyse."
       );
       return;
     }
     setProcessingLog((current) => [
       ...current,
-      "Bygger foreløpig saksoversikt",
-      "Bygger foreløpig kronologi",
-      "Bygger foreløpig bevismatrise",
-      "Kjører foreløpig risikovurdering"
+      "Bygger forelÃ¸pig saksoversikt",
+      "Bygger forelÃ¸pig kronologi",
+      "Bygger forelÃ¸pig bevismatrise",
+      "KjÃ¸rer forelÃ¸pig risikovurdering"
     ]);
-    setReindexStatus("Automatisk analyse kjører: kronologi, bevismatrise og risiko ...");
+    setReindexStatus("Automatisk analyse kjÃ¸rer: kronologi, bevismatrise og risiko ...");
     await Promise.allSettled([
       buildChronologyApi(caseId),
       buildEvidenceMatrix(caseId),
       assessRiskApi(caseId)
     ]);
-    setReindexStatus("Foreløpig analyse er klar i Saksrom.");
+    setReindexStatus("ForelÃ¸pig analyse er klar i Saksrom.");
   }
 
   async function confirmDeleteCase() {
@@ -1942,24 +2034,39 @@ export default function App() {
       setActiveView("control");
       return;
     }
+    const draftAvailability = roomAvailabilityByView.draft;
+    const draftStatus = draftAvailability?.mode === "preliminary" ? "Foreløpig draft" : "Draft";
     setDraftText(
       [
         `Utkast for ${selectedCase?.name || "valgt sak"}`,
         "",
-        "Status: Draft",
+        `Status: ${draftStatus}`,
         "Evaluation build: lokalt arbeidsutkast, ikke produksjonsleveranse.",
+        draftAvailability?.warning ? `Forbehold: ${draftAvailability.warning}` : "",
         "",
-        "Foreløpig bevisgrunnlag:",
+        "ForelÃ¸pig bevisgrunnlag:",
         ...sources.slice(0, 6).map((source) => `- [${source.id}] side ${source.page_start}: ${firstSentence(source.text_excerpt)}`)
-      ].join("\n")
+      ].filter(Boolean).join("\n")
     );
   }
 
   function generateExport() {
+    const exportAvailability = roomAvailabilityByView.export;
+    if (!exportAvailability?.enabled) {
+      setExportText(`${exportAvailability?.reason || caseReadiness.blockedUse}`);
+      setActiveView("control");
+      return;
+    }
+    if (exportAvailability.requiresAcknowledgement && !exportPreliminaryAcknowledged) {
+      setExportText(EXPORT_PRELIMINARY_ACKNOWLEDGEMENT);
+      return;
+    }
     setExportText(
       JSON.stringify(
         {
           evaluation_build: true,
+          export_mode: exportAvailability.mode === "preliminary" ? "preliminary" : "final_ready",
+          preliminary_warning: exportAvailability.warning,
           local_processing: true,
           case: selectedCase,
           import_status: {
@@ -2057,7 +2164,7 @@ export default function App() {
         label: "Start saksarbeid",
         done: canUseDraftControl,
         active: canUseDraftControl,
-        reason: "Utkast åpnes først når dokumentgrunnlaget har høy dekning.",
+        reason: "Utkast Ã¥pnes fÃ¸rst nÃ¥r dokumentgrunnlaget har hÃ¸y dekning.",
         actionLabel: "\u00c5pne utkast",
         action: () => setActiveView("draft")
       }
@@ -2105,7 +2212,7 @@ export default function App() {
 
     const coverageText =
       caseCoverage.totalPages > 0
-        ? `${coverageLabel(caseReadiness.sourceCoveragePercent, caseCoverage.pagesWithSources)} av sidene kan brukes som kilde ennå`
+        ? `${coverageLabel(caseReadiness.sourceCoveragePercent, caseCoverage.pagesWithSources)} av sidene kan brukes som kilde ennÃ¥`
         : "Dekning beregnes";
     const pageText =
       caseCoverage.totalPages > 0
@@ -2117,6 +2224,18 @@ export default function App() {
       pendingOcrPages > 0 &&
       caseReadiness.sourceCoveragePercent < 50 &&
       recoveryCount === 0;
+    const readinessActionTitle =
+      caseCoverage.hasActiveProcessing
+        ? "Vent til automatisk behandling er ferdig"
+        : recoveryCount > 0
+          ? "Kontroller dokumentene som stoppet"
+          : caseReadiness.primaryAction;
+    const readinessActionDescription =
+      caseCoverage.hasActiveProcessing
+        ? "Du kan fortsette Ã¥ lese saken, men ikke konkluder fÃ¸r importstatusen er ferdig."
+        : recoveryCount > 0
+          ? "Se nÃ¸yaktig hvilke filer som feilet, og velg om de skal erstattes, fjernes eller holdes utenfor."
+          : caseReadiness.allowedUse;
     const primaryLabel =
       !caseCoverage.hasActiveProcessing && recoveryCount > 0
         ? attentionDetailsOpen
@@ -2138,20 +2257,27 @@ export default function App() {
       >
         <div className="panel-header">
           <div>
-            <div className="eyebrow">Dokumentene gjøres klare</div>
+            <div className="eyebrow">Dokumentene gjÃ¸res klare</div>
             <h2>{caseReadiness.title}</h2>
             <p>{caseReadiness.reason}</p>
           </div>
           <div className="panel-actions">
-            <button className="button-primary" type="button" onClick={handlePrimaryAction}>
-              {primaryLabel}
-            </button>
             {showTechnicalDetailsAction ? (
               <button className="button-secondary" type="button" onClick={() => setTechnicalDetailsOpen((current) => !current)}>
                 {technicalDetailsOpen ? "Skjul tekniske detaljer" : "Se tekniske detaljer"}
               </button>
             ) : null}
           </div>
+        </div>
+        <div className={`next-action-strip next-action-strip--${caseReadiness.severity}`} role="status">
+          <div>
+            <span>Neste beste handling</span>
+            <strong>{readinessActionTitle}</strong>
+            <small>{readinessActionDescription}</small>
+          </div>
+          <button className="button-primary" type="button" onClick={handlePrimaryAction}>
+            {primaryLabel}
+          </button>
         </div>
         <div className="processing-stats">
           <span><strong>{caseCoverage.processedDocuments}</strong> av {caseCoverage.totalDocuments} dokumenter behandlet</span>
@@ -2163,7 +2289,7 @@ export default function App() {
           <p className="muted">Dette kan ta litt tid ved store eller skannede dokumenter.</p>
         ) : caseReadiness.sourceCoveragePercent < 50 ? (
           <p className="muted">
-            Saksrom-oppsummering blir tilgjengelig når dokumentgrunnlaget er klart.
+            Saksrom-oppsummering blir tilgjengelig nÃ¥r dokumentgrunnlaget er klart.
           </p>
         ) : hasActiveProcessing ? (
           <ImportProgressSummary
@@ -2178,7 +2304,7 @@ export default function App() {
             onOpenAttentionItem={(item) => void handlePreviewDocumentById(item.documentId || item.id)}
           />
         ) : (
-          <p className="muted">Foreløpig — lav eller ufullstendig dekning. Kontroller alle svar mot kildene.</p>
+          <p className="muted">ForelÃ¸pig â€” lav eller ufullstendig dekning. Kontroller alle svar mot kildene.</p>
         )}
         {recoveryCount > 0 ? (
           <div className="warning-notice" role="alert">
@@ -2203,7 +2329,7 @@ export default function App() {
               <article className="attention-document">
                 <strong>Importko</strong>
                 <span>{countLabel(importFailures, "import feilet", "importer feilet")}</span>
-                <span>Automatisk behandling feilet. Se tekniske detaljer før du prøver på nytt.</span>
+                <span>Automatisk behandling feilet. Se tekniske detaljer fÃ¸r du prÃ¸ver pÃ¥ nytt.</span>
               </article>
             ) : null}
           </div>
@@ -2212,13 +2338,13 @@ export default function App() {
           <div className="technical-details technical-details--panel">
             <span>
               {automaticTextRecognitionAvailable
-                ? "Automatisk teksthenting er tilgjengelig lokalt når dokumentmotoren kan lese filtypen."
+                ? "Automatisk teksthenting er tilgjengelig lokalt nÃ¥r dokumentmotoren kan lese filtypen."
                 : "Automatisk teksthenting fra skannede PDF-sider krever lokal tekstgjenkjenning og PDF-siderenderer."}
             </span>
             {documentEngineStatus?.warnings.map((warning) => (
               <span key={warning}>{warning}</span>
             ))}
-            <span>Hvis du tester nå, fungerer tekstbaserte PDF-er best.</span>
+            <span>Hvis du tester nÃ¥, fungerer tekstbaserte PDF-er best.</span>
           </div>
         ) : null}
         {caseReadiness.testDataWarning ? <div className="warning-notice">{caseReadiness.testDataWarning}</div> : null}
@@ -2258,6 +2384,15 @@ export default function App() {
     setMaintenanceStatus(report.message);
   }
 
+  async function handleOpenDocumentPreviewFolder(path: string) {
+    try {
+      const report = await openOriginalFolder(path);
+      setMaintenanceStatus(report.message);
+    } catch (error) {
+      setMaintenanceStatus(`Kunne ikke Ã¥pne originalmappe: ${String(error)}`);
+    }
+  }
+
   async function handleReplaceImportItem(item: ImportItem) {
     const paths = await chooseDocumentPaths();
     if (paths.length > 0) {
@@ -2283,18 +2418,53 @@ export default function App() {
     setMaintenanceStatus(`Manuell kontroll oppdatert: ${item.review_type}.`);
   }
 
-  async function handlePreviewDocument(row: DocumentBasisRow) {
-    const document = documents.find((item) => item.id === row.id);
+  function documentPreviewFallback(row: DocumentBasisRow): DocumentSummary {
+    return {
+      id: row.id,
+      case_id: row.caseId,
+      original_name: row.name,
+      local_path: "",
+      mime_type: "",
+      sha256: row.hash,
+      page_count: row.pageCount,
+      ocr_status: "needs_ocr",
+      source_count: row.sourceCount,
+      source_coverage_percent: row.sourceCoveragePercent,
+      analyzed_page_count: row.analyzedPages,
+      pending_ocr_page_count: row.pendingOcrPages,
+      imported_at: row.importedAt
+    };
+  }
+
+  function resolvePreviewDocument(row: DocumentBasisRow) {
+    return (
+      documents.find((item) => item.id === row.id) ||
+      documents.find((item) => item.sha256 === row.hash) ||
+      documents.find((item) => item.original_name === row.name) ||
+      null
+    );
+  }
+
+  function handlePreviewDocument(row: DocumentBasisRow) {
+    const document = resolvePreviewDocument(row);
     if (!document) {
+      setPreviewDocument(documentPreviewFallback(row));
+      setReviewApprovalChecks((current) => ({ ...current, [row.id]: true }));
+      setMaintenanceStatus(`${row.name}: previewdata mangler lokal originalfil.`);
       return;
     }
     setPreviewDocument(document);
     setReviewApprovalChecks((current) => ({ ...current, [row.id]: true }));
-    await recordDocumentControlAction({ caseId: row.caseId, documentId: row.id, action: "preview" });
-    if (selectedCaseId) {
-      await refresh(selectedCaseId);
-    }
-    setMaintenanceStatus(`${row.name}: preview åpnet i Evida.`);
+    void recordDocumentControlAction({ caseId: row.caseId, documentId: row.id, action: "preview" })
+      .then(async () => {
+        if (selectedCaseId) {
+          await refresh(selectedCaseId);
+        }
+      })
+      .catch((error) => {
+        setMaintenanceStatus(`${row.name}: preview Ã¥pnet, men audit-logg kunne ikke lagres: ${String(error)}`);
+      });
+    setMaintenanceStatus(`${row.name}: preview Ã¥pnet i Evida.`);
   }
 
   function approvalActionLabel(row: Pick<DocumentBasisRow, "sourceCount">) {
@@ -2304,16 +2474,16 @@ export default function App() {
   async function handleDocumentApproval(
     row: DocumentBasisRow,
     action: "approve_for_ai" | "reject_for_ai",
-    options?: { quietToast?: boolean; keepPreviewOpen?: boolean }
+    options?: { quietToast?: boolean; keepPreviewOpen?: boolean; skipRefresh?: boolean }
   ) {
     setApprovalSavingId(row.id);
     setApprovalSuccessId("");
     const note =
       action === "approve_for_ai"
         ? row.sourceCount > 0
-          ? "Bruker har forhåndsvist dokumentet og godkjent dokumentgrunnlaget for AI-svar."
-          : "Bruker har forhåndsvist dokumentet og markert dokumentet som manuelt kontrollert uten å gjøre det til tekstkilde."
-        : "Bruker har forhåndsvist dokumentet og avvist dokumentet fra AI-grunnlaget.";
+          ? "Bruker har forhÃ¥ndsvist dokumentet og godkjent dokumentgrunnlaget for AI-svar."
+          : "Bruker har forhÃ¥ndsvist dokumentet og markert dokumentet som manuelt kontrollert uten Ã¥ gjÃ¸re det til tekstkilde."
+        : "Bruker har forhÃ¥ndsvist dokumentet og avvist dokumentet fra AI-grunnlaget.";
     try {
       const report = await recordDocumentControlAction({
         caseId: row.caseId,
@@ -2326,13 +2496,13 @@ export default function App() {
         ...current,
         [row.id]: action === "approve_for_ai" ? "approved" : "excluded"
       }));
-      if (selectedCaseId) {
+      if (selectedCaseId && !options?.skipRefresh) {
         await refresh(selectedCaseId);
       }
       setReviewApprovalChecks((current) => ({ ...current, [row.id]: false }));
       const message =
         action === "approve_for_ai"
-          ? "Godkjent. Dokumentet er fjernet fra kontrollisten."
+          ? "Kontrollert. Dokumentet er fjernet fra kontrollisten."
           : "Dokumentet er holdt utenfor kildegrunnlaget.";
       if (!options?.quietToast) {
         setApprovalToast(message);
@@ -2371,7 +2541,7 @@ export default function App() {
     if (!saved) {
       return;
     }
-    setApprovalToast(nextRow ? "Godkjent. Neste dokument åpnet." : "Alle dokumenter er kontrollert.");
+      setApprovalToast(nextRow ? "Kontrollert. Neste dokument Ã¥pnet." : "Alle dokumenter er kontrollert.");
     if (nextRow) {
       const nextDocument = documents.find((item) => item.id === nextRow.id);
       setPreviewDocument(nextDocument || null);
@@ -2404,6 +2574,109 @@ export default function App() {
     }
     setSelectedControlDocumentId("");
     setApprovalToast("Alle dokumenter er kontrollert.");
+  }
+
+  function toggleControlSelection(rowId: string) {
+    setControlSelectionIds((current) =>
+      current.includes(rowId) ? current.filter((id) => id !== rowId) : [...current, rowId]
+    );
+  }
+
+  function selectVisibleControlRows() {
+    setControlSelectionIds(visibleReviewDocuments.map((row) => row.id));
+  }
+
+  function clearControlSelection() {
+    setControlSelectionIds([]);
+    setBulkConfirmAction("");
+    setBulkConfirmChecked(false);
+  }
+
+  function requestBulkAction(action: DocumentControlBulkActionId) {
+    const selectedRows = visibleReviewDocuments.filter((row) => controlSelectionIds.includes(row.id));
+    const plan = deriveDocumentControlBulkPlan(selectedRows);
+    const actionMeta = plan.actions.find((item) => item.id === action);
+    if (!actionMeta?.enabled) {
+      setApprovalToast("Ingen valgte dokumenter kan bruke denne handlingen.");
+      return;
+    }
+    if (actionMeta.requiresConfirmation) {
+      setBulkConfirmAction(action);
+      setBulkConfirmChecked(false);
+      return;
+    }
+    void runBulkAction(action);
+  }
+
+  async function runBulkAction(action: DocumentControlBulkActionId) {
+    const selectedRows = visibleReviewDocuments.filter((row) => controlSelectionIds.includes(row.id));
+    const plan = deriveDocumentControlBulkPlan(selectedRows);
+    const rows =
+      action === "mark_controlled"
+        ? plan.eligibleForControlled
+        : action === "exclude"
+          ? plan.excludeRows
+          : action === "replace"
+            ? plan.replaceRows.slice(0, 1)
+            : plan.ocrRows;
+
+    if (rows.length === 0) {
+      setApprovalToast("Ingen valgte dokumenter kan bruke denne handlingen.");
+      return;
+    }
+
+    if (action === "replace") {
+      await handleReplaceDocumentRow(rows[0]);
+      return;
+    }
+
+    if (action === "run_ocr") {
+      setApprovalToast(`${rows.length} dokumenter er identifisert for OCR. Velg Erstatt fil hvis originalen ikke kan leses.`);
+      setMaintenanceStatus(`${rows.length} valgte dokumenter trenger OCR eller tekstkontroll.`);
+      return;
+    }
+
+    const savedRowIds = new Set<string>();
+    for (const row of rows) {
+      const saved = await handleDocumentApproval(row, action === "mark_controlled" ? "approve_for_ai" : "reject_for_ai", {
+        quietToast: true,
+        skipRefresh: true
+      });
+      if (!saved) {
+        break;
+      }
+      savedRowIds.add(row.id);
+    }
+    if (savedRowIds.size === 0) {
+      return;
+    }
+    setLocalControlDecisions((current) => {
+      const next = { ...current };
+      for (const row of rows) {
+        if (savedRowIds.has(row.id)) {
+          next[row.id] = action === "mark_controlled" ? "approved" : "excluded";
+        }
+      }
+      return next;
+    });
+    setReviewApprovalChecks((current) => {
+      const next = { ...current };
+      for (const rowId of savedRowIds) {
+        next[rowId] = false;
+      }
+      return next;
+    });
+    const remaining = visibleReviewDocuments.find((row) => !savedRowIds.has(row.id));
+    setSelectedControlDocumentId(remaining?.id || "");
+    clearControlSelection();
+    if (selectedCaseId) {
+      await refresh(selectedCaseId);
+    }
+    setApprovalToast(
+      action === "mark_controlled"
+        ? `${savedRowIds.size} dokumenter er markert som kontrollert.`
+        : `${savedRowIds.size} dokumenter er holdt utenfor kildegrunnlaget.`
+    );
   }
 
   async function handleReplacePreviewDocument(documentId: string) {
@@ -2472,16 +2745,56 @@ export default function App() {
   const progressAttentionItems = makeAttentionItems(visibleReviewDocuments);
   const progressFailedItems = makeAttentionItems(documentBasis.unreadableDocuments);
 
+  function importItemRecoveryCopy(item: ImportItem) {
+    if (item.status === "ocr_required") {
+      return {
+        impact: "Dokumentet mangler maskinlesbar tekst pÃ¥ Ã©n eller flere sider.",
+        nextStep: "Ã…pne dokumentkontroll, forhÃ¥ndsvis originalen og erstatt filen hvis OCR/tekstgrunnlag mangler.",
+        safety: "Saksrom bruker bare eksisterende kildeutdrag og markerer resten som manglende grunnlag."
+      };
+    }
+    if (item.status === "failed" || item.status === "unsupported") {
+      return {
+        impact: "Filen ble ikke gjort om til sporbare kilder.",
+        nextStep: item.can_retry ? "PrÃ¸v import pÃ¥ nytt, eller erstatt filen med en lesbar kopi." : "Erstatt filen, fjern den fra saken, eller hold den utenfor AI-grunnlaget.",
+        safety: "Dokumentet brukes ikke som kildegrunnlag fÃ¸r du gjÃ¸r en ny kontrollhandling."
+      };
+    }
+    if (item.status === "duplicate") {
+      return {
+        impact: "Filen ser ut til Ã¥ vÃ¦re en duplikat av noe som allerede finnes i saken.",
+        nextStep: "Kontroller at duplikatet ikke trengs som egen versjon. Hvis ikke, la den stÃ¥ utenfor.",
+        safety: "Evida importerer ikke samme innhold pÃ¥ nytt og unngÃ¥r dobbel kildebruk."
+      };
+    }
+    if (item.status === "partial") {
+      return {
+        impact: "Noe av dokumentet er klart, men ikke hele grunnlaget.",
+        nextStep: "Bruk saken forelÃ¸pig med forbehold, og kontroller sidene som mangler tekst eller kilder.",
+        safety: "Saksrom avgrenser svar til tekst og kildeutdrag som faktisk finnes."
+      };
+    }
+    return {
+      impact: item.user_message || "Dokumentet er registrert i importstatusen.",
+      nextStep: item.recommended_action || "Ingen ekstra handling er nÃ¸dvendig akkurat nÃ¥.",
+      safety: item.can_continue ? "Du kan fortsette med tilgjengelige kilder." : "Dokumentet brukes ikke som kildegrunnlag fÃ¸r det er klart."
+    };
+  }
+
   function ImportItemCard({ item, technical = false }: { item: ImportItem; technical?: boolean }) {
+    const recovery = importItemRecoveryCopy(item);
     return (
       <article className={`import-health-item import-health-item--${item.status}`}>
         <div>
           <strong>{item.original_name}</strong>
           <span>{importStatusLabel(item.status)}</span>
         </div>
-        <p>{item.user_message}</p>
-          <p><strong>Konsekvens:</strong> {item.can_continue ? "Kan brukes foreløpig der tekst finnes." : "Er ikke brukt som kildegrunnlag."}</p>
-        <p><strong>Anbefalt handling:</strong> {item.recommended_action}</p>
+        <p>{item.user_message || recovery.impact}</p>
+        <div className="recovery-callout" role={item.can_continue ? "note" : "alert"}>
+          <strong>Trygg hÃ¥ndtering</strong>
+          <span>{recovery.safety}</span>
+          <span><b>Neste steg:</b> {recovery.nextStep}</span>
+        </div>
         <div className="import-health-item__meta">
           <span>{item.page_count} sider</span>
           <span>{item.pages_with_text} med tekst</span>
@@ -2490,11 +2803,11 @@ export default function App() {
         </div>
         <div className="panel-actions">
           {item.can_retry ? (
-            <button className="button-secondary" type="button" onClick={() => void importDocuments([item.original_path])}>Prøv igjen</button>
+            <button className="button-secondary" type="button" onClick={() => void importDocuments([item.original_path])}>PrÃ¸v igjen</button>
           ) : null}
           <button className="button-secondary" type="button" onClick={() => void handleRemoveImportItem(item)}>Fjern fra saken</button>
           <button className="button-secondary" type="button" onClick={() => void handleReplaceImportItem(item)}>Erstatt fil</button>
-          <button className="button-secondary" type="button" onClick={() => void handleOpenOriginalFolder(item)}>Åpne originalmappe</button>
+          <button className="button-secondary" type="button" onClick={() => void handleOpenOriginalFolder(item)}>Ã…pne originalmappe</button>
           <button className="button-secondary" type="button" onClick={() => setExpandedDocumentId(expandedDocumentId === item.id ? "" : item.id)}>
             Vis tekniske detaljer
           </button>
@@ -2524,7 +2837,14 @@ export default function App() {
             <h2>{importUx.progressLabel}</h2>
             <p>{importUx.nextStep.message}</p>
           </div>
-          <div className="panel-actions">
+        </div>
+        <div className={`next-action-strip next-action-strip--${importNextAction.severity}`} role="status">
+          <div>
+            <span>Neste beste handling</span>
+            <strong>{importNextAction.title}</strong>
+            <small>{importNextAction.description}</small>
+          </div>
+          <div className="next-action-strip__actions">
             <button
               className="button-primary"
               type="button"
@@ -2533,6 +2853,11 @@ export default function App() {
             >
               {importNextAction.primaryLabel}
             </button>
+            {importNextAction.secondaryLabel ? (
+              <button className="button-secondary" type="button" onClick={() => setShowImportQueueDetails((current) => !current)}>
+                {showImportQueueDetails ? "Skjul detaljer" : importNextAction.secondaryLabel}
+              </button>
+            ) : null}
           </div>
         </div>
         <p className="muted">
@@ -2542,7 +2867,7 @@ export default function App() {
         </p>
         {importUx.gapMessages.length > 0 ? (
           <div className="warning-notice">
-            <strong>Mangler nå:</strong>
+            <strong>Mangler nÃ¥:</strong>
             <ul className="compact-gap-list">
               {importUx.gapMessages.map((message) => (
                 <li key={message}>{message}</li>
@@ -2555,9 +2880,9 @@ export default function App() {
           <div className="import-health-overview">
             <StatusCard label="Klare dokumenter" value={readyItems.length} detail="klare filer" />
             <StatusCard label="Krever OCR" value={ocrItems.length} detail={`${pendingOcrPages} sider`} tone={ocrItems.length ? "warn" : "ok"} />
-            <StatusCard label="Feilede filer" value={failedItems.length} detail="må vurderes" tone={failedItems.length ? "warn" : "ok"} />
+            <StatusCard label="Feilede filer" value={failedItems.length} detail="mÃ¥ vurderes" tone={failedItems.length ? "warn" : "ok"} />
             <StatusCard label="Kildedekning" value={`${Math.round(importHealth?.source_coverage_percent ?? caseScopedSourceCoveragePercent)} %`} detail="sakens importstatus" tone={(importHealth?.source_coverage_percent ?? 0) < 100 ? "warn" : "ok"} />
-            <StatusCard label="Manuell kontroll" value={openManualReviewItems.length} detail="åpne punkter" tone={openManualReviewItems.length ? "warn" : "ok"} />
+            <StatusCard label="Manuell kontroll" value={openManualReviewItems.length} detail="Ã¥pne punkter" tone={openManualReviewItems.length ? "warn" : "ok"} />
             <StatusCard label="Kildekvalitet" value={evidenceQuality?.citation_failures ?? 0} detail="siteringsfeil" tone={evidenceQuality?.citation_failures ? "warn" : "ok"} />
           </div>
         <section className="import-health-section">
@@ -2575,7 +2900,7 @@ export default function App() {
           ["Klare dokumenter", readyItems],
           ["Krever OCR", ocrItems],
           ["Feilede filer", failedItems],
-          ["Filtype støttes ikke", unsupportedItems],
+          ["Filtype stÃ¸ttes ikke", unsupportedItems],
           ["Duplikater", duplicateItems],
           ["Delvis behandlede dokumenter", partialItems]
         ].map(([title, items]) => (
@@ -2594,7 +2919,7 @@ export default function App() {
           <h3>OCR-flyt</h3>
           <div className="import-health-groups">
             <article className="import-health-group">
-              <strong>OCR-kø</strong>
+              <strong>OCR-kÃ¸</strong>
               <span>{ocrResults.filter((item) => item.status === "queued").length} sider</span>
             </article>
             <article className="import-health-group">
@@ -2636,7 +2961,7 @@ export default function App() {
                   </div>
                   <div className="panel-actions">
                     <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "mark_reviewed")}>Marker kontrollert</button>
-                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "requires_follow_up")}>Følg opp</button>
+                    <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "requires_follow_up")}>FÃ¸lg opp</button>
                     <button className="button-secondary" type="button" onClick={() => void handleManualReviewAction(item, "exclude_from_ai")}>Ikke bruk av AI</button>
                   </div>
                 </article>
@@ -2689,7 +3014,14 @@ export default function App() {
     const session = importHealth.latest_session;
     return (
       <div className="modal-backdrop" role="presentation">
-        <section className="modal-panel import-completion-modal" role="dialog" aria-modal="true" aria-labelledby="import-outcome-title">
+        <section
+          className="modal-panel import-completion-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="import-outcome-title"
+          tabIndex={-1}
+          onKeyDown={(event) => closeDialogOnEscape(event, () => setShowImportCompletion(false))}
+        >
           <div className="panel-header">
             <div>
               <div className="eyebrow">Importstatus</div>
@@ -2712,11 +3044,6 @@ export default function App() {
             failedItems={progressFailedItems}
             detailsOpen={showImportCompletionDetails}
             statusMessage={importNextAction.description}
-            onShowAttentionItems={() => {
-              setShowImportCompletion(false);
-              handleImportNextAction();
-            }}
-            onShowDetails={() => setShowImportCompletionDetails((current) => !current)}
             onOpenAttentionItem={(item) => void handlePreviewDocumentById(item.documentId || item.id)}
             onApproveAttentionItem={(item) => {
               const row = documentBasis.rows.find((candidate) => candidate.id === (item.documentId || item.id));
@@ -2725,11 +3052,11 @@ export default function App() {
               }
             }}
           />
-          {importUx.gapMessages.length > 0 ? (
-            <div className="warning-notice" role="alert">
-              <strong>Mangler nå:</strong>
-              <ul className="compact-gap-list">
-                {importUx.gapMessages.map((message) => (
+        {importOutcomeGapMessages.length > 0 ? (
+          <div className="warning-notice" role="alert">
+            <strong>Mangler nÃ¥:</strong>
+            <ul className="compact-gap-list">
+                {importOutcomeGapMessages.map((message) => (
                   <li key={message}>{message}</li>
                 ))}
               </ul>
@@ -2741,6 +3068,7 @@ export default function App() {
             <button
               className="button-primary"
               type="button"
+              autoFocus
               onClick={() => {
                 setShowImportCompletion(false);
                 handleImportNextAction();
@@ -2758,11 +3086,11 @@ export default function App() {
                 <StatusCard label="Importert" value={session.files_ready + session.files_partial} detail="klar eller delvis" />
                 <StatusCard label="Krever OCR" value={session.files_requires_ocr} detail={`${session.pages_requires_ocr} sider`} tone={session.files_requires_ocr ? "warn" : "ok"} />
                 <StatusCard label="Feilet" value={session.files_failed} detail="ikke brukt som kilde" tone={session.files_failed ? "warn" : "ok"} />
-                <StatusCard label="Duplikater" value={session.files_duplicate} detail="ikke importert på nytt" />
+                <StatusCard label="Duplikater" value={session.files_duplicate} detail="ikke importert pÃ¥ nytt" />
                 <StatusCard label="Kildedekning" value={`${Math.round(importHealth.source_coverage_percent)} %`} detail="sakens importstatus" tone={importHealth.source_coverage_percent < 100 ? "warn" : "ok"} />
               </div>
               <div className="panel-actions">
-                <button className="button-secondary" type="button" onClick={() => { setShowImportCompletion(false); void handleReindex(); }}>Kjør OCR</button>
+                <button className="button-secondary" type="button" onClick={() => { setShowImportCompletion(false); void handleReindex(); }}>KjÃ¸r OCR</button>
               </div>
             </div>
           ) : null}
@@ -2771,7 +3099,7 @@ export default function App() {
     );
   }
 
-  function ReadinessGate({ title }: { title: string }) {
+  function ReadinessGate({ title, reason }: { title: string; reason?: string }) {
     return (
       <>
         <DocumentReadinessPanel />
@@ -2780,7 +3108,7 @@ export default function App() {
             <div>
               <div className="eyebrow">{caseReadiness.label}</div>
               <h2>{title}</h2>
-              <p>{caseReadiness.blockedUse}</p>
+              <p>{reason || caseReadiness.blockedUse}</p>
             </div>
             <button className="button-primary" onClick={() => setActiveView("control")}>
               Se kontrollgrunnlag
@@ -2788,6 +3116,19 @@ export default function App() {
           </div>
         </section>
       </>
+    );
+  }
+
+  function RoomModeNotice({ view }: { view: ViewKey }) {
+    const availability = roomAvailabilityByView[view];
+    if (!availability || availability.mode !== "preliminary") {
+      return null;
+    }
+    return (
+      <div className="warning-notice room-mode-notice" role="status" aria-live="polite">
+        <strong>{availability.label}</strong>
+        <span>{availability.warning}</span>
+      </div>
     );
   }
 
@@ -2800,7 +3141,7 @@ export default function App() {
           "dokument",
           "dokumenter"
         )} ferdig behandlet.`
-      : "Ingen dokumenter er lastet opp ennå.";
+      : "Ingen dokumenter er lastet opp ennÃ¥.";
 
     return (
       <section className="processing-panel">
@@ -2809,7 +3150,7 @@ export default function App() {
             <div className="eyebrow">Behandlingsstatus</div>
             <h2>{statusText}</h2>
             <p>
-              Evida viser hva som er lastet opp, hva som behandles, og når saken kan åpnes i
+              Evida viser hva som er lastet opp, hva som behandles, og nÃ¥r saken kan Ã¥pnes i
               Saksrom.
             </p>
           </div>
@@ -2818,14 +3159,14 @@ export default function App() {
               setOnboardingStage("caseRoom");
               setActiveView("caseRoom");
             }}>
-              {caseReadiness.verdict === "requires_control" ? "Åpne foreløpig Saksrom" : "Gå til Saksrom"}
+              {caseReadiness.verdict === "requires_control" ? "Ã…pne forelÃ¸pig Saksrom" : "GÃ¥ til Saksrom"}
             </button>
           ) : null}
         </div>
         <div className="processing-stats">
           <span><strong>{documents.length}</strong> lastet opp</span>
           <span><strong>{readyCount}</strong> ferdig behandlet</span>
-          <span><strong>{hasActiveProcessing ? activeCount : 0}</strong> behandles nå</span>
+          <span><strong>{hasActiveProcessing ? activeCount : 0}</strong> behandles nÃ¥</span>
           <span><strong>{documentsRequiringAttention.length}</strong> kunne ikke behandles automatisk</span>
         </div>
         {documents.length > 0 && !hasActiveProcessing ? (
@@ -2833,16 +3174,16 @@ export default function App() {
             {documents.map((document) => {
               const statusLabel =
                 document.source_count > 0
-                  ? `Ferdig · ${countLabel(document.page_count, "side", "sider")} · ${countLabel(
+                  ? `Ferdig Â· ${countLabel(document.page_count, "side", "sider")} Â· ${countLabel(
                       document.source_count,
                       "kilde",
                       "kilder"
                     )}`
                   : document.pending_ocr_page_count > 0
-                    ? `Henter tekst fra skannede sider · ${countLabel(document.pending_ocr_page_count, "side", "sider")} venter`
+                    ? `Henter tekst fra skannede sider Â· ${countLabel(document.pending_ocr_page_count, "side", "sider")} venter`
                     : document.analyzed_page_count > 0
-                      ? `Leser tekst · ${document.analyzed_page_count} sider analysert`
-                      : "Lastet opp · venter på behandling";
+                      ? `Leser tekst Â· ${document.analyzed_page_count} sider analysert`
+                      : "Lastet opp Â· venter pÃ¥ behandling";
 
               return (
                 <article key={document.id} className="processing-row">
@@ -2851,20 +3192,20 @@ export default function App() {
                     <span>{statusLabel}</span>
                   </div>
                   <span className={document.source_count > 0 ? "status-chip status-chip--ok" : "status-chip status-chip--warn"}>
-                    {document.source_count > 0 ? "Klar" : "Pågår"}
+                    {document.source_count > 0 ? "Klar" : "PÃ¥gÃ¥r"}
                   </span>
                 </article>
               );
             })}
           </div>
         ) : (
-          <div className="empty-state">Last opp minst ett dokument for å bygge første saksoversikt.</div>
+          <div className="empty-state">Last opp minst ett dokument for Ã¥ bygge fÃ¸rste saksoversikt.</div>
         )}
         {isImporting ? (
           <div className="assistant-work-steps" aria-live="polite">
             <span>Leser dokumenter ...</span>
             <span>Finner relevante kilder ...</span>
-            <span>Bygger foreløpig saksoversikt ...</span>
+            <span>Bygger forelÃ¸pig saksoversikt ...</span>
           </div>
         ) : null}
         {processingLog.length > 0 ? (
@@ -2880,7 +3221,7 @@ export default function App() {
 
   function GuidedExperience() {
     return (
-      <section className={`guided-shell ${onboardingStage === "intro" ? "guided-shell--intro" : ""} ${onboardingStage === "login" ? "guided-shell--login" : ""}`}>
+      <section className={`guided-shell ${onboardingStage === "intro" ? "guided-shell--intro" : ""}`}>
         {onboardingStage !== "intro" ? (
           <>
         <header className="guided-header">
@@ -2893,19 +3234,14 @@ export default function App() {
           </div>
           <div className="guided-header-actions">
             <span className="local-pill">Lokal behandling</span>
-            {isAuthenticated ? (
-              <button className="button-ghost" onClick={handleLogout}>
-                Logg ut
-              </button>
-            ) : null}
             <button
               className="theme-toggle"
               onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-              aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mørk modus"}
-              title={theme === "dark" ? "Lys modus" : "Mørk modus"}
+              aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mÃ¸rk modus"}
+              title={theme === "dark" ? "Lys modus" : "MÃ¸rk modus"}
             >
               {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-              <span>{theme === "dark" ? "Lys" : "Mørk"}</span>
+              <span>{theme === "dark" ? "Lys" : "MÃ¸rk"}</span>
             </button>
           </div>
         </header>
@@ -2929,51 +3265,13 @@ export default function App() {
           </section>
         ) : null}
 
-        {onboardingStage === "login" ? (
-          <section className="guided-card guided-card--narrow">
-            <div>
-              <div className="eyebrow">Innlogging</div>
-              <h1>Logg inn i Evida</h1>
-              <p>Få tilgang til dine saker, dokumenter og saksrom. All aktivitet knyttes til bruker for sikkerhet og revisjon.</p>
-            </div>
-            <div className="guided-login-form">
-              <input
-                type="email"
-                value={loginEmail}
-                onChange={(event) => setLoginEmail(event.target.value)}
-                placeholder="E-post"
-                aria-label="E-post"
-              />
-              <input
-                type="password"
-                value={loginPassword}
-                onChange={(event) => setLoginPassword(event.target.value)}
-                placeholder="Passord"
-                aria-label="Passord"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    handleEvalLogin();
-                  }
-                }}
-              />
-              <button className="button-primary" onClick={handleEvalLogin}>Logg inn</button>
-            </div>
-            {DEMO_MODE ? (
-              <div className="eval-login-hint">
-                Demo/evalueringsmodus er aktiv. Bruk godkjent evalueringsbruker fra intern testinstruks.
-              </div>
-            ) : null}
-            {loginError ? <div className="error-notice">{loginError}</div> : null}
-            <p className="security-note">Evaluation build: lokal behandling. Ikke bruk reelle klientdata uten avtale.</p>
-          </section>
-        ) : null}
         {onboardingStage === "start" ? (
           <section className="guided-card">
             <div className="guided-section-header">
               <div>
                 <div className="eyebrow">Startpunkt</div>
                 <h1>Hva vil du jobbe med?</h1>
-                <p>Start en ny sak, eller åpne et eksisterende saksrom og fortsett der du slapp.</p>
+                <p>Start en ny sak, eller Ã¥pne et eksisterende saksrom og fortsett der du slapp.</p>
               </div>
             </div>
             <div className="choice-grid">
@@ -2998,7 +3296,7 @@ export default function App() {
               </article>
               <article className="choice-card">
                 <h2>Tidligere saker</h2>
-                <p>Åpne en eksisterende sak. Hvis den mangler dokumenter, går du rett til import.</p>
+                <p>Ã…pne en eksisterende sak. Hvis den mangler dokumenter, gÃ¥r du rett til import.</p>
                 <button className="button-secondary" onClick={() => setCasePickerOpen((current) => !current)}>
                   Se saker
                 </button>
@@ -3021,7 +3319,7 @@ export default function App() {
                   setOnboardingStage("caseRoom");
                   setActiveView("caseRoom");
                 }}>
-                  {caseReadiness.verdict === "requires_control" ? "Åpne foreløpig Saksrom" : "Gå til Saksrom"}
+                  {caseReadiness.verdict === "requires_control" ? "Ã…pne forelÃ¸pig Saksrom" : "GÃ¥ til Saksrom"}
                 </button>
               ) : null}
             </div>
@@ -3123,7 +3421,7 @@ export default function App() {
           onKeyDown={handleDropZoneKeyDown}
         >
           <strong>{isDragActive ? "Slipp dokumentene her" : "Dra dokumenter hit"}</strong>
-          <span>Du kan slippe flere filer samtidig. Bruk Velg mappe for å hente en hel saksmappe rekursivt.</span>
+          <span>Du kan slippe flere filer samtidig. Bruk Velg mappe for Ã¥ hente en hel saksmappe rekursivt.</span>
         </div>
         {importQueue.length > 0 ? (
           <ImportProgressSummary
@@ -3184,7 +3482,7 @@ export default function App() {
                         <span className="import-eta">
                           {eta}
                           {item.startedAt && !["completed", "failed"].includes(item.status)
-                            ? ` · gått ${formatDuration(importNow - item.startedAt)}`
+                            ? ` Â· gÃ¥tt ${formatDuration(importNow - item.startedAt)}`
                             : ""}
                         </span>
                       </div>
@@ -3207,7 +3505,7 @@ export default function App() {
             <span>PDF-sider <strong>{totalPages}</strong></span>
             <span>Analyserte sider <strong>{analyzedPages}</strong></span>
             <span>Sporbare kilder <strong>{sources.length}</strong></span>
-            <span>Tekststatus <strong>{pendingOcrPages > 0 ? `${pendingOcrPages} sider venter på tekst` : "Ingen ventende sider"}</strong></span>
+            <span>Tekststatus <strong>{pendingOcrPages > 0 ? `${pendingOcrPages} sider venter pÃ¥ tekst` : "Ingen ventende sider"}</strong></span>
           </div>
         ) : null}
         {hasDocuments ? <div className="workflow-notice">{userCoverageExplanation}</div> : null}
@@ -3253,7 +3551,7 @@ export default function App() {
           <h2>Saker</h2>
         </div>
         {cases.length === 0 ? (
-          <div className="empty-state">Ingen saker ennå. Opprett en sak for å starte dokumentarbeidet.</div>
+          <div className="empty-state">Ingen saker ennÃ¥. Opprett en sak for Ã¥ starte dokumentarbeidet.</div>
         ) : (
           <div className="case-list">
             {cases.map((item) => (
@@ -3264,7 +3562,7 @@ export default function App() {
               >
                 <div>
                   <strong>{item.name}</strong>
-                  <div className="muted">{item.id} · {item.jurisdiction}</div>
+                  <div className="muted">{item.id} Â· {item.jurisdiction}</div>
                 </div>
                 <div className="case-row__meta">
                   <span>{countLabel(item.document_count, "dokument", "dokumenter")}</span>
@@ -3296,8 +3594,8 @@ export default function App() {
         ? caseReadiness.verdict === "not_ready"
           ? "Vis behandlingsstatus"
           : caseReadiness.verdict === "requires_control"
-            ? "Åpne foreløpig Saksrom"
-            : "Åpne Saksrom"
+            ? "Ã…pne forelÃ¸pig Saksrom"
+            : "Ã…pne Saksrom"
         : "Last opp dokumenter";
     const primaryAction = !selectedCase
       ? undefined
@@ -3311,12 +3609,12 @@ export default function App() {
               <h2>{selectedCase ? selectedCase.name : "Start en ny evalueringssak"}</h2>
               <p>
                 {!selectedCase
-                  ? "Opprett en sak først. Deretter laster du opp dokumenter og går videre til Saksrom."
+                  ? "Opprett en sak fÃ¸rst. Deretter laster du opp dokumenter og gÃ¥r videre til Saksrom."
                   : hasDocuments
                     ? caseReadiness.verdict === "not_ready"
-                      ? "Dokumenter er importert, og saken klargjøres automatisk."
+                      ? "Dokumenter er importert, og saken klargjÃ¸res automatisk."
                       : "Dokumenter er importert. Neste steg er kildebasert arbeid med tydelig kontroll."
-                    : "Saken er klar. Last opp dokumenter for å starte analyse og saksarbeid."}
+                    : "Saken er klar. Last opp dokumenter for Ã¥ starte analyse og saksarbeid."}
               </p>
             </div>
             {selectedCase ? (
@@ -3375,8 +3673,8 @@ export default function App() {
             <input
               value={documentSearch}
               onChange={(event) => setDocumentSearch(event.target.value)}
-              placeholder="Søk i dokumentnavn eller hash"
-              aria-label="Søk i dokumenter"
+              placeholder="SÃ¸k i dokumentnavn eller hash"
+              aria-label="SÃ¸k i dokumenter"
             />
             <div className="segmented-control" role="group" aria-label="Dokumentfilter">
               {[
@@ -3431,7 +3729,7 @@ export default function App() {
                 <div className="case-row__meta">
                   <span>{countLabel(document.page_count, "side", "sider")}</span>
                   <span>{document.analyzed_page_count || 0} analysert</span>
-                  <span>{document.pending_ocr_page_count || 0} sider venter på tekst</span>
+                  <span>{document.pending_ocr_page_count || 0} sider venter pÃ¥ tekst</span>
                   <span>{countLabel(document.source_count, "kilde", "kilder")}</span>
                   <span>{documentReadiness(document).label}</span>
                   <span>{Math.round(document.source_coverage_percent)} % av sidene kan brukes som kilde</span>
@@ -3442,7 +3740,7 @@ export default function App() {
         )}
         {hasDocuments && !hasSources ? (
           <div className="warning-notice">
-            Dokumentet er registrert, men saken har ingen sporbare kilder ennå. Evida venter på automatisk teksthenting.
+            Dokumentet er registrert, men saken har ingen sporbare kilder ennÃ¥. Evida venter pÃ¥ automatisk teksthenting.
           </div>
         ) : null}
         {hasDocuments ? <div className="workflow-notice">{userCoverageExplanation}</div> : null}
@@ -3531,19 +3829,19 @@ export default function App() {
                     <div className="case-row__meta">
                       <span>{countLabel(row.pageCount, "side", "sider")}</span>
                       <span>{row.analyzedPages} analysert</span>
-                      <span>{row.pendingOcrPages} venter på tekst</span>
+                      <span>{row.pendingOcrPages} venter pÃ¥ tekst</span>
                       <span>{row.sourceCount} kildeutdrag</span>
                       <span>{row.sourceCoveragePercent} % kildeklar</span>
                       <span>Hash {row.hash.slice(0, 12)}</span>
                     </div>
                   </details>
-                  {row.approvedAt ? <small>Godkjent av {row.approvedBy || "local-user"} {row.approvedAt}</small> : null}
+                  {row.approvedAt ? <small>Kontrollert av {row.approvedBy || "local-user"} {row.approvedAt}</small> : null}
                   {row.rejectedAt ? <small>Avvist av {row.rejectedBy || "local-user"} {row.rejectedAt}</small> : null}
-                  {approvalSuccessId === row.id ? <small className="document-approval-inline">✓ Kontrollert</small> : null}
+                  {approvalSuccessId === row.id ? <small className="document-approval-inline">âœ“ Kontrollert</small> : null}
                 </div>
                 <aside className={mode === "review" ? "control-document-actions" : "document-basis-row__actions"}>
                   <button className="button-secondary" type="button" onClick={() => void handlePreviewDocument(row)} disabled={!row.canPreview}>
-                    Åpne preview
+                    Ã…pne preview
                   </button>
                   {mode === "review" ? (
                     <label className="review-confirmation">
@@ -3569,9 +3867,9 @@ export default function App() {
                       }
                     >
                       {approvalSavingId === row.id
-                        ? "Godkjenner ..."
+                        ? "Lagrer ..."
                         : approvalSuccessId === row.id
-                          ? "Godkjent"
+                          ? "Kontrollert"
                           : approvalActionLabel(row)}
                     </button>
                   ) : null}
@@ -3582,7 +3880,7 @@ export default function App() {
                       disabled={approvalSavingId === row.id}
                       onClick={() => void handleDocumentApproval(row, "reject_for_ai")}
                     >
-                      Ikke bruk som kilde
+                      Hold utenfor kildegrunnlaget
                     </button>
                   ) : null}
                   {mode === "review" || mode === "unused" ? (
@@ -3601,6 +3899,10 @@ export default function App() {
 
   function DocumentControlView() {
     const selectedRow = visibleReviewDocuments.find((row) => row.id === selectedControlDocumentId) || visibleReviewDocuments[0];
+    const selectedRows = visibleReviewDocuments.filter((row) => controlSelectionIds.includes(row.id));
+    const bulkPlan = deriveDocumentControlBulkPlan(selectedRows);
+    const pendingBulkAction = bulkPlan.actions.find((action) => action.id === bulkConfirmAction);
+    const previewSources = selectedRow ? sources.filter((source) => source.document_id === selectedRow.id).slice(0, 4) : [];
     const groupedRows = [
       { title: "OCR trengs", rows: visibleReviewDocuments.filter((row) => row.pendingOcrPages > 0 || /ocr/i.test(row.reason)) },
       { title: "Mangler tekst", rows: visibleReviewDocuments.filter((row) => row.sourceCount === 0 && row.pendingOcrPages === 0) },
@@ -3615,7 +3917,7 @@ export default function App() {
             <div className="eyebrow">Dokumentkontroll</div>
             <h2 id="document-control-title">Kontroller kildegrunnlaget</h2>
             <p>
-              Du godkjenner ikke at innholdet er juridisk sant. Du bestemmer bare om dokumentet kan inngå i sakens
+              Du godkjenner ikke at innholdet er juridisk sant. Du bestemmer bare om dokumentet kan inngÃ¥ i sakens
               kildegrunnlag, eller om det skal holdes utenfor.
             </p>
           </div>
@@ -3624,38 +3926,122 @@ export default function App() {
             <span>{importOutcome.readyForSaksrom} dokumenter er klare for Saksrom</span>
           </div>
         </div>
+        <ol className="control-flow-strip" aria-label="Kontrollflyt">
+          <li className={selectedRow ? "is-active" : ""}>
+            <span>1</span>
+            <strong>Velg dokument</strong>
+            <small>{selectedRow?.name || "Ingen dokument valgt"}</small>
+          </li>
+          <li>
+            <span>2</span>
+            <strong>ForhÃ¥ndsvis</strong>
+            <small>Sjekk original og kildeutdrag</small>
+          </li>
+          <li>
+            <span>3</span>
+            <strong>Beslutt</strong>
+            <small>Bruk, erstatt eller hold utenfor</small>
+          </li>
+        </ol>
+
+        {selectedRows.length > 0 ? (
+          <div className="bulk-selection-bar" data-testid="bulk-selection-bar" role="region" aria-label="Bulkhandlinger for dokumentkontroll">
+            <strong>{selectedRows.length} valgt</strong>
+            <span>{bulkPlan.eligibleForControlled.length} kan markeres kontrollert</span>
+            <div className="bulk-selection-bar__actions">
+              {bulkPlan.actions.map((action) => (
+                <button
+                  key={action.id}
+                  type="button"
+                  className={action.id === "mark_controlled" ? "button-primary" : "button-secondary"}
+                  disabled={!action.enabled || Boolean(approvalSavingId)}
+                  title={action.description}
+                  onClick={() => requestBulkAction(action.id)}
+                >
+                  {action.label}
+                </button>
+              ))}
+              <button type="button" className="button-ghost" onClick={clearControlSelection}>
+                Fjern valg
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {visibleReviewDocuments.length === 0 ? (
           <div className="panel document-control-complete">
-            <h3>Alle dokumenter er kontrollert</h3>
-            <p>Saksrom bruker nå dokumentene som har sporbare kildeutdrag. Dokumenter uten tekst er ikke gjort til AI-kilder.</p>
-            <button className="button-primary" type="button" onClick={() => setActiveView("caseRoom")}>
-              Gå til Saksrom
-            </button>
+            <h3>Dokumentkontroll er fullfÃ¸rt</h3>
+            <p>
+              {documentBasis.readyCount} dokumenter er klare for Saksrom. {pendingOcrPages > 0
+                ? `${pendingOcrPages} sider mangler tekst/OCR og er derfor ikke brukt som AI-kilder. Saksrom kan brukes forelÃ¸pig med ${Math.round(caseScopedSourceCoveragePercent)} % kildedekning.`
+                : "Kildedekningen er fullfÃ¸rt for dokumentene som kan brukes som AI-kilder."}
+            </p>
+            <div className="panel-actions">
+              <button className="button-primary" type="button" onClick={() => setActiveView("caseRoom")}>
+                {pendingOcrPages > 0 ? "GÃ¥ til Saksrom forelÃ¸pig" : "GÃ¥ til Saksrom"}
+              </button>
+              {pendingOcrPages > 0 ? (
+                <>
+                  <button className="button-secondary" type="button" onClick={() => void handleReindex()}>
+                    KjÃ¸r OCR for full dekning
+                  </button>
+                  <button className="button-secondary" type="button" onClick={() => setActiveView("control")}>
+                    Se sider som mangler tekst
+                  </button>
+                </>
+              ) : null}
+            </div>
           </div>
         ) : (
           <div className="document-control-layout">
-            <aside className="document-control-queue" aria-label="Kontrollkø">
+            <aside className="document-control-queue" aria-label="KontrollkÃ¸">
+              <div className="document-control-queue__toolbar">
+                <button type="button" className="button-secondary" onClick={selectVisibleControlRows}>
+                  Velg alle synlige
+                </button>
+                <button type="button" className="button-ghost" onClick={clearControlSelection}>
+                  Nullstill
+                </button>
+              </div>
               {groupedRows.map((group) => (
                 <section key={group.title}>
                   <h3>{group.title}</h3>
                   {group.rows.map((row) => (
-                    <button
+                    <div
                       key={row.id}
                       className={`document-control-queue__item ${selectedRow?.id === row.id ? "is-selected" : ""}`}
-                      type="button"
-                      onClick={() => setSelectedControlDocumentId(row.id)}
+                      aria-current={selectedRow?.id === row.id ? "true" : undefined}
                     >
-                      <strong>{row.name}</strong>
-                      <span>{row.label}</span>
+                      <label className="document-control-queue__select">
+                        <input
+                          type="checkbox"
+                          checked={controlSelectionIds.includes(row.id)}
+                          onChange={() => toggleControlSelection(row.id)}
+                          aria-label={`Velg ${row.name}`}
+                        />
+                        <span>
+                          <strong>{row.name}</strong>
+                          <em>{row.label}</em>
+                        </span>
+                      </label>
                       <small>{row.reason}</small>
-                    </button>
+                      <button
+                        type="button"
+                        className="button-ghost"
+                        onClick={() => {
+                          setSelectedControlDocumentId(row.id);
+                          handlePreviewDocument(row);
+                        }}
+                      >
+                        Preview
+                      </button>
+                    </div>
                   ))}
                 </section>
               ))}
             </aside>
 
-            <main className="document-control-preview">
+            <main className="document-control-preview" data-testid="document-control-preview-pane">
               {selectedRow ? (
                 <>
                   <div className="document-primary">
@@ -3665,7 +4051,7 @@ export default function App() {
                   <p>{selectedRow.reason}</p>
                   <div className="case-row__meta">
                     <span>{countLabel(selectedRow.pageCount, "side", "sider")}</span>
-                    <span>{selectedRow.pendingOcrPages} sider venter på tekst</span>
+                    <span>{selectedRow.pendingOcrPages} sider venter pÃ¥ tekst</span>
                     <span>{selectedRow.sourceCount} kildeutdrag</span>
                     <span>{selectedRow.sourceCoveragePercent} % kildedekning</span>
                   </div>
@@ -3674,11 +4060,36 @@ export default function App() {
                     <p>
                       {selectedRow.sourceCount > 0
                         ? "Dokumentet har kildeutdrag. Kontroller at previewen samsvarer med det som skal brukes som kildegrunnlag."
-                        : "Dokumentet kan ikke siteres automatisk før OCR eller lesbar tekst finnes. Manuell kontroll gjør det bare tillatt i saken."}
+                        : "Dokumentet kan ikke siteres automatisk fÃ¸r OCR eller lesbar tekst finnes. Manuell kontroll gjÃ¸r det bare tillatt i saken."}
                     </p>
                   </div>
+                  <div className="document-control-preview__tabs" aria-label="Previewdetaljer">
+                    <section>
+                      <h4>Original</h4>
+                      <p>{selectedRow.canPreview ? "Originalfil kan Ã¥pnes for visuell kontroll." : "Originalfil mangler lokal preview."}</p>
+                    </section>
+                    <section>
+                      <h4>Kildeutdrag</h4>
+                      {previewSources.length > 0 ? (
+                        <ul>
+                          {previewSources.map((source) => (
+                            <li key={source.id}>
+                              <strong>Side {source.page_start || "?"}</strong>
+                              <span>{source.text_excerpt.slice(0, 180)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>Ingen kildeutdrag er klare for dette dokumentet.</p>
+                      )}
+                    </section>
+                    <section>
+                      <h4>Teknisk</h4>
+                      <p>Hash {selectedRow.hash.slice(0, 16)} Â· Importert {selectedRow.importedAt}</p>
+                    </section>
+                  </div>
                   <button className="button-secondary" type="button" onClick={() => void handlePreviewDocument(selectedRow)}>
-                    Åpne preview
+                    Ã…pne stÃ¸rre preview
                   </button>
                 </>
               ) : null}
@@ -3689,7 +4100,7 @@ export default function App() {
                 <>
                   <h3>Beslutning</h3>
                   <p>
-                    Velg hva som skal skje med dokumentet. Alle valg audit-logges, og neste dokument åpnes automatisk.
+                    Velg hva som skal skje med dokumentet. Alle valg audit-logges, og neste dokument Ã¥pnes automatisk.
                   </p>
                   <label className="review-confirmation">
                     <input
@@ -3699,12 +4110,16 @@ export default function App() {
                         setReviewApprovalChecks((current) => ({ ...current, [selectedRow.id]: event.target.checked }))
                       }
                     />
-                    <span>Jeg har sett dokumentet og forstår at dette ikke er en juridisk sannhetsgodkjenning.</span>
+                    <span>Jeg har sett dokumentet og forstÃ¥r at dette ikke er en juridisk sannhetsgodkjenning.</span>
                   </label>
                   <button
                     className="button-primary"
                     type="button"
-                    disabled={!canApproveSourceAfterPreview(Boolean(reviewApprovalChecks[selectedRow.id])) || approvalSavingId === selectedRow.id}
+                    disabled={
+                      !canApproveSourceAfterPreview(Boolean(reviewApprovalChecks[selectedRow.id])) ||
+                      approvalSavingId === selectedRow.id ||
+                      selectedRow.state === "needs_user_action"
+                    }
                     onClick={() => void handleControlDecision(selectedRow, "approve_for_ai")}
                   >
                     {approvalSavingId === selectedRow.id ? "Lagrer ..." : selectedRow.sourceCount > 0 ? "Bruk som kildegrunnlag" : "Marker som kontrollert"}
@@ -3715,7 +4130,7 @@ export default function App() {
                     disabled={approvalSavingId === selectedRow.id}
                     onClick={() => void handleControlDecision(selectedRow, "reject_for_ai")}
                   >
-                    Ikke bruk som kildegrunnlag
+                    Hold utenfor kildegrunnlaget
                   </button>
                   <button className="button-secondary" type="button" onClick={() => void handleReplaceDocumentRow(selectedRow)}>
                     Erstatt fil
@@ -3725,6 +4140,39 @@ export default function App() {
             </aside>
           </div>
         )}
+        {pendingBulkAction ? (
+          <div className="modal-backdrop" role="presentation">
+            <div className="bulk-confirm-dialog" data-testid="bulk-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-confirm-title">
+              <h3 id="bulk-confirm-title">Bekreft bulkhandling</h3>
+              <p>
+                {pendingBulkAction.id === "mark_controlled"
+                  ? `${bulkPlan.eligibleForControlled.length} dokumenter markeres som kontrollert. Dette betyr ikke at innholdet er juridisk sant.`
+                  : `${bulkPlan.excludeRows.length} dokumenter holdes utenfor kildegrunnlaget.`}
+              </p>
+              <label className="review-confirmation">
+                <input
+                  type="checkbox"
+                  checked={bulkConfirmChecked}
+                  onChange={(event) => setBulkConfirmChecked(event.target.checked)}
+                />
+                <span>Jeg forstÃ¥r at dette bare gjelder kildegrunnlag og audit-logg.</span>
+              </label>
+              <div className="dialog-actions">
+                <button
+                  type="button"
+                  className="button-primary"
+                  disabled={!bulkConfirmChecked || Boolean(approvalSavingId)}
+                  onClick={() => void runBulkAction(pendingBulkAction.id)}
+                >
+                  Bekreft
+                </button>
+                <button type="button" className="button-secondary" onClick={() => setBulkConfirmAction("")}>
+                  Avbryt
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -3735,7 +4183,7 @@ export default function App() {
       { label: "PDF-sider", ok: totalPages > 0, detail: countLabel(totalPages, "side", "sider") },
       { label: "Analyserte sider", ok: analyzedPages > 0, detail: `${analyzedPages} av ${totalPages}` },
       { label: "Sporbare kilder", ok: hasSources, detail: countLabel(sources.length, "kilde", "kilder") },
-      { label: "Tekststatus", ok: pendingOcrPages === 0 && hasDocuments, detail: pendingOcrPages > 0 ? `${pendingOcrPages} sider venter på tekst` : "Ingen ventende sider" },
+      { label: "Tekststatus", ok: pendingOcrPages === 0 && hasDocuments, detail: pendingOcrPages > 0 ? `${pendingOcrPages} sider venter pÃ¥ tekst` : "Ingen ventende sider" },
       { label: "DB-kryptering", ok: Boolean(dbSecurity?.encrypted_at_rest), detail: dbSecurity?.cipher || "ukjent" },
       { label: "Audit trail", ok: audit.length > 0, detail: countLabel(audit.length, "event", "events") }
     ];
@@ -3749,7 +4197,7 @@ export default function App() {
               <h2>{importNextAction.title}</h2>
               <p>{importNextAction.description}</p>
               {importNextAction.saksromScope === "controlled_sources_only" ? (
-                <p className="warning-notice">Saksgrunnlaget er ikke komplett ennå.</p>
+                <p className="warning-notice">Saksgrunnlaget er ikke komplett ennÃ¥.</p>
               ) : null}
             </div>
             <button
@@ -3767,7 +4215,7 @@ export default function App() {
           <div className="panel-header">
             <div>
               <h2>Kontrollgrunnlag</h2>
-              <p>{hasDocuments ? "Kontroller dokumentene som krever handling før de brukes i saken." : "Kontrollgrunnlag vises etter import."}</p>
+              <p>{hasDocuments ? "Kontroller dokumentene som krever handling fÃ¸r de brukes i saken." : "Kontrollgrunnlag vises etter import."}</p>
             </div>
             <div className="panel-actions">
               <button className="button-secondary" onClick={() => void refresh(selectedCaseId)}>Oppdater</button>
@@ -3777,7 +4225,7 @@ export default function App() {
             <DocumentBasisGroup
                 title="Dokumenter som trenger kontroll"
                 rows={visibleReviewDocuments}
-                emptyText="Ingen dokumenter venter på manuell kontroll."
+                emptyText="Ingen dokumenter venter pÃ¥ manuell kontroll."
                 mode="review"
                 sectionId="documents-needing-control"
                 titleId="documents-needing-control-title"
@@ -3788,7 +4236,7 @@ export default function App() {
                 <DocumentBasisGroup
                   title="Klare dokumenter"
                   rows={documentBasis.readyDocuments}
-                  emptyText="Ingen dokumenter er klare for Saksrom ennå."
+                  emptyText="Ingen dokumenter er klare for Saksrom ennÃ¥."
                 />
                 <DocumentBasisGroup
                   title="Dokumenter som ikke ble brukt"
@@ -3846,12 +4294,12 @@ export default function App() {
                         <div>
                           <strong>{document.original_name}</strong>
                           <span>
-                            {document.pages_with_sources} av {document.page_count} sider kan brukes som kilde · {Math.round(document.source_coverage_percent)} %
+                            {document.pages_with_sources} av {document.page_count} sider kan brukes som kilde Â· {Math.round(document.source_coverage_percent)} %
                           </span>
                         </div>
                         <div>
                           <span className={document.status === "ready" ? "status-chip status-chip--ok" : "status-chip status-chip--warn"}>
-                            {document.status === "ready" ? "Klar" : document.status === "partially_ready" ? "Delvis klar" : "Klargjøres"}
+                            {document.status === "ready" ? "Klar" : document.status === "partially_ready" ? "Delvis klar" : "KlargjÃ¸res"}
                           </span>
                           {document.missing_page_ranges.length > 0 ? (
                             <small>Mangler sider: {document.missing_page_ranges.join(", ")}</small>
@@ -3909,23 +4357,40 @@ export default function App() {
   }
 
   function ExportView() {
+    const exportAvailability = roomAvailabilityByView.export;
     return (
       <>
         <section className="panel">
           <div className="panel-header">
             <div>
               <h2>Eksport</h2>
-              <p>Lokal evalueringsoppsummering og testverktøy.</p>
+              <p>Lokal evalueringsoppsummering og testverktÃ¸y.</p>
             </div>
-            <button className="button-primary" onClick={generateExport}>Lag eksport</button>
+            <button
+              className="button-primary"
+              onClick={generateExport}
+              disabled={Boolean(exportAvailability?.requiresAcknowledgement && !exportPreliminaryAcknowledged)}
+            >
+              {exportAvailability?.primaryActionLabel || "Lag eksport"}
+            </button>
           </div>
+          {exportAvailability?.requiresAcknowledgement ? (
+            <label className="review-confirmation export-acknowledgement">
+              <input
+                type="checkbox"
+                checked={exportPreliminaryAcknowledged}
+                onChange={(event) => setExportPreliminaryAcknowledged(event.target.checked)}
+              />
+              <span>{EXPORT_PRELIMINARY_ACKNOWLEDGEMENT}</span>
+            </label>
+          ) : null}
           <textarea readOnly value={exportText} placeholder="Eksport vises her etter at du trykker Lag eksport." />
         </section>
         <section className="panel">
           <div className="panel-header">
             <div>
               <h2>Test og cleanup</h2>
-              <p>Slett testdata, åpne lokal datamappe eller eksporter diagnosepakke.</p>
+              <p>Slett testdata, Ã¥pne lokal datamappe eller eksporter diagnosepakke.</p>
             </div>
           </div>
           <div className="maintenance-actions">
@@ -3933,7 +4398,7 @@ export default function App() {
               <RotateCcw size={16} /> Slett alle testdata
             </button>
             <button className="button-secondary" onClick={handleOpenDataFolder}>
-              <FolderOpen size={16} /> Åpne lokal datamappe
+              <FolderOpen size={16} /> Ã…pne lokal datamappe
             </button>
             <button className="button-secondary" onClick={handleExportDiagnostics}>
               <Download size={16} /> Eksporter diagnosepakke
@@ -3948,6 +4413,17 @@ export default function App() {
   function renderView() {
     if (!isWorkspaceUnlocked) {
       return <GuidedExperience />;
+    }
+
+    const activeRoomKey = roomKeyForView(activeView);
+    const activeRoomAvailability = activeRoomKey ? roomAvailabilityByView[activeView] : undefined;
+    if (activeRoomAvailability && !activeRoomAvailability.enabled) {
+      return (
+        <ReadinessGate
+          title={`${viewTitles[activeView]} er ikke klart ennå.`}
+          reason={activeRoomAvailability.reason}
+        />
+      );
     }
 
     switch (activeView) {
@@ -3988,6 +4464,7 @@ export default function App() {
               readiness={caseReadiness}
               preliminaryBanner={preliminarySaksromBanner}
               nextActionTitle={nextAction.title}
+              suppressProgressActions={showImportCompletion}
               systemStatus={{
                 totalDocuments: importProgress.totalDocuments || documentBasis.totalCount,
                 readyDocuments: documentBasis.readyCount,
@@ -4005,6 +4482,7 @@ export default function App() {
                 saksromScope: importOutcome.saksromScope,
                 excludedDocuments: importOutcome.manualReviewRequired + importOutcome.notUsedAsSource
               }}
+              preparationProgress={casePreparationProgress}
               onOpenSource={openSource}
               onOpenControl={() => handleFirstUserPrimaryAction("review")}
               onOpenSimulation={() => setActiveView("litigationSimulation")}
@@ -4018,40 +4496,45 @@ export default function App() {
         );
       case "chronology":
         if (!canUsePreliminaryAnalysis) {
-          return <ReadinessGate title="Kronologi er låst til dokumentgrunnlaget er klart." />;
+          return <ReadinessGate title="Kronologi er lÃ¥st til dokumentgrunnlaget er klart." />;
         }
         return (
           <>
+            <RoomModeNotice view="chronology" />
             <AiTrustContract />
             <ChronologyView
               items={timelineItems}
               sourcesById={sourceById}
               onBuild={buildChronology}
               onOpenSource={openSource}
+              buildLabel={roomAvailabilityByView.chronology?.primaryActionLabel}
             />
           </>
         );
       case "evidence":
         if (!canUsePreliminaryAnalysis) {
-          return <ReadinessGate title="Bevismatrise er låst til dokumentgrunnlaget er klart." />;
+          return <ReadinessGate title="Bevismatrise er lÃ¥st til dokumentgrunnlaget er klart." />;
         }
         return (
           <>
+            <RoomModeNotice view="evidence" />
             <AiTrustContract />
             <EvidenceView
               rows={evidenceRows}
               sourcesById={sourceById}
               onBuild={buildEvidence}
               onOpenSource={openSource}
+              buildLabel={roomAvailabilityByView.evidence?.primaryActionLabel}
             />
           </>
         );
       case "arguments":
         if (!canUsePreliminaryAnalysis) {
-          return <ReadinessGate title="Anførsler er låst til dokumentgrunnlaget er klart." />;
+          return <ReadinessGate title="AnfÃ¸rsler er lÃ¥st til dokumentgrunnlaget er klart." />;
         }
         return (
           <>
+            <RoomModeNotice view="arguments" />
             <AiTrustContract />
             <ArgumentsView
               rows={argumentRows}
@@ -4063,10 +4546,11 @@ export default function App() {
         );
       case "contradictions":
         if (!canUsePreliminaryAnalysis) {
-          return <ReadinessGate title="Motstrid er låst til dokumentgrunnlaget er klart." />;
+          return <ReadinessGate title="Motstrid er lÃ¥st til dokumentgrunnlaget er klart." />;
         }
         return (
           <>
+            <RoomModeNotice view="contradictions" />
             <AiTrustContract />
             <ContradictionsView
               rows={conflictRows}
@@ -4078,49 +4562,72 @@ export default function App() {
         );
       case "risk":
         if (!canUsePreliminaryAnalysis) {
-          return <ReadinessGate title="Risiko er låst til dokumentgrunnlaget er klart." />;
+          return <ReadinessGate title="Risiko er lÃ¥st til dokumentgrunnlaget er klart." />;
         }
         return (
           <>
+            <RoomModeNotice view="risk" />
             <AiTrustContract />
             <RiskView rows={riskRows} onAssess={buildRisk} />
           </>
         );
       case "litigationSimulation":
         if (caseReadiness.verdict === "not_ready") {
-          return <ReadinessGate title="Rettssimulering er låst til dokumentgrunnlaget er klart." />;
+          return <ReadinessGate title="Rettssimulering er lÃ¥st til dokumentgrunnlaget er klart." />;
         }
         return (
-          <LitigationSimulationView
-            readinessVerdict={userFacingReadinessVerdict}
-            sources={aiReadySources}
-            onOpenSource={openSource}
-          />
+          <>
+            <RoomModeNotice view="litigationSimulation" />
+            <LitigationSimulationView
+              readinessVerdict={userFacingReadinessVerdict}
+              sources={aiReadySources}
+              onOpenSource={openSource}
+            />
+          </>
         );
       case "control":
         return <ControlView />;
       case "draft":
         if (!canUseDraftControl) {
-          return <ReadinessGate title="Utkast er låst til dokumentgrunnlaget er klart for utkastkontroll." />;
+          return <ReadinessGate title="Utkast er lÃ¥st til dokumentgrunnlaget er klart for utkastkontroll." />;
         }
-        return <DraftView />;
+        return (
+          <>
+            <RoomModeNotice view="draft" />
+            <DraftView />
+          </>
+        );
       case "export":
         if (!canUseDraftControl) {
-          return <ReadinessGate title="Eksport er låst til dokumentgrunnlaget er klart for utkastkontroll." />;
+          return <ReadinessGate title="Eksport er lÃ¥st til dokumentgrunnlaget er klart for utkastkontroll." />;
         }
-        return <ExportView />;
+        return (
+          <>
+            <RoomModeNotice view="export" />
+            <ExportView />
+          </>
+        );
     }
   }
 
   const isCaseRoomView = activeView === "caseRoom";
   const activeWorkroom = workroomKeyForView(activeView);
   const showNavigation = isWorkspaceUnlocked;
+  const hasOpenModal =
+    showImportCompletion ||
+    casePickerOpen ||
+    settingsOpen ||
+    commandPaletteOpen ||
+    Boolean(deleteTarget) ||
+    resetConfirmOpen ||
+    Boolean(activeSource) ||
+    Boolean(previewDocument);
   const shellClassName = [
     "app-shell",
     !showNavigation ? "app-shell--guided" : "",
     showNavigation && activeView === "control" && showControlTechnicalDetails ? "app-shell--with-panel" : "",
     showNavigation && isCaseRoomView ? "app-shell--case-room" : "",
-    showImportCompletion ? "app-shell--modal-active" : ""
+    hasOpenModal ? "app-shell--modal-active" : ""
   ].filter(Boolean).join(" ");
 
   return (
@@ -4131,6 +4638,7 @@ export default function App() {
           onNavigate={setActiveView}
           hasDocuments={hasDocuments}
           readinessVerdict={userFacingReadinessVerdict}
+          roomAvailabilityByView={roomAvailabilityByView}
           onNewCase={() => void handleCreateCase()}
           onNewCaseInNewWindow={() => void handleNewCaseInNewWindow()}
           onOpenCaseSwitcher={() => setCasePickerOpen(true)}
@@ -4170,7 +4678,7 @@ export default function App() {
           <header className="topbar">
             <div>
               <div className="topbar-labels">
-                <span className="evaluation-pill">PRE-ALPHA · testdata only</span>
+                <span className="evaluation-pill">PRE-ALPHA Â· testdata only</span>
                 <span className="local-pill">Sikker lokalmodus</span>
               </div>
               <h1>{viewTitles[activeView]}</h1>
@@ -4180,14 +4688,14 @@ export default function App() {
               <button
                 className="theme-toggle"
                 onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-                aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mørk modus"}
-                title={theme === "dark" ? "Lys modus" : "Mørk modus"}
+                aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mÃ¸rk modus"}
+                title={theme === "dark" ? "Lys modus" : "MÃ¸rk modus"}
               >
                 {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-                <span>{theme === "dark" ? "Lys" : "Mørk"}</span>
+                <span>{theme === "dark" ? "Lys" : "MÃ¸rk"}</span>
               </button>
               <button className="command-button button-secondary" onClick={() => setCommandPaletteOpen(true)}>
-                Ctrl + K · Sakspilot
+                Ctrl + K Â· Sakspilot
               </button>
               <label className="visual-mode-switcher">
                 <span>Visuell modus</span>
@@ -4204,7 +4712,7 @@ export default function App() {
         {showNavigation && !isCaseRoomView ? (
           <div className="data-safety-banner" role="status">
             <strong>PRE-ALPHA</strong>
-            <span>Bruk testdata. Lokal behandling er aktiv. Ekstern AI brukes bare når provider er eksplisitt konfigurert.</span>
+            <span>Bruk testdata. Lokal behandling er aktiv. Ekstern AI brukes bare nÃ¥r provider er eksplisitt konfigurert.</span>
             {dbSecurity?.encrypted_at_rest ? (
               <span>Kryptert lagring: {dbSecurity.cipher}</span>
             ) : (
@@ -4220,9 +4728,10 @@ export default function App() {
             <WorkroomHeader
               workroom={activeWorkroom}
               stats={[
-                { label: "Kildedekning", value: hasDocuments ? `${Math.round(caseScopedSourceCoveragePercent)} %` : "Venter på dokumenter", tone: caseScopedSourceCoveragePercent >= 95 ? "ok" : "warn" },
-                { label: "OCR", value: ocrCoveragePercent === undefined ? documentBasis.etaLabel : `${ocrCoveragePercent} %`, tone: pendingOcrPages > 0 ? "warn" : "ok" },
-                { label: "Avvik", value: deviations.length, tone: deviations.length > 0 ? "warn" : "ok" }
+                { label: "Dokumentkontroll", value: !hasDocuments ? "Venter" : documentControlComplete ? "Fullført" : `${visibleReviewDocuments.length} igjen`, tone: documentControlComplete ? "ok" : "warn" },
+                { label: "Kildedekning", value: hasDocuments ? `${Math.round(caseScopedSourceCoveragePercent)} %` : "Venter på dokumenter", tone: caseScopedSourceCoveragePercent >= 100 ? "ok" : "warn" },
+                { label: "OCR", value: !hasDocuments ? "Venter" : pendingOcrPages > 0 ? `${pendingOcrPages} sider gjenstår` : "Fullført", tone: pendingOcrPages > 0 ? "warn" : "ok" },
+                { label: "Analyse-rom", value: roomAvailabilityByView.caseRoom?.enabled ? roomAvailabilityByView.caseRoom.mode === "preliminary" ? "Foreløpig åpnet" : "Klar" : roomAvailabilityByView.caseRoom?.label || "Venter", tone: roomAvailabilityByView.caseRoom?.enabled ? "ok" : "warn" }
               ]}
             />
             <CaseVitalityBar vitality={caseVitality} />
@@ -4242,7 +4751,7 @@ export default function App() {
           processedPages={analyzedPages}
           pagesWithSources={pagesWithSources}
           pagesMissingSources={pagesMissingSources}
-          ocrStatus={pendingOcrPages > 0 ? `${pendingOcrPages} sider venter på tekst` : "Ingen ventende sider"}
+          ocrStatus={pendingOcrPages > 0 ? `${pendingOcrPages} sider venter pÃ¥ tekst` : "Ingen ventende sider"}
           sourceCount={sources.length}
           deviations={deviations}
           nextAction={nextAction}
@@ -4265,6 +4774,7 @@ export default function App() {
         onApproveAsSource={(documentId) => void handleApprovePreviewDocument(documentId)}
         onExcludeFromCase={(documentId) => void handleExcludePreviewDocument(documentId)}
         onReplaceFile={(documentId) => void handleReplacePreviewDocument(documentId)}
+        onOpenOriginalFolder={(path) => void handleOpenDocumentPreviewFolder(path)}
       />
       {approvalToast ? (
         <div className="snackbar" role="status" aria-live="polite">
@@ -4289,9 +4799,17 @@ export default function App() {
       />
       {commandPaletteOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setCommandPaletteOpen(false)}>
-          <div className="modal command-palette" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <h2>Sakspilot</h2>
-            <p>Bruk juridiske kommandoer eller hopp til riktig arbeidsflate. Kommandoer følger readiness-gating.</p>
+          <div
+            className="modal command-palette"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="command-palette-title"
+            tabIndex={-1}
+            onKeyDown={(event) => closeDialogOnEscape(event, () => setCommandPaletteOpen(false))}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="command-palette-title">Sakspilot</h2>
+            <p>Bruk juridiske kommandoer eller hopp til riktig arbeidsflate. Kommandoer fÃ¸lger readiness-gating.</p>
             <form
               className="command-palette__form"
               onSubmit={(event) => {
@@ -4305,7 +4823,7 @@ export default function App() {
                 placeholder="'kronologi, 'bevis, 'risiko, 'kvalitet ..."
                 autoFocus
               />
-              <button className="button-primary" disabled={!commandInput.trim()}>Kjør</button>
+              <button className="button-primary" disabled={!commandInput.trim()}>KjÃ¸r</button>
             </form>
             <div className="command-palette__grid">
               {LEGAL_COMMANDS.map((command) => (
@@ -4332,11 +4850,19 @@ export default function App() {
       ) : null}
       {deleteTarget ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setDeleteTarget(null)}>
-          <div className="modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <h2>Slett sak?</h2>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-case-title"
+            tabIndex={-1}
+            onKeyDown={(event) => closeDialogOnEscape(event, () => setDeleteTarget(null))}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="delete-case-title">Slett sak?</h2>
             <p>Saken fjernes fra aktiv liste. Data soft-deletes og audit event CASE_SOFT_DELETED registreres.</p>
             <div className="modal-actions">
-              <button className="button-secondary" onClick={() => setDeleteTarget(null)}>Avbryt</button>
+              <button className="button-secondary" onClick={() => setDeleteTarget(null)} autoFocus>Avbryt</button>
               <button className="danger-button" onClick={confirmDeleteCase}>Slett sak</button>
             </div>
           </div>
@@ -4344,11 +4870,19 @@ export default function App() {
       ) : null}
       {resetConfirmOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setResetConfirmOpen(false)}>
-          <div className="modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <h2>Slett alle testdata?</h2>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reset-testdata-title"
+            tabIndex={-1}
+            onKeyDown={(event) => closeDialogOnEscape(event, () => setResetConfirmOpen(false))}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="reset-testdata-title">Slett alle testdata?</h2>
             <p>Dette fjerner lokale evalueringssaker, dokumenter, kilder og audit-events fra testdatabasen.</p>
             <div className="modal-actions">
-              <button className="button-secondary" onClick={() => setResetConfirmOpen(false)}>Avbryt</button>
+              <button className="button-secondary" onClick={() => setResetConfirmOpen(false)} autoFocus>Avbryt</button>
               <button className="danger-button" onClick={confirmResetTestData}>Slett testdata</button>
             </div>
           </div>
@@ -4357,3 +4891,4 @@ export default function App() {
     </div>
   );
 }
+

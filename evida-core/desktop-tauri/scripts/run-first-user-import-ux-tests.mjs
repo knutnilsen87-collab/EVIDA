@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import ts from "typescript";
@@ -96,6 +96,19 @@ assert.equal(terminalWithAttentionSummary.state, "complete_with_errors", "termin
 assert.equal(terminalWithAttentionSummary.remainingDocuments, 0, "terminal failures do not leave phantom remaining documents");
 assert.equal(terminalWithAttentionSummary.processingDocuments, 0, "terminal failures do not leave phantom active processing");
 assert.equal(terminalWithAttentionSummary.currentPhaseLabel, "Ferdig - kontroll kreves", "complete-with-errors phase does not say import is still failing");
+const auroraSummary = summarizeImportProgress({
+  items: [
+    ...Array.from({ length: 30 }, () => ({ status: "completed", startedAt })),
+    ...Array.from({ length: 6 }, () => ({ status: "manual_review_required", startedAt })),
+    ...Array.from({ length: 2 }, () => ({ status: "failed", startedAt }))
+  ],
+  nowMs,
+  totalDocuments: 38,
+  attentionDocumentsFallback: 6,
+  failedDocumentsFallback: 2
+});
+assert.equal(auroraSummary.attentionDocuments, 6, "queue attention counts are not double-counted with document-basis fallback");
+assert.equal(auroraSummary.failedDocuments, 2, "queue failures are not double-counted with document-basis fallback");
 const terminalUx = deriveImportUxSummary({
   queue: terminalWithAttentionQueue,
   nowMs,
@@ -137,7 +150,7 @@ const outcome = deriveImportOutcome({
 const nextAction = deriveNextAction(outcome);
 const outcomeView = deriveImportOutcomeViewModel(outcome, nextAction);
 assert.equal(nextAction.id, "control_documents", "manual review routes to document control");
-assert.equal(nextAction.primaryLabel, "Kontroller 1 dokument", "next action includes exact control count");
+assert.equal(nextAction.primaryLabel, "Kontroller 2 dokumenter", "next action includes the full control queue count");
 assert.equal(outcomeView.title, "Import fullført — kontroll kreves", "import outcome modal uses decision-oriented title");
 assert.equal(outcomeView.showEta, false, "finished import outcome hides ETA");
 
@@ -186,21 +199,34 @@ const aiReadyIds = getAiReadyDocumentIds([
 ]);
 assert.deepEqual([...aiReadyIds], ["DOC-ready"], "AI-ready source set excludes unapproved documents");
 
-const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
-assert.match(appSource, /Åpne preview/, "review row exposes a direct preview action");
+const appSource = (await readFile(new URL("../src/App.tsx", import.meta.url), "utf8"))
+  .replace(/Ã…/g, "Å")
+  .replace(/Ã¥/g, "å")
+  .replace(/Ã˜/g, "Ø")
+  .replace(/Ã¸/g, "ø")
+  .replace(/Ã†/g, "Æ")
+  .replace(/Ã¦/g, "æ");
+assert.match(appSource, /pne preview/, "review row exposes a direct preview action");
 assert.match(appSource, /handlePreviewDocument\(row\)/, "preview action targets the selected document row");
 assert.match(appSource, /canApproveSourceAfterPreview\(Boolean\(reviewApprovalChecks\[row\.id\]\)\)/, "approve button requires the confirmation checkbox");
-assert.match(appSource, /Godkjenner \.\.\./, "approval action has an explicit saving state");
-assert.match(appSource, /Godkjent\. Neste dokument åpnet\./, "preview approval guides user to next document");
+assert.match(appSource, /Lagrer \.\.\./, "approval action has an explicit saving state");
+assert.match(appSource, /Kontrollert\. Neste dokument åpnet\./, "preview approval guides user to next document");
 assert.match(appSource, /Alle dokumenter er kontrollert\./, "final approval state is visible");
 assert.match(appSource, /Saksgrunnlaget er ikke komplett ennå\./, "preliminary Saksrom warning is explicit");
 assert.match(appSource, /Mangler nå:/, "import completion modal names current gaps");
 assert.match(appSource, /sources=\{aiReadySources\}/, "CaseRoom receives only AI-ready sources");
-assert.match(appSource, /hasNonAiReadySources/, "AI workrooms are gated when source objects are not AI-ready");
+assert.match(appSource, /roomAvailabilityByView/, "AI workrooms use canonical room availability gating");
+assert.match(appSource, /sourceCount: aiReadySources\.length/, "room availability is based on AI-ready source objects");
+assert.match(appSource, /importOutcomeGapMessages/, "import completion modal uses the outcome counts shown in the dialog");
+assert.match(appSource, /skipRefresh: true/, "bulk document control avoids refresh jitter until selected rows are locally removed");
+assert.match(appSource, /suppressProgressActions=\{showImportCompletion\}/, "CaseRoom progress actions are hidden while the import completion dialog is open");
 assert.match(appSource, /DocumentPreviewDrawer/, "preview opens inside Evida instead of Explorer");
 assert.match(appSource, /documents-needing-control/, "attention navigation has a stable section target");
 assert.match(appSource, /DocumentControlView/, "dedicated document control view exists");
 assert.match(appSource, /Bruk som kildegrunnlag/, "document control uses source-foundation wording");
+const importProgressSummarySource = await readFile(new URL("../src/components/ImportProgressSummary.tsx", import.meta.url), "utf8");
+assert.match(importProgressSummarySource, /Estimert tid igjen/, "active import progress exposes a dedicated ETA block");
+assert.match(importProgressSummarySource, /Beregner tid igjen/, "active import progress has explicit ETA fallback copy");
 const caseRoomSource = await readFile(new URL("../src/components/CaseRoomView.tsx", import.meta.url), "utf8");
 assert.match(caseRoomSource, /isSystemStatusQuestion/, "Saksrom routes import and control status questions before case analysis");
 assert.match(caseRoomSource, /safe-local-system-status/, "system status answers are recorded without legal source retrieval");
@@ -214,9 +240,10 @@ assert.ok(
   !caseRoomSource.includes("showIntakeCard, isImporting, displayImportItem?.status, importQueue.length"),
   "intake status updates do not retrigger scroll positioning"
 );
-assert.match(caseRoomSource, /Spør Saksrom — svar bygger bare på kontrollerte kilder/, "Saksrom exposes limited-source scope");
+assert.match(caseRoomSource, /preparationProgress\.chatPlaceholder/, "Saksrom exposes limited-source scope through the shared preparation model");
 for (const staleLabel of ["View details", "Run OCR", "Open preliminary Saksrom", "Files imported", "Requiring OCR"]) {
   assert.equal(appSource.includes(staleLabel), false, `stale import modal label is removed: ${staleLabel}`);
 }
 
 console.log("first-user import UX tests passed.");
+

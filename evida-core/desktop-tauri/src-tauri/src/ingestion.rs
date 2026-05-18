@@ -205,39 +205,14 @@ fn docx_pages_and_chunks(
             vec![],
         );
     }
-    let marker_count = count_docx_numbered_sections(text);
-    let page_count = if marker_count >= 3 {
-        (marker_count / 3).max(1)
-    } else {
-        (paragraphs.len() / 7).max(1)
-    } as i64;
-    let mut pages = Vec::new();
-    let mut chunks = Vec::new();
-    let mut start = 0_usize;
-    for page_number in 1..=page_count {
-        let remaining_pages = (page_count - page_number) as usize;
-        let end = if remaining_pages == 0 {
-            paragraphs.len()
-        } else {
-            (start + 3).min(paragraphs.len().saturating_sub(remaining_pages))
-        };
-        let text = paragraphs[start..end].join(" ");
-        pages.push(ExtractedPage {
-            page_number,
-            sha256: Some(sha256_text(&text)),
+    (
+        vec![ExtractedPage {
+            page_number: 1,
+            sha256: Some(sha256_text(text)),
             text_status: "extracted".to_string(),
-        });
-        chunks.extend(split_text_into_chunks(&text, page_number));
-        start = end;
-    }
-    (pages, chunks)
-}
-
-fn count_docx_numbered_sections(text: &str) -> usize {
-    text.split("Punkt ")
-        .skip(1)
-        .filter(|part| part.chars().next().is_some_and(|ch| ch.is_ascii_digit()))
-        .count()
+        }],
+        split_text_into_chunks(text, 1),
+    )
 }
 
 fn extract_image(path: &Path) -> Result<DocumentExtraction> {

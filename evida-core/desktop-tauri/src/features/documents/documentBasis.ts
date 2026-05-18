@@ -204,7 +204,7 @@ function recommendedAction(state: DocumentProcessingState) {
     processing: "Vent til dokumentmotoren er ferdig.",
     ready: "Ingen handling nødvendig.",
     reviewed: "Ingen handling nødvendig. Legg til OCR/tekst hvis dokumentet skal kunne siteres av AI.",
-    needs_text_control: "Forhåndsvis originalen og godkjenn eller avvis tekstgrunnlaget.",
+    needs_text_control: "Forhåndsvis originalen og marker om tekstgrunnlaget kan brukes.",
     needs_user_action: "Last opp en lesbar kopi, eller marker dokumentet manuelt kontrollert.",
     rejected: "Dokumentet er holdt utenfor AI-grunnlaget."
   };
