@@ -3,12 +3,12 @@ import { readFile } from "node:fs/promises";
 
 function normalizeText(value) {
   return value
-    .replace(/Ã…/g, "Å")
-    .replace(/Ã¥/g, "å")
-    .replace(/Ã˜/g, "Ø")
-    .replace(/Ã¸/g, "ø")
-    .replace(/Ã†/g, "Æ")
-    .replace(/Ã¦/g, "æ");
+    .replace(/Å/g, "Å")
+    .replace(/å/g, "å")
+    .replace(/Ø/g, "Ø")
+    .replace(/ø/g, "ø")
+    .replace(/Æ/g, "Æ")
+    .replace(/æ/g, "æ");
 }
 
 async function readText(url) {
@@ -24,6 +24,7 @@ assert.ok(app.includes("function initialWorkspaceView()"), "app reads the reques
 assert.ok(app.includes("return Boolean(params.get(\"caseId\"));"), "only explicit case windows can enter the workspace shell directly");
 assert.ok(!app.includes("return hasEvaluationSession() || Boolean(params.get(\"caseId\"));"), "persisted eval sessions cannot skip intro on normal launch");
 assert.ok(app.includes("return shouldOpenWorkspaceImmediately() ? \"caseRoom\" : \"intro\";"), "normal launch starts on intro before entering the app");
+assert.ok(app.includes("return \"documents\";"), "after intro the default workspace is Dokumenter/import, not locked Saksrom");
 assert.ok(app.includes("function handleIntroComplete()"), "intro has an explicit continue action");
 assert.ok(app.includes("setIsAuthenticated(true);"), "intro unlocks the local evaluation app without login");
 assert.ok(!app.includes("\"login\""), "guided flow has no login stage");
@@ -38,7 +39,7 @@ assert.ok(sidebar.includes("Dokumentkontroll"), "sidebar includes dedicated docu
 assert.ok(sidebar.includes("sidebar-group__title"), "sidebar groups work, analysis and production navigation");
 assert.ok(windowContext.includes("params.get(\"caseId\")"), "new windows bind the case id from URL");
 assert.ok(commands.includes("case_documents_window_url"), "desktop shell has an explicit case document route builder");
-assert.ok(commands.includes("index.html?caseId={}&view=documents"), "new case windows open the Dokumenter route");
+assert.ok(commands.includes("/?caseId={}&view=documents"), "new case windows open the Dokumenter route through the app root");
 assert.ok(commands.includes("new_case_windows_open_directly_on_documents_route"), "Rust route behavior is covered by a unit test");
 
 console.log("case flow tests passed.");

@@ -17,7 +17,6 @@ export type UserQuestionIntent =
 const ordinalMap: Record<string, number> = {
   forste: 1,
   "første": 1,
-  "fÃ¸rste": 1,
   andre: 2,
   tredje: 3,
   fjerde: 4
@@ -30,9 +29,6 @@ function normalizeIntentText(input: string) {
     .replace(/æ/g, "ae")
     .replace(/ø/g, "o")
     .replace(/å/g, "a")
-    .replace(/Ã¦/g, "ae")
-    .replace(/Ã¸/g, "o")
-    .replace(/Ã¥/g, "a")
     .replace(/\s+/g, " ");
 }
 

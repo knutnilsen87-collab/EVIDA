@@ -119,15 +119,6 @@ export function Sidebar({
   onOpenCaseSwitcher,
   isCreatingCase = false
 }: SidebarProps) {
-  const visibleGroups = hasDocuments
-    ? groups
-    : groups
-        .map((group) => ({
-          ...group,
-          items: group.items.filter((item) => item.key === "caseRoom" || item.key === "documents")
-        }))
-        .filter((group) => group.items.length > 0);
-
   return (
     <nav className="sidebar" aria-label="Hovednavigasjon">
       <div className="brand">
@@ -144,7 +135,7 @@ export function Sidebar({
         <button type="button" className="button-secondary" onClick={onOpenCaseSwitcher}>Bytt sak</button>
         <button type="button" className="button-ghost" onClick={onNewCaseInNewWindow}>Ny sak i nytt vindu</button>
       </div>
-      {visibleGroups.map((group) => (
+      {groups.map((group) => (
         <div className="sidebar-group" key={group.title}>
           <div className="sidebar-group__title">{group.title}</div>
           <ul>

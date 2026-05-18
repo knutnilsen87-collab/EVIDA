@@ -3,13 +3,13 @@ import { readFile } from "node:fs/promises";
 
 function normalizeText(value) {
   return value
-    .replace(/Ã…/g, "Å")
-    .replace(/Ã¥/g, "å")
-    .replace(/Ã˜/g, "Ø")
-    .replace(/Ã¸/g, "ø")
-    .replace(/Ã†/g, "Æ")
-    .replace(/Ã¦/g, "æ")
-    .replace(/Ã©/g, "é");
+    .replace(/Å/g, "Å")
+    .replace(/å/g, "å")
+    .replace(/Ø/g, "Ø")
+    .replace(/ø/g, "ø")
+    .replace(/Æ/g, "Æ")
+    .replace(/æ/g, "æ")
+    .replace(/é/g, "é");
 }
 
 async function readText(url) {

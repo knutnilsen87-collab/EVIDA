@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import ts from "typescript";
@@ -200,12 +200,12 @@ const aiReadyIds = getAiReadyDocumentIds([
 assert.deepEqual([...aiReadyIds], ["DOC-ready"], "AI-ready source set excludes unapproved documents");
 
 const appSource = (await readFile(new URL("../src/App.tsx", import.meta.url), "utf8"))
-  .replace(/Ã…/g, "Å")
-  .replace(/Ã¥/g, "å")
-  .replace(/Ã˜/g, "Ø")
-  .replace(/Ã¸/g, "ø")
-  .replace(/Ã†/g, "Æ")
-  .replace(/Ã¦/g, "æ");
+  .replace(/Å/g, "Å")
+  .replace(/å/g, "å")
+  .replace(/Ø/g, "Ø")
+  .replace(/ø/g, "ø")
+  .replace(/Æ/g, "Æ")
+  .replace(/æ/g, "æ");
 assert.match(appSource, /pne preview/, "review row exposes a direct preview action");
 assert.match(appSource, /handlePreviewDocument\(row\)/, "preview action targets the selected document row");
 assert.match(appSource, /canApproveSourceAfterPreview\(Boolean\(reviewApprovalChecks\[row\.id\]\)\)/, "approve button requires the confirmation checkbox");
