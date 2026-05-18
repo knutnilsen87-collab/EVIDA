@@ -232,8 +232,8 @@ export function ImportProgressSummary({
                       : item.approvalState === "approved"
                         ? "Kontrollert"
                         : item.sourceCount && item.sourceCount > 0
-                          ? "Bruk som kildegrunnlag"
-                          : "Marker som kontrollert"}
+                          ? "Godkjenn som kilde"
+                          : "Kontrollert, men ikke siterbar"}
                   </button>
                 ) : null}
               </div>

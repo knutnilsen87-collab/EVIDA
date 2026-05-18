@@ -2054,6 +2054,33 @@ textarea {
   margin-bottom: 12px;
 }
 
+.readiness-status-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+}
+
+.readiness-status-card h2,
+.readiness-status-card p {
+  margin: 8px 0 0;
+}
+
+.readiness-status-card__missing {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: #5f574d;
+}
+
+.readiness-status-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .readiness-gate {
   border-left: 5px solid #b42318;
   background: #fff8f6;
@@ -2445,6 +2472,34 @@ textarea {
   font-weight: 650;
 }
 
+.case-room-source-summary,
+.case-room-gate {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid #dbe6dc;
+  border-radius: 8px;
+  background: #f7fbf7;
+}
+
+.case-room-source-summary strong,
+.case-room-source-summary p {
+  margin: 0;
+}
+
+.case-room-source-summary p {
+  margin-top: 4px;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+.case-room-gate {
+  margin: 0;
+}
+
 .case-summary-content {
   max-width: 72ch;
 }
@@ -2615,6 +2670,71 @@ textarea {
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 13px;
+}
+
+.import-status-card,
+.privacy-prealpha-notice {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #e1ddd4;
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.privacy-prealpha-notice {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  background: #f8fbff;
+}
+
+.privacy-prealpha-notice strong,
+.privacy-prealpha-notice p {
+  margin: 0;
+}
+
+.privacy-prealpha-notice p {
+  margin-top: 4px;
+  color: #4b5563;
+}
+
+.import-status-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.import-status-card__header h3 {
+  margin: 4px 0 0;
+}
+
+.import-status-card__grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.import-status-card__grid div {
+  padding: 10px 12px;
+  border: 1px solid #e5e0d7;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.import-status-card__grid dt {
+  color: #6b6258;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.import-status-card__grid dd {
+  margin: 4px 0 0;
+  color: #202533;
+  font-size: 15px;
+  font-weight: 750;
 }
 
 .case-summary-generating p,
@@ -3531,10 +3651,21 @@ textarea {
   margin: 0;
 }
 
+.decision-helper {
+  display: block;
+  color: #5f574d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 @media (max-width: 1180px) {
   .document-control-hero,
   .document-control-layout {
     grid-template-columns: 1fr;
+  }
+
+  .import-status-card__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .case-preparation-progress__grid {
@@ -3555,6 +3686,26 @@ textarea {
   .case-preparation-progress__action {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .readiness-status-card,
+  .import-status-card__header,
+  .privacy-prealpha-notice,
+  .case-room-source-summary {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .readiness-status-card {
+    display: grid;
+  }
+
+  .import-status-card__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .case-room-source-summary {
+    display: grid;
   }
 }
 

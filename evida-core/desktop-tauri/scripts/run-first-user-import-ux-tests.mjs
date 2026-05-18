@@ -223,7 +223,8 @@ assert.match(appSource, /suppressProgressActions=\{showImportCompletion\}/, "Cas
 assert.match(appSource, /DocumentPreviewDrawer/, "preview opens inside Evida instead of Explorer");
 assert.match(appSource, /documents-needing-control/, "attention navigation has a stable section target");
 assert.match(appSource, /DocumentControlView/, "dedicated document control view exists");
-assert.match(appSource, /Bruk som kildegrunnlag/, "document control uses source-foundation wording");
+assert.match(appSource, /Godkjenn som kilde/, "document control uses explicit source approval wording");
+assert.match(appSource, /Kontrollert, men ikke siterbar/, "document control distinguishes non-citable controlled documents");
 const importProgressSummarySource = await readFile(new URL("../src/components/ImportProgressSummary.tsx", import.meta.url), "utf8");
 assert.match(importProgressSummarySource, /Estimert tid igjen/, "active import progress exposes a dedicated ETA block");
 assert.match(importProgressSummarySource, /Beregner tid igjen/, "active import progress has explicit ETA fallback copy");

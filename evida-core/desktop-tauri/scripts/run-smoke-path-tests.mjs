@@ -60,7 +60,8 @@ assert.ok(app.includes("ImportHealthCenter"), "app renders Import Health Center"
 assert.ok(app.includes("deriveDocumentBasisSummary"), "app derives canonical document basis groups");
 assert.ok(app.includes("Dokumenter som trenger kontroll"), "control view names the manual review bucket");
 assert.ok(app.includes("Dokumenter som ikke ble brukt"), "control view names the unused-documents bucket");
-assert.ok(app.includes("Bruk som kildegrunnlag"), "control view can approve a previewed document for source foundation use");
+assert.ok(app.includes("Godkjenn som kilde"), "control view can approve a previewed document for source foundation use");
+assert.ok(app.includes("Kontrollert, men ikke siterbar"), "control view can mark controlled documents as non-citable");
 assert.ok(app.includes("recordDocumentControlAction"), "frontend records document approval/rejection audit events");
 assert.ok(app.includes("resolvePreviewDocument"), "document preview resolves rows defensively before opening");
 assert.ok(app.includes("documentPreviewFallback"), "document preview gives visible feedback when local preview data is missing");

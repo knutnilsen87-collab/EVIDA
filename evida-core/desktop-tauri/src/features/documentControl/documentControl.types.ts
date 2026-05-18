@@ -1,6 +1,6 @@
 import type { DocumentBasisRow } from "../documents/documentBasis";
 
-export type DocumentControlBulkActionId = "mark_controlled" | "run_ocr" | "exclude" | "replace";
+export type DocumentControlBulkActionId = "approve_as_source" | "mark_not_citable" | "run_ocr" | "exclude" | "replace";
 
 export interface DocumentControlBulkAction {
   id: DocumentControlBulkActionId;
@@ -13,6 +13,8 @@ export interface DocumentControlBulkAction {
 export interface DocumentControlBulkPlan {
   selectedRows: DocumentBasisRow[];
   eligibleForControlled: DocumentBasisRow[];
+  eligibleAsSource: DocumentBasisRow[];
+  eligibleNotCitable: DocumentBasisRow[];
   ocrRows: DocumentBasisRow[];
   excludeRows: DocumentBasisRow[];
   replaceRows: DocumentBasisRow[];
